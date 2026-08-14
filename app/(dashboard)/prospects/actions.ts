@@ -53,3 +53,17 @@ export async function updateProspect(id: string, formData: FormData) {
   revalidatePath(`/prospects/${id}`);
   redirect(`/prospects/${id}`);
 }
+
+export async function deleteProspect(id: string) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { error } = await supabase.from("prospects").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/prospects");
+  redirect("/prospects");
+}
