@@ -13,6 +13,22 @@ export function channelLabel(channel: string) {
   return CHANNELS.find((c) => c.value === channel)?.label ?? channel;
 }
 
+export const STAGES = [
+  { value: "discovery", label: "Discovery" },
+  { value: "screening", label: "Screening" },
+  { value: "qualification", label: "Qualification" },
+  { value: "cultivation", label: "Cultivation" },
+  { value: "ask", label: "Ask" },
+  { value: "decision", label: "Decision" },
+  { value: "stewardship", label: "Stewardship" },
+] as const;
+
+export type Stage = (typeof STAGES)[number]["value"];
+
+export function stageLabel(stage: string) {
+  return STAGES.find((s) => s.value === stage)?.label ?? stage;
+}
+
 export type Prospect = {
   id: string;
   name: string;
@@ -23,6 +39,18 @@ export type Prospect = {
   website: string | null;
   notes: string | null;
   owner_id: string;
+  stage: Stage;
   created_at: string;
   updated_at: string;
+};
+
+export type StageChange = {
+  id: string;
+  prospect_id: string;
+  from_stage: Stage;
+  to_stage: Stage;
+  changed_by: string;
+  changed_by_email: string;
+  note: string | null;
+  created_at: string;
 };

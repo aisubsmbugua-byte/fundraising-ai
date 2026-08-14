@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { updateProspect } from "../actions";
-import { CHANNELS, channelLabel, type Prospect } from "@/lib/prospects";
+import { CHANNELS, channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
 import DeleteProspectButton from "./delete-button";
 
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: "#64748b" };
@@ -22,6 +22,13 @@ export default async function ProspectDetailPage({
     .single<Prospect>();
 
   if (!prospect) notFound();
+
+  const { data: history } = await supabase
+    .from("stage_changes")
+    .select("*")
+    .eq("prospect_id", prospect.id)
+    .order("created_at", { ascending: false })
+    .returns<StageChange[]>();
 
   const isEditing = searchParams.edit === "1";
   const boundUpdate = updateProspect.bind(null, prospect.id);
@@ -153,6 +160,10 @@ export default async function ProspectDetailPage({
       ) : (
         <dl style={{ marginTop: 20, display: "grid", gap: 12 }}>
           <div>
+            <dt style={fieldLabelStyle}>Stage</dt>
+            <dd>{stageLabel(prospect.stage)}</dd>
+          </div>
+          <div>
             <dt style={fieldLabelStyle}>Channel</dt>
             <dd>{channelLabel(prospect.channel)}</dd>
           </div>
@@ -178,6 +189,27 @@ export default async function ProspectDetailPage({
           </div>
         </dl>
       )}
+
+      <div style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: 16 }}>Stage History</h2>
+        {history && history.length > 0 ? (
+          <ul style={{ listStyle: "none", padding: 0, marginTop: 12, display: "grid", gap: 8 }}>
+            {history.map((h) => (
+              <li key={h.id} style={{ fontSize: 13, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>
+                <strong>
+                  {stageLabel(h.from_stage)} → {stageLabel(h.to_stage)}
+                </strong>
+                <div style={{ color: "#64748b", fontSize: 12 }}>
+                  {h.changed_by_email} · {new Date(h.created_at).toLocaleString()}
+                </div>
+                {h.note && <div style={{ marginTop: 4 }}>{h.note}</div>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>No stage changes yet.</p>
+        )}
+      </div>
     </div>
   );
 }
