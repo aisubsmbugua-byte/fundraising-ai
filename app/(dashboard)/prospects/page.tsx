@@ -84,6 +84,7 @@ export default async function ProspectsPage({
             <th style={{ padding: 8 }}>Channel</th>
             <th style={{ padding: 8 }}>Organization</th>
             <th style={{ padding: 8 }}>Contact</th>
+            <th style={{ padding: 8 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -95,6 +96,10 @@ export default async function ProspectsPage({
               <td style={{ padding: 8 }}>{channelLabel(p.channel)}</td>
               <td style={{ padding: 8 }}>{p.organization ?? "—"}</td>
               <td style={{ padding: 8 }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
+              <td style={{ padding: 8, display: "flex", gap: 12 }}>
+                <Link href={`/prospects/${p.id}`}>View</Link>
+                <Link href={`/prospects/${p.id}?edit=1`}>Edit</Link>
+              </td>
             </tr>
           ))}
         </tbody>
