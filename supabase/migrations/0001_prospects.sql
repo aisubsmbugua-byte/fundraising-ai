@@ -26,10 +26,13 @@ create table prospects (
 
 alter table prospects enable row level security;
 
-create policy "owners manage their prospects"
+-- Shared team workspace: any authenticated member can read/write any
+-- prospect. owner_id is attribution (who created it), not an access gate.
+create policy "team members manage all prospects"
   on prospects for all
-  using (auth.uid() = owner_id)
-  with check (auth.uid() = owner_id);
+  to authenticated
+  using (true)
+  with check (true);
 
 create index prospects_channel_idx on prospects (channel);
 create index prospects_owner_idx on prospects (owner_id);
