@@ -39,3 +39,6 @@ Drafting is where AI creates the most leverage. It needs a prospect (CRM), a fit
 - [ ] Drafts are editable, regenerable, and saved.
 - [ ] Tone adapts to the prospect's channel.
 - [ ] No send capability exists yet; the Anthropic key is server-only.
+
+## Where this grows
+Today's drafting is prompted by a human per-prospect. The end-state vision (see `CLAUDE.md`) has AI drafting proactively as part of a continuous discovery-to-outreach flow — drafts still land in this same review state either way; only what triggers drafting changes, never whether a human approves before anything sends.

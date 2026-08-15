@@ -39,3 +39,6 @@ Verifiable outcomes are what make a proposal credible. The draft surface (Slice 
 - [ ] The draft editor's evidence picker respects permission tags in code.
 - [ ] Selected evidence appears in generated drafts with sources preserved.
 - [ ] No unsourced or over-permissioned evidence can reach an external draft.
+
+## Where this grows
+This library doubles as the nonprofit-side knowledge base referenced in `CLAUDE.md`'s "The AI-driven end state" — the same mission/outcomes data that grounds a draft's claims is what AI will use to judge which funder types are a plausible match in the first place. Building it as first-class, source-linked, permission-tagged data now is what makes that matching trustworthy later.

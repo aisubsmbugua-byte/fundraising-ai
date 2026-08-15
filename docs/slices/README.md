@@ -2,6 +2,8 @@
 
 Each slice is a **vertical, end-to-end feature** that deploys live. Build in order. Do not start a slice until the previous one is deployed and its Definition of done is met.
 
+Slices 1–3 are deliberately human-scaffolded — manual CRM, human-gated pipeline, human-authored screening rules. Slices 4 onward progressively hand more of that work to AI, proposing and researching rather than requiring a human to do it by hand. See `CLAUDE.md`'s "The AI-driven end state" for the full vision and how it stays inside the hard rules; relevant slice docs below have a "Where this grows" note pointing at their planned AI extension.
+
 Every slice doc follows the same shape:
 
 - **Goal** — one sentence

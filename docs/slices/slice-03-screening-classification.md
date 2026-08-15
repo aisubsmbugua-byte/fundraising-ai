@@ -46,3 +46,6 @@ Screening turns raw discovery into a prioritized list. It needs the CRM and pipe
 - [ ] Screening a prospect produces a tier + inspectable breakdown.
 - [ ] Tier badges show on cards and detail.
 - [ ] Screening never advances stage.
+
+## Where this grows
+Today's rules are human-authored. The planned next step (see `CLAUDE.md`'s "The AI-driven end state") is AI-suggested rules and channel-type matching, informed by the nonprofit's own knowledge base (Slice 6) — always landing as a suggestion a human approves, per guardrail 3. This slice's rules engine is the foundation that suggestion lands on top of, not something it replaces.

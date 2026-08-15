@@ -38,3 +38,6 @@ Discovery is the top of the funnel. It needs the CRM (to create records), screen
 - [ ] Candidates are auto-screened and show a suggested tier.
 - [ ] Accept creates a prospect at `discovery`; Dismiss retains the record.
 - [ ] Nothing enters the pipeline without a human accept.
+
+## Where this grows
+This slice's manual/CSV intake is the human-gated foundation for the same review-queue pattern that a later, continuous multi-source AI discovery process will feed into (see `CLAUDE.md`'s "The AI-driven end state"). "No live scraping" is a Slice 4 boundary, not a permanent one — when automated discovery arrives, candidates still land in this same pending queue for human accept/dismiss.
