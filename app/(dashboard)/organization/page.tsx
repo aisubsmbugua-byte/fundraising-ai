@@ -2,18 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { saveOrgProfile } from "./actions";
 import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, type OrgProfile } from "@/lib/organization";
 import TagInput from "@/components/TagInput";
+import { spacing, colors, fieldStyle, labelStyle, sectionStyle, buttonPrimary } from "@/lib/ui";
 
-const sectionStyle: React.CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  padding: 16,
-  display: "grid",
-  gap: 12,
-};
-
-const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#334155", padding: "0 4px" };
-
-const inputStyle: React.CSSProperties = { width: "100%", padding: 8, marginTop: 4 };
+const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.text, padding: "0 4px" };
 
 export default async function OrganizationProfilePage() {
   const supabase = createClient();
@@ -22,21 +13,21 @@ export default async function OrganizationProfilePage() {
   return (
     <div style={{ maxWidth: 640 }}>
       <h1>Organization Profile</h1>
-      <p style={{ color: "#64748b", fontSize: 14 }}>
+      <p style={{ color: colors.textMuted, fontSize: 14 }}>
         This is the nonprofit&apos;s own knowledge base — AI will use it to propose which funder types
         are a plausible match. The more specific, the better the suggestions.
       </p>
 
-      <form action={saveOrgProfile} style={{ display: "grid", gap: 16, marginTop: 16 }}>
+      <form action={saveOrgProfile} style={{ display: "grid", gap: spacing.lg, marginTop: spacing.lg }}>
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Identity</legend>
-          <label>
+          <label style={labelStyle}>
             Organization name
-            <input name="name" defaultValue={profile?.name ?? ""} style={inputStyle} />
+            <input name="name" defaultValue={profile?.name ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Legal / tax status
-            <select name="org_type" defaultValue={profile?.org_type ?? ""} style={inputStyle}>
+            <select name="org_type" defaultValue={profile?.org_type ?? ""} style={fieldStyle}>
               <option value="">Select one</option>
               {ORG_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -45,78 +36,78 @@ export default async function OrganizationProfilePage() {
               ))}
             </select>
           </label>
-          <label>
+          <label style={labelStyle}>
             If Other, describe
-            <input name="org_type_other" defaultValue={profile?.org_type_other ?? ""} style={inputStyle} />
+            <input name="org_type_other" defaultValue={profile?.org_type_other ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Year founded
             <input
               name="year_founded"
               type="number"
               defaultValue={profile?.year_founded ?? ""}
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
         </fieldset>
 
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Financial</legend>
-          <label>
+          <label style={labelStyle}>
             Annual operating budget (USD)
             <input
               name="annual_budget"
               type="number"
               defaultValue={profile?.annual_budget ?? ""}
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
-          <label>
+          <label style={labelStyle}>
             Current funding need or gap
             <textarea
               name="funding_need"
               rows={2}
               defaultValue={profile?.funding_need ?? ""}
               placeholder='e.g. "$150k general operating gap for FY26"'
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
         </fieldset>
 
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Mission & focus</legend>
-          <label>
+          <label style={labelStyle}>
             Problem statement — what problem do you exist to solve?
             <textarea
               name="problem_statement"
               rows={3}
               defaultValue={profile?.problem_statement ?? ""}
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
-          <label>
+          <label style={labelStyle}>
             Mission statement
-            <textarea name="mission" rows={3} defaultValue={profile?.mission ?? ""} style={inputStyle} />
+            <textarea name="mission" rows={3} defaultValue={profile?.mission ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Vision statement
-            <textarea name="vision" rows={3} defaultValue={profile?.vision ?? ""} style={inputStyle} />
+            <textarea name="vision" rows={3} defaultValue={profile?.vision ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Programs
             <textarea
               name="programs"
               rows={4}
               defaultValue={profile?.programs ?? ""}
               placeholder="What does the organization actually do? Programs, services, activities."
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
           <div>
-            <span style={{ fontSize: 14 }}>Cause area(s)</span>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 4 }}>
+            <span style={labelStyle}>Cause area(s)</span>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xs, marginTop: spacing.xs }}>
               {CAUSE_AREAS.map((area) => (
-                <label key={area} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                <label key={area} style={{ display: "flex", alignItems: "center", gap: spacing.xs, fontSize: 13 }}>
                   <input
                     type="checkbox"
                     name="cause_areas"
@@ -131,25 +122,25 @@ export default async function OrganizationProfilePage() {
               name="cause_area_other"
               placeholder="Other cause area"
               defaultValue={profile?.cause_area_other ?? ""}
-              style={{ ...inputStyle, marginTop: 8 }}
+              style={{ ...fieldStyle, marginTop: spacing.sm }}
             />
           </div>
         </fieldset>
 
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Who & where</legend>
-          <label>
+          <label style={labelStyle}>
             Population(s) served
             <textarea
               name="who_we_serve"
               rows={2}
               defaultValue={profile?.who_we_serve ?? ""}
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
           <div>
-            <span style={{ fontSize: 14 }}>Geographic area served</span>
-            <div style={{ marginTop: 4 }}>
+            <span style={labelStyle}>Geographic area served</span>
+            <div style={{ marginTop: spacing.xs }}>
               <TagInput
                 name="geographic_areas"
                 defaultValue={profile?.geographic_areas ?? []}
@@ -158,42 +149,39 @@ export default async function OrganizationProfilePage() {
               />
             </div>
           </div>
-          <label>
+          <label style={labelStyle}>
             HQ location
-            <input name="hq_location" defaultValue={profile?.hq_location ?? ""} style={inputStyle} />
+            <input name="hq_location" defaultValue={profile?.hq_location ?? ""} style={fieldStyle} />
           </label>
         </fieldset>
 
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Values</legend>
-          <label>
+          <label style={labelStyle}>
             Core values or guiding principles that shape how you work (faith tradition, community
             values, operating philosophy — whatever applies)
-            <textarea name="org_values" rows={3} defaultValue={profile?.org_values ?? ""} style={inputStyle} />
+            <textarea name="org_values" rows={3} defaultValue={profile?.org_values ?? ""} style={fieldStyle} />
           </label>
         </fieldset>
 
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Track record</legend>
-          <label>
+          <label style={labelStyle}>
             Key outcomes / impact metrics
-            <textarea name="outcomes" rows={3} defaultValue={profile?.outcomes ?? ""} style={inputStyle} />
+            <textarea name="outcomes" rows={3} defaultValue={profile?.outcomes ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Notable past or current funders
             <textarea
               name="notable_funders"
               rows={2}
               defaultValue={profile?.notable_funders ?? ""}
-              style={inputStyle}
+              style={fieldStyle}
             />
           </label>
         </fieldset>
 
-        <button
-          type="submit"
-          style={{ padding: 10, background: "#0f172a", color: "#fff", border: "none", borderRadius: 6 }}
-        >
+        <button type="submit" style={buttonPrimary}>
           Save Profile
         </button>
       </form>

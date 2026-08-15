@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { colors, buttonPrimary } from "@/lib/ui";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -22,7 +23,7 @@ export default function LoginPage() {
   return (
     <main style={{ maxWidth: 360, margin: "120px auto", padding: 24 }}>
       <h1 style={{ fontSize: 22 }}>Fundraising AI</h1>
-      <p style={{ color: "#666" }}>Sign in to continue.</p>
+      <p style={{ color: colors.textMuted }}>Sign in to continue.</p>
       {sent ? (
         <p>Check your email for a sign-in link.</p>
       ) : (
@@ -32,9 +33,16 @@ export default function LoginPage() {
             placeholder="you@org.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ width: "100%", padding: 10, marginBottom: 10 }}
+            style={{
+              width: "100%",
+              padding: 10,
+              marginBottom: 10,
+              boxSizing: "border-box",
+              border: `1px solid ${colors.borderStrong}`,
+              borderRadius: 6,
+            }}
           />
-          <button onClick={handleLogin} style={{ width: "100%", padding: 10 }}>
+          <button onClick={handleLogin} style={{ ...buttonPrimary, width: "100%", boxSizing: "border-box" }}>
             Send sign-in link
           </button>
           {error && <p style={{ color: "crimson" }}>{error}</p>}

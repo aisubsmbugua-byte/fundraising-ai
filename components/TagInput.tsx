@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { fieldStyle } from "@/lib/ui";
 
 export default function TagInput({
   name,
@@ -67,7 +68,7 @@ export default function TagInput({
         }}
         onBlur={commit}
         placeholder={placeholder ?? "Type a value, press Enter to add"}
-        style={{ width: "100%", padding: 8 }}
+        style={{ ...fieldStyle, marginTop: 0 }}
       />
       {suggestions && (
         <datalist id={datalistId}>

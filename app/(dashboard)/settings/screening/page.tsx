@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { channelLabel, CHANNELS } from "@/lib/prospects";
 import { OPERATORS, importanceLabel, summarizeByChannel, type ScreeningRule } from "@/lib/screening";
 import DeleteRuleButton from "./delete-rule-button";
+import { spacing, colors, radius, buttonPrimary, cardStyle } from "@/lib/ui";
 
 export default async function ScreeningRulesPage() {
   const supabase = createClient();
@@ -19,18 +20,15 @@ export default async function ScreeningRulesPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.xl }}>
         <div>
           <h1>Screening Rules</h1>
-          <p style={{ color: "#64748b", fontSize: 14 }}>
+          <p style={{ color: colors.textMuted, fontSize: 14 }}>
             These rules drive the tier a prospect gets when someone clicks "Screen." Screening only
             classifies — it never moves a prospect's stage.
           </p>
         </div>
-        <Link
-          href="/settings/screening/new"
-          style={{ padding: "8px 16px", background: "#0f172a", color: "#fff", borderRadius: 6, textDecoration: "none" }}
-        >
+        <Link href="/settings/screening/new" style={buttonPrimary}>
           + New Rule
         </Link>
       </div>
@@ -38,11 +36,13 @@ export default async function ScreeningRulesPage() {
       {error && <p style={{ color: "crimson" }}>Error loading rules: {error.message}</p>}
 
       {channelSummaries.length > 0 && (
-        <div style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: 12, marginBottom: 20, background: "#f8fafc" }}>
-          <h2 style={{ fontSize: 13, color: "#64748b", marginBottom: 8 }}>What it takes to hit each tier, right now</h2>
+        <div style={{ ...cardStyle, marginBottom: spacing.xl, background: colors.bgSubtle }}>
+          <h2 style={{ fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm }}>
+            What it takes to hit each tier, right now
+          </h2>
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ textAlign: "left", color: "#64748b" }}>
+              <tr style={{ textAlign: "left", color: colors.textMuted }}>
                 <th style={{ padding: "4px 8px" }}>Channel</th>
                 <th style={{ padding: "4px 8px" }}>Active rules</th>
                 <th style={{ padding: "4px 8px" }}>Max points</th>
@@ -65,24 +65,26 @@ export default async function ScreeningRulesPage() {
         </div>
       )}
 
-      <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ display: "grid", gap: spacing.sm }}>
         {rules?.map((r) => {
           const operatorLabel = OPERATORS.find((o) => o.value === r.criterion.operator)?.label ?? r.criterion.operator;
           return (
-            <div key={r.id} style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: 12 }}>
+            <div key={r.id} style={{ ...cardStyle, borderRadius: radius }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
                   <strong>{r.label}</strong>{" "}
-                  <span style={{ fontSize: 12, color: r.active ? "#16a34a" : "#94a3b8" }}>
+                  <span style={{ fontSize: 12, color: r.active ? colors.success : colors.textFaint }}>
                     {r.active ? "Active" : "Inactive"}
                   </span>
-                  <div style={{ fontSize: 13, color: "#334155", marginTop: 4 }}>
+                  <div style={{ fontSize: 13, color: colors.text, marginTop: spacing.xs }}>
                     {r.criterion.field} {operatorLabel} {r.criterion.value ?? ""} — {importanceLabel(r.weight)} —{" "}
                     {r.channel ? channelLabel(r.channel) : "all channels"}
                   </div>
-                  {r.description && <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{r.description}</div>}
+                  {r.description && (
+                    <div style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs }}>{r.description}</div>
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: spacing.sm }}>
                   <Link href={`/settings/screening/${r.id}`} style={{ fontSize: 13 }}>
                     Edit
                   </Link>
@@ -92,7 +94,7 @@ export default async function ScreeningRulesPage() {
             </div>
           );
         })}
-        {rules?.length === 0 && <p style={{ color: "#94a3b8" }}>No screening rules yet.</p>}
+        {rules?.length === 0 && <p style={{ color: colors.textFaint }}>No screening rules yet.</p>}
       </div>
     </div>
   );

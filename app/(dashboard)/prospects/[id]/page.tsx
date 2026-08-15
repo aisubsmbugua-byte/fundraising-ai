@@ -7,8 +7,9 @@ import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import DeleteProspectButton from "./delete-button";
 import ScreenButton from "./screen-button";
 import TierBadge from "@/components/TierBadge";
+import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 
-const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: "#64748b" };
+const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
 
 export default async function ProspectDetailPage({
   params,
@@ -47,7 +48,7 @@ export default async function ProspectDetailPage({
 
   return (
     <div style={{ maxWidth: 480 }}>
-      <Link href="/prospects" style={{ fontSize: 14, color: "#64748b", textDecoration: "none" }}>
+      <Link href="/prospects" style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
         ← Back to Prospects
       </Link>
 
@@ -56,26 +57,17 @@ export default async function ProspectDetailPage({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginTop: 8,
+          marginTop: spacing.sm,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <h1>{prospect.name}</h1>
           {latestScreening && <TierBadge tier={latestScreening.tier} />}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: spacing.sm }}>
           <ScreenButton prospectId={prospect.id} />
           {!isEditing && (
-            <Link
-              href={`/prospects/${prospect.id}?edit=1`}
-              style={{
-                padding: "6px 12px",
-                border: "1px solid #cbd5e1",
-                borderRadius: 4,
-                textDecoration: "none",
-                color: "#0f172a",
-              }}
-            >
+            <Link href={`/prospects/${prospect.id}?edit=1`} style={buttonSecondary}>
               Edit
             </Link>
           )}
@@ -84,24 +76,14 @@ export default async function ProspectDetailPage({
       </div>
 
       {isEditing ? (
-        <form action={boundUpdate} style={{ display: "grid", gap: 12, marginTop: 20 }}>
-          <label>
+        <form action={boundUpdate} style={{ display: "grid", gap: spacing.md, marginTop: spacing.xl }}>
+          <label style={labelStyle}>
             Name *
-            <input
-              name="name"
-              defaultValue={prospect.name}
-              required
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
+            <input name="name" defaultValue={prospect.name} required style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Channel *
-            <select
-              name="channel"
-              defaultValue={prospect.channel}
-              required
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            >
+            <select name="channel" defaultValue={prospect.channel} required style={fieldStyle}>
               {CHANNELS.map((c) => (
                 <option key={c.value} value={c.value}>
                   {c.label}
@@ -109,72 +91,42 @@ export default async function ProspectDetailPage({
               ))}
             </select>
           </label>
-          <label>
+          <label style={labelStyle}>
             Organization
-            <input
-              name="organization"
-              defaultValue={prospect.organization ?? ""}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
+            <input name="organization" defaultValue={prospect.organization ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Contact name
-            <input
-              name="contact_name"
-              defaultValue={prospect.contact_name ?? ""}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
+            <input name="contact_name" defaultValue={prospect.contact_name ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Contact email
             <input
               name="contact_email"
               type="email"
               defaultValue={prospect.contact_email ?? ""}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
+              style={fieldStyle}
             />
           </label>
-          <label>
+          <label style={labelStyle}>
             Website
-            <input
-              name="website"
-              type="url"
-              defaultValue={prospect.website ?? ""}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
+            <input name="website" type="url" defaultValue={prospect.website ?? ""} style={fieldStyle} />
           </label>
-          <label>
+          <label style={labelStyle}>
             Notes
-            <textarea
-              name="notes"
-              rows={4}
-              defaultValue={prospect.notes ?? ""}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
+            <textarea name="notes" rows={4} defaultValue={prospect.notes ?? ""} style={fieldStyle} />
           </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              type="submit"
-              style={{ padding: 10, background: "#0f172a", color: "#fff", border: "none", borderRadius: 6 }}
-            >
+          <div style={{ display: "flex", gap: spacing.sm }}>
+            <button type="submit" style={buttonPrimary}>
               Save Changes
             </button>
-            <Link
-              href={`/prospects/${prospect.id}`}
-              style={{
-                padding: 10,
-                border: "1px solid #cbd5e1",
-                borderRadius: 6,
-                textDecoration: "none",
-                color: "#0f172a",
-              }}
-            >
+            <Link href={`/prospects/${prospect.id}`} style={buttonSecondary}>
               Cancel
             </Link>
           </div>
         </form>
       ) : (
-        <dl style={{ marginTop: 20, display: "grid", gap: 12 }}>
+        <dl style={{ marginTop: spacing.xl, display: "grid", gap: spacing.md }}>
           <div>
             <dt style={fieldLabelStyle}>Stage</dt>
             <dd>{stageLabel(prospect.stage)}</dd>
@@ -206,55 +158,55 @@ export default async function ProspectDetailPage({
         </dl>
       )}
 
-      <div style={{ marginTop: 32 }}>
+      <div style={{ marginTop: spacing.xxl }}>
         <h2 style={{ fontSize: 16 }}>Stage History</h2>
         {history && history.length > 0 ? (
-          <ul style={{ listStyle: "none", padding: 0, marginTop: 12, display: "grid", gap: 8 }}>
+          <ul style={{ listStyle: "none", padding: 0, marginTop: spacing.md, display: "grid", gap: spacing.sm }}>
             {history.map((h) => (
-              <li key={h.id} style={{ fontSize: 13, borderBottom: "1px solid #f1f5f9", paddingBottom: 8 }}>
+              <li key={h.id} style={{ fontSize: 13, borderBottom: `1px solid ${colors.bgSubtle}`, paddingBottom: spacing.sm }}>
                 <strong>
                   {stageLabel(h.from_stage)} → {stageLabel(h.to_stage)}
                 </strong>
-                <div style={{ color: "#64748b", fontSize: 12 }}>
+                <div style={{ color: colors.textMuted, fontSize: 12 }}>
                   {h.changed_by_email} · {new Date(h.created_at).toLocaleString()}
                 </div>
-                {h.note && <div style={{ marginTop: 4 }}>{h.note}</div>}
+                {h.note && <div style={{ marginTop: spacing.xs }}>{h.note}</div>}
               </li>
             ))}
           </ul>
         ) : (
-          <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>No stage changes yet.</p>
+          <p style={{ color: colors.textFaint, fontSize: 13, marginTop: spacing.sm }}>No stage changes yet.</p>
         )}
       </div>
 
-      <div style={{ marginTop: 32 }}>
+      <div style={{ marginTop: spacing.xxl }}>
         <h2 style={{ fontSize: 16 }}>Screening</h2>
         {latestScreening ? (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <div style={{ marginTop: spacing.md }}>
+            <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, marginBottom: spacing.sm }}>
               <TierBadge tier={latestScreening.tier} />
-              <span style={{ fontSize: 12, color: "#64748b" }}>
+              <span style={{ fontSize: 12, color: colors.textMuted }}>
                 {new Date(latestScreening.created_at).toLocaleString()}
               </span>
             </div>
             <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 6 }}>
               {latestScreening.breakdown.rules.map((r) => (
                 <li key={r.rule_id} style={{ fontSize: 13, display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: r.passed ? "#16a34a" : "#94a3b8" }}>
+                  <span style={{ color: r.passed ? colors.success : colors.textFaint }}>
                     {r.passed ? "✓" : "✗"} {r.label}
                   </span>
-                  <span style={{ color: "#64748b" }}>weight {r.weight}</span>
+                  <span style={{ color: colors.textMuted }}>weight {r.weight}</span>
                 </li>
               ))}
               {latestScreening.breakdown.rules.length === 0 && (
-                <li style={{ fontSize: 13, color: "#94a3b8" }}>
+                <li style={{ fontSize: 13, color: colors.textFaint }}>
                   No active rules applied to this channel — defaulted to {tierLabel(latestScreening.tier)}.
                 </li>
               )}
             </ul>
           </div>
         ) : (
-          <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>Not screened yet.</p>
+          <p style={{ color: colors.textFaint, fontSize: 13, marginTop: spacing.sm }}>Not screened yet.</p>
         )}
       </div>
     </div>

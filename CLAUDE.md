@@ -28,6 +28,7 @@ Slices build toward this incrementally. Slices 1–3 are deliberately human-scaf
 - **Live from day one.** The app is deployed on Vercel. Keep `main` deployable at all times.
 - **Definition of done.** Every slice doc has one. Don't mark a slice complete until it's met and the app still builds and deploys.
 - **Migrations are additive.** Each slice adds a numbered migration in `supabase/migrations/`. Never rewrite an applied migration.
+- **Basic design principles apply even before a dedicated design pass.** We're not doing visual design work yet, but every page should still be internally consistent: same spacing scale, same colors, inputs actually aligned to their container (this means `box-sizing: border-box` on every field — without it, padding pushes elements past `width: 100%` and breaks the grid). Use the shared tokens in `lib/ui.ts` (`fieldStyle`, `labelStyle`, `buttonPrimary`, `buttonSecondary`, `buttonDanger`, `sectionStyle`, `cardStyle`, `spacing`, `colors`) instead of one-off inline styles, so pages don't visually drift from each other as functionality gets added.
 
 ## Stack
 

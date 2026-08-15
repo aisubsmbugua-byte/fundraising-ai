@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { CHANNELS, channelLabel, type Prospect } from "@/lib/prospects";
+import { spacing, colors, buttonPrimary, buttonSecondary } from "@/lib/ui";
 
 export default async function ProspectsPage({
   searchParams,
@@ -29,36 +30,33 @@ export default async function ProspectsPage({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 24,
+          marginBottom: spacing.xl,
         }}
       >
         <h1>Prospects</h1>
-        <Link
-          href="/prospects/new"
-          style={{
-            padding: "8px 16px",
-            background: "#0f172a",
-            color: "#fff",
-            borderRadius: 6,
-            textDecoration: "none",
-          }}
-        >
+        <Link href="/prospects/new" style={buttonPrimary}>
           + New Prospect
         </Link>
       </div>
 
-      <form style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      <form style={{ display: "flex", gap: spacing.sm, marginBottom: spacing.xl }}>
         <input
           type="text"
           name="q"
           placeholder="Search by name..."
           defaultValue={searchParams.q}
-          style={{ padding: 8, flex: 1, border: "1px solid #cbd5e1", borderRadius: 4 }}
+          style={{
+            padding: spacing.sm,
+            flex: 1,
+            border: `1px solid ${colors.borderStrong}`,
+            borderRadius: 4,
+            boxSizing: "border-box",
+          }}
         />
         <select
           name="channel"
           defaultValue={searchParams.channel ?? ""}
-          style={{ padding: 8, border: "1px solid #cbd5e1", borderRadius: 4 }}
+          style={{ padding: spacing.sm, border: `1px solid ${colors.borderStrong}`, borderRadius: 4 }}
         >
           <option value="">All channels</option>
           {CHANNELS.map((c) => (
@@ -67,10 +65,7 @@ export default async function ProspectsPage({
             </option>
           ))}
         </select>
-        <button
-          type="submit"
-          style={{ padding: "8px 16px", border: "1px solid #cbd5e1", borderRadius: 4, background: "#fff" }}
-        >
+        <button type="submit" style={buttonSecondary}>
           Filter
         </button>
       </form>
@@ -79,24 +74,24 @@ export default async function ProspectsPage({
 
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
-            <th style={{ padding: 8 }}>Name</th>
-            <th style={{ padding: 8 }}>Channel</th>
-            <th style={{ padding: 8 }}>Organization</th>
-            <th style={{ padding: 8 }}>Contact</th>
-            <th style={{ padding: 8 }}>Actions</th>
+          <tr style={{ textAlign: "left", borderBottom: `1px solid ${colors.border}` }}>
+            <th style={{ padding: spacing.sm }}>Name</th>
+            <th style={{ padding: spacing.sm }}>Channel</th>
+            <th style={{ padding: spacing.sm }}>Organization</th>
+            <th style={{ padding: spacing.sm }}>Contact</th>
+            <th style={{ padding: spacing.sm }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {(prospects as Prospect[] | null)?.map((p) => (
-            <tr key={p.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-              <td style={{ padding: 8 }}>
+            <tr key={p.id} style={{ borderBottom: `1px solid ${colors.bgSubtle}` }}>
+              <td style={{ padding: spacing.sm }}>
                 <Link href={`/prospects/${p.id}`}>{p.name}</Link>
               </td>
-              <td style={{ padding: 8 }}>{channelLabel(p.channel)}</td>
-              <td style={{ padding: 8 }}>{p.organization ?? "—"}</td>
-              <td style={{ padding: 8 }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
-              <td style={{ padding: 8 }}>
+              <td style={{ padding: spacing.sm }}>{channelLabel(p.channel)}</td>
+              <td style={{ padding: spacing.sm }}>{p.organization ?? "—"}</td>
+              <td style={{ padding: spacing.sm }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
+              <td style={{ padding: spacing.sm }}>
                 <Link href={`/prospects/${p.id}?edit=1`}>Edit</Link>
               </td>
             </tr>
@@ -104,7 +99,7 @@ export default async function ProspectsPage({
         </tbody>
       </table>
 
-      {prospects?.length === 0 && <p style={{ color: "#666", marginTop: 20 }}>No prospects found.</p>}
+      {prospects?.length === 0 && <p style={{ color: colors.textMuted, marginTop: spacing.xl }}>No prospects found.</p>}
     </div>
   );
 }
