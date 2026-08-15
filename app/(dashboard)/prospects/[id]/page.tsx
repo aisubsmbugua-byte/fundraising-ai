@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { updateProspect } from "../actions";
 import { CHANNELS, channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
+import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import DeleteProspectButton from "./delete-button";
+import ScreenButton from "./screen-button";
+import TierBadge from "@/components/TierBadge";
 
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: "#64748b" };
 
@@ -30,6 +33,15 @@ export default async function ProspectDetailPage({
     .order("created_at", { ascending: false })
     .returns<StageChange[]>();
 
+  const { data: screenings } = await supabase
+    .from("screening_results")
+    .select("*")
+    .eq("prospect_id", prospect.id)
+    .order("created_at", { ascending: false })
+    .returns<ScreeningResult[]>();
+
+  const latestScreening = screenings?.[0] ?? null;
+
   const isEditing = searchParams.edit === "1";
   const boundUpdate = updateProspect.bind(null, prospect.id);
 
@@ -47,8 +59,12 @@ export default async function ProspectDetailPage({
           marginTop: 8,
         }}
       >
-        <h1>{prospect.name}</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h1>{prospect.name}</h1>
+          {latestScreening && <TierBadge tier={latestScreening.tier} />}
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <ScreenButton prospectId={prospect.id} />
           {!isEditing && (
             <Link
               href={`/prospects/${prospect.id}?edit=1`}
@@ -208,6 +224,37 @@ export default async function ProspectDetailPage({
           </ul>
         ) : (
           <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>No stage changes yet.</p>
+        )}
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: 16 }}>Screening</h2>
+        {latestScreening ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <TierBadge tier={latestScreening.tier} />
+              <span style={{ fontSize: 12, color: "#64748b" }}>
+                {new Date(latestScreening.created_at).toLocaleString()}
+              </span>
+            </div>
+            <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 6 }}>
+              {latestScreening.breakdown.rules.map((r) => (
+                <li key={r.rule_id} style={{ fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: r.passed ? "#16a34a" : "#94a3b8" }}>
+                    {r.passed ? "✓" : "✗"} {r.label}
+                  </span>
+                  <span style={{ color: "#64748b" }}>weight {r.weight}</span>
+                </li>
+              ))}
+              {latestScreening.breakdown.rules.length === 0 && (
+                <li style={{ fontSize: 13, color: "#94a3b8" }}>
+                  No active rules applied to this channel — defaulted to {tierLabel(latestScreening.tier)}.
+                </li>
+              )}
+            </ul>
+          </div>
+        ) : (
+          <p style={{ color: "#94a3b8", fontSize: 13, marginTop: 8 }}>Not screened yet.</p>
         )}
       </div>
     </div>

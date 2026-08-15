@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { screenProspect, type ScreeningRule } from "@/lib/screening";
 
 function fieldsFromForm(formData: FormData) {
   return {
@@ -52,6 +53,41 @@ export async function updateProspect(id: string, formData: FormData) {
   revalidatePath("/prospects");
   revalidatePath(`/prospects/${id}`);
   redirect(`/prospects/${id}`);
+}
+
+export async function screenProspectAction(prospectId: string) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: prospect, error: prospectError } = await supabase
+    .from("prospects")
+    .select("*")
+    .eq("id", prospectId)
+    .single();
+  if (prospectError || !prospect) throw new Error("Prospect not found");
+
+  const { data: rules, error: rulesError } = await supabase
+    .from("screening_rules")
+    .select("*")
+    .eq("active", true);
+  if (rulesError) throw new Error(rulesError.message);
+
+  const { tier, score, breakdown } = screenProspect(prospect, (rules ?? []) as ScreeningRule[]);
+
+  const { error: insertError } = await supabase.from("screening_results").insert({
+    prospect_id: prospectId,
+    tier,
+    score,
+    breakdown,
+    screened_by: user.id,
+  });
+  if (insertError) throw new Error(insertError.message);
+
+  revalidatePath(`/prospects/${prospectId}`);
+  revalidatePath("/pipeline");
 }
 
 export async function deleteProspect(id: string) {

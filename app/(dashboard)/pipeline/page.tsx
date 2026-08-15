@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { STAGES, channelLabel, type Prospect } from "@/lib/prospects";
+import type { ScreeningResult } from "@/lib/screening";
 import MoveStageControl from "./move-stage-control";
+import TierBadge from "@/components/TierBadge";
 
 export default async function PipelinePage() {
   const supabase = createClient();
@@ -12,6 +14,19 @@ export default async function PipelinePage() {
 
   if (error) {
     return <p style={{ color: "crimson" }}>Error loading pipeline: {error.message}</p>;
+  }
+
+  const { data: screenings } = await supabase
+    .from("screening_results")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .returns<ScreeningResult[]>();
+
+  const latestTierByProspect = new Map<string, number>();
+  for (const s of screenings ?? []) {
+    if (!latestTierByProspect.has(s.prospect_id)) {
+      latestTierByProspect.set(s.prospect_id, s.tier);
+    }
   }
 
   const byStage = new Map<string, Prospect[]>();
@@ -53,6 +68,11 @@ export default async function PipelinePage() {
                     {p.name}
                   </Link>
                   <div style={{ fontSize: 11, color: "#64748b" }}>{channelLabel(p.channel)}</div>
+                  {latestTierByProspect.has(p.id) && (
+                    <div style={{ marginTop: 4 }}>
+                      <TierBadge tier={latestTierByProspect.get(p.id)!} />
+                    </div>
+                  )}
                   <MoveStageControl prospectId={p.id} prospectName={p.name} currentStage={p.stage} />
                 </div>
               ))}
