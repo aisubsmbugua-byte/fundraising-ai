@@ -28,7 +28,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isDashboard = request.nextUrl.pathname.startsWith("/(dashboard)") ||
-    ["/pipeline", "/prospects", "/settings", "/discovery", "/evidence", "/revisit"].some((p) =>
+    ["/pipeline", "/prospects", "/settings", "/discovery", "/evidence", "/revisit", "/organization"].some((p) =>
       request.nextUrl.pathname.startsWith(p)
     );
 

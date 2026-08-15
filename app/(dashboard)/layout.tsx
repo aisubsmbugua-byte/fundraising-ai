@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 const NAV = [
+  { href: "/organization", label: "Organization Profile" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/prospects", label: "Prospects" },
   { href: "/discovery", label: "Discovery" },
