@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { STAGES, stageLabel } from "@/lib/prospects";
 import { moveProspectStage } from "./actions";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function MoveStageControl({
   prospectId,
@@ -16,6 +17,7 @@ export default function MoveStageControl({
   const [target, setTarget] = useState(currentStage);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   return (
     <div style={{ marginTop: 8 }}>
@@ -36,17 +38,7 @@ export default function MoveStageControl({
           disabled={isPending || target === currentStage}
           onClick={() => {
             setError(null);
-            const ok = confirm(
-              `Advance ${prospectName} from ${stageLabel(currentStage)} → ${stageLabel(target)}?`
-            );
-            if (!ok) return;
-            startTransition(async () => {
-              try {
-                await moveProspectStage(prospectId, currentStage, target);
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Failed to move");
-              }
-            });
+            setOpen(true);
           }}
           style={{ fontSize: 12, padding: "4px 8px" }}
         >
@@ -54,6 +46,23 @@ export default function MoveStageControl({
         </button>
       </div>
       {error && <p style={{ color: "crimson", fontSize: 11, marginTop: 4 }}>{error}</p>}
+      <ConfirmDialog
+        open={open}
+        title="Confirm stage move"
+        message={`Advance ${prospectName} from ${stageLabel(currentStage)} → ${stageLabel(target)}?`}
+        confirmLabel="Advance"
+        onCancel={() => setOpen(false)}
+        onConfirm={() => {
+          setOpen(false);
+          startTransition(async () => {
+            try {
+              await moveProspectStage(prospectId, currentStage, target);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Failed to move");
+            }
+          });
+        }}
+      />
     </div>
   );
 }
