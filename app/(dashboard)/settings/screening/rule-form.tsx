@@ -1,5 +1,5 @@
 import { CHANNELS } from "@/lib/prospects";
-import { FIELDS, OPERATORS, type ScreeningRule } from "@/lib/screening";
+import { FIELDS, OPERATORS, IMPORTANCE_LEVELS, nearestImportance, type ScreeningRule } from "@/lib/screening";
 
 export default function RuleForm({
   action,
@@ -34,14 +34,18 @@ export default function RuleForm({
         </select>
       </label>
       <label>
-        Weight
-        <input
+        Importance
+        <select
           name="weight"
-          type="number"
-          min={0}
-          defaultValue={rule?.weight ?? 1}
+          defaultValue={String(rule ? nearestImportance(rule.weight) : 3)}
           style={{ width: "100%", padding: 8, marginTop: 4 }}
-        />
+        >
+          {IMPORTANCE_LEVELS.map((level) => (
+            <option key={level.value} value={level.value}>
+              {level.label}
+            </option>
+          ))}
+        </select>
       </label>
 
       <fieldset style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: 12 }}>

@@ -27,6 +27,25 @@ export type Criterion = {
   value?: string;
 };
 
+export const IMPORTANCE_LEVELS = [
+  { value: 1, label: "Nice to have" },
+  { value: 3, label: "Important" },
+  { value: 5, label: "Critical" },
+] as const;
+
+export function importanceLabel(weight: number) {
+  return IMPORTANCE_LEVELS.find((l) => l.value === weight)?.label ?? `Weight ${weight}`;
+}
+
+// For rules created before this picker existed (or edited via API with
+// an arbitrary number), snap to the closest importance level so the
+// edit form always has a sane default selected.
+export function nearestImportance(weight: number) {
+  return IMPORTANCE_LEVELS.reduce((closest, level) =>
+    Math.abs(level.value - weight) < Math.abs(closest.value - weight) ? level : closest
+  ).value;
+}
+
 export type ScreeningRule = {
   id: string;
   label: string;
@@ -120,6 +139,30 @@ export function screenProspect(
   }
 
   return { tier, score, breakdown: { rules: ruleBreakdown, max_possible: maxPossible, percentage } };
+}
+
+export type ChannelSummary = {
+  channel: string;
+  activeRuleCount: number;
+  maxPoints: number;
+  tier1Threshold: number;
+  tier2Threshold: number;
+};
+
+// What it actually takes to hit each tier, per channel, given today's
+// active rules -- makes the abstract 70%/40% thresholds concrete.
+export function summarizeByChannel(rules: ScreeningRule[], channels: readonly string[]): ChannelSummary[] {
+  return channels.map((channel) => {
+    const applicable = rules.filter((r) => r.active && (r.channel === null || r.channel === channel));
+    const maxPoints = applicable.reduce((sum, r) => sum + r.weight, 0);
+    return {
+      channel,
+      activeRuleCount: applicable.length,
+      maxPoints,
+      tier1Threshold: Math.ceil(maxPoints * 0.7),
+      tier2Threshold: Math.ceil(maxPoints * 0.4),
+    };
+  });
 }
 
 export function tierLabel(tier: number) {

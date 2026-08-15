@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { channelLabel } from "@/lib/prospects";
-import { OPERATORS, type ScreeningRule } from "@/lib/screening";
+import { channelLabel, CHANNELS } from "@/lib/prospects";
+import { OPERATORS, importanceLabel, summarizeByChannel, type ScreeningRule } from "@/lib/screening";
 import DeleteRuleButton from "./delete-rule-button";
 
 export default async function ScreeningRulesPage() {
@@ -11,6 +11,11 @@ export default async function ScreeningRulesPage() {
     .select("*")
     .order("created_at", { ascending: false })
     .returns<ScreeningRule[]>();
+
+  const channelSummaries = summarizeByChannel(
+    rules ?? [],
+    CHANNELS.map((c) => c.value)
+  ).filter((s) => s.activeRuleCount > 0);
 
   return (
     <div>
@@ -32,6 +37,34 @@ export default async function ScreeningRulesPage() {
 
       {error && <p style={{ color: "crimson" }}>Error loading rules: {error.message}</p>}
 
+      {channelSummaries.length > 0 && (
+        <div style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: 12, marginBottom: 20, background: "#f8fafc" }}>
+          <h2 style={{ fontSize: 13, color: "#64748b", marginBottom: 8 }}>What it takes to hit each tier, right now</h2>
+          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "#64748b" }}>
+                <th style={{ padding: "4px 8px" }}>Channel</th>
+                <th style={{ padding: "4px 8px" }}>Active rules</th>
+                <th style={{ padding: "4px 8px" }}>Max points</th>
+                <th style={{ padding: "4px 8px" }}>Tier 1 needs</th>
+                <th style={{ padding: "4px 8px" }}>Tier 2 needs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {channelSummaries.map((s) => (
+                <tr key={s.channel}>
+                  <td style={{ padding: "4px 8px" }}>{channelLabel(s.channel)}</td>
+                  <td style={{ padding: "4px 8px" }}>{s.activeRuleCount}</td>
+                  <td style={{ padding: "4px 8px" }}>{s.maxPoints}</td>
+                  <td style={{ padding: "4px 8px" }}>{s.tier1Threshold}+ points</td>
+                  <td style={{ padding: "4px 8px" }}>{s.tier2Threshold}+ points</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div style={{ display: "grid", gap: 8 }}>
         {rules?.map((r) => {
           const operatorLabel = OPERATORS.find((o) => o.value === r.criterion.operator)?.label ?? r.criterion.operator;
@@ -44,7 +77,7 @@ export default async function ScreeningRulesPage() {
                     {r.active ? "Active" : "Inactive"}
                   </span>
                   <div style={{ fontSize: 13, color: "#334155", marginTop: 4 }}>
-                    {r.criterion.field} {operatorLabel} {r.criterion.value ?? ""} — weight {r.weight} —{" "}
+                    {r.criterion.field} {operatorLabel} {r.criterion.value ?? ""} — {importanceLabel(r.weight)} —{" "}
                     {r.channel ? channelLabel(r.channel) : "all channels"}
                   </div>
                   {r.description && <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{r.description}</div>}
