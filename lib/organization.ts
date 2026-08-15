@@ -19,8 +19,25 @@ export const CAUSE_AREAS = [
   "Youth Development",
   "Disaster Relief & Public Safety",
   "International & Foreign Affairs",
-  "Religion & Faith-Based",
+  "Christian Faith Based",
   "Animal Welfare",
+] as const;
+
+// Lightweight suggestions for the geographic-area tag input. Not real
+// geocoding -- just common region terms plus US states. City-level
+// predictive search would need a geocoding API (a new secret + cost),
+// which is a separate call to make.
+export const GEO_SUGGESTIONS = [
+  "Nationwide",
+  "International",
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
+  "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa",
+  "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan",
+  "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire",
+  "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio",
+  "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+  "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia",
+  "Wisconsin", "Wyoming",
 ] as const;
 
 export type OrgProfile = {
@@ -38,7 +55,7 @@ export type OrgProfile = {
   cause_areas: string[] | null;
   cause_area_other: string | null;
   who_we_serve: string | null;
-  geographic_area: string | null;
+  geographic_areas: string[] | null;
   hq_location: string | null;
   org_values: string | null;
   outcomes: string | null;

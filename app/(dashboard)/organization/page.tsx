@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { saveOrgProfile } from "./actions";
-import { ORG_TYPES, CAUSE_AREAS, type OrgProfile } from "@/lib/organization";
+import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, type OrgProfile } from "@/lib/organization";
+import TagInput from "@/components/TagInput";
 
 const sectionStyle: React.CSSProperties = {
   border: "1px solid #e2e8f0",
@@ -146,15 +147,17 @@ export default async function OrganizationProfilePage() {
               style={inputStyle}
             />
           </label>
-          <label>
-            Geographic area served
-            <input
-              name="geographic_area"
-              defaultValue={profile?.geographic_area ?? ""}
-              placeholder="e.g. city, state, national, international"
-              style={inputStyle}
-            />
-          </label>
+          <div>
+            <span style={{ fontSize: 14 }}>Geographic area served</span>
+            <div style={{ marginTop: 4 }}>
+              <TagInput
+                name="geographic_areas"
+                defaultValue={profile?.geographic_areas ?? []}
+                suggestions={[...GEO_SUGGESTIONS]}
+                placeholder="Type a place, press Enter to add"
+              />
+            </div>
+          </div>
           <label>
             HQ location
             <input name="hq_location" defaultValue={profile?.hq_location ?? ""} style={inputStyle} />

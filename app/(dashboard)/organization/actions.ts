@@ -12,6 +12,7 @@ export async function saveOrgProfile(formData: FormData) {
   if (!user) redirect("/login");
 
   const causeAreas = formData.getAll("cause_areas") as string[];
+  const geographicAreas = formData.getAll("geographic_areas") as string[];
 
   const fields = {
     name: (formData.get("name") as string) || null,
@@ -27,7 +28,7 @@ export async function saveOrgProfile(formData: FormData) {
     cause_areas: causeAreas.length > 0 ? causeAreas : null,
     cause_area_other: (formData.get("cause_area_other") as string) || null,
     who_we_serve: (formData.get("who_we_serve") as string) || null,
-    geographic_area: (formData.get("geographic_area") as string) || null,
+    geographic_areas: geographicAreas.length > 0 ? geographicAreas : null,
     hq_location: (formData.get("hq_location") as string) || null,
     org_values: (formData.get("org_values") as string) || null,
     outcomes: (formData.get("outcomes") as string) || null,
