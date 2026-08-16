@@ -8,6 +8,10 @@ export const ORG_TYPES = [
 
 export type OrgType = (typeof ORG_TYPES)[number]["value"];
 
+export function orgTypeLabel(value: string | null) {
+  return ORG_TYPES.find((t) => t.value === value)?.label ?? value ?? "—";
+}
+
 export const CAUSE_AREAS = [
   "Education",
   "Health & Wellness",
