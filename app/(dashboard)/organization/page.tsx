@@ -4,11 +4,16 @@ import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, type OrgProfile } from "@/lib/
 import TagInput from "@/components/TagInput";
 import CurrencyInput from "@/components/CurrencyInput";
 import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
-import { spacing, colors, fieldStyle, labelStyle, sectionStyle, buttonPrimary } from "@/lib/ui";
+import SubmitButton from "@/components/SubmitButton";
+import { spacing, colors, fieldStyle, labelStyle, sectionStyle } from "@/lib/ui";
 
 const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.text, padding: "0 4px" };
 
-export default async function OrganizationProfilePage() {
+export default async function OrganizationProfilePage({
+  searchParams,
+}: {
+  searchParams: { saved?: string };
+}) {
   const supabase = createClient();
   const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
 
@@ -19,6 +24,20 @@ export default async function OrganizationProfilePage() {
         This is the nonprofit&apos;s own knowledge base — AI will use it to propose which funder types
         are a plausible match. The more specific, the better the suggestions.
       </p>
+      {searchParams.saved === "1" && (
+        <div
+          style={{
+            background: "#dcfce7",
+            color: "#166534",
+            padding: spacing.sm,
+            borderRadius: 6,
+            marginTop: spacing.sm,
+            fontSize: 14,
+          }}
+        >
+          ✓ Profile saved
+        </div>
+      )}
 
       <form action={saveOrgProfile} style={{ display: "grid", gap: spacing.lg, marginTop: spacing.lg }}>
         <EnterAdvancesFocus />
@@ -168,20 +187,19 @@ export default async function OrganizationProfilePage() {
             Key outcomes / impact metrics
             <textarea name="outcomes" rows={3} defaultValue={profile?.outcomes ?? ""} style={fieldStyle} />
           </label>
-          <label style={labelStyle}>
-            Notable past or current funders
-            <textarea
-              name="notable_funders"
-              rows={2}
-              defaultValue={profile?.notable_funders ?? ""}
-              style={fieldStyle}
-            />
-          </label>
+          <div>
+            <span style={labelStyle}>Notable past or current funders</span>
+            <div style={{ marginTop: spacing.xs }}>
+              <TagInput
+                name="notable_funders"
+                defaultValue={profile?.notable_funders ?? []}
+                placeholder="Type a funder name, press Enter to add"
+              />
+            </div>
+          </div>
         </fieldset>
 
-        <button type="submit" style={buttonPrimary}>
-          Save Profile
-        </button>
+        <SubmitButton>Save Profile</SubmitButton>
       </form>
     </div>
   );

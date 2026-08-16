@@ -13,6 +13,7 @@ export async function saveOrgProfile(formData: FormData) {
 
   const causeAreas = formData.getAll("cause_areas") as string[];
   const geographicAreas = formData.getAll("geographic_areas") as string[];
+  const notableFunders = formData.getAll("notable_funders") as string[];
 
   const fields = {
     name: (formData.get("name") as string) || null,
@@ -32,7 +33,7 @@ export async function saveOrgProfile(formData: FormData) {
     hq_location: (formData.get("hq_location") as string) || null,
     org_values: (formData.get("org_values") as string) || null,
     outcomes: (formData.get("outcomes") as string) || null,
-    notable_funders: (formData.get("notable_funders") as string) || null,
+    notable_funders: notableFunders.length > 0 ? notableFunders : null,
     updated_by: user.id,
     updated_at: new Date().toISOString(),
   };
@@ -46,4 +47,5 @@ export async function saveOrgProfile(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/organization");
+  redirect("/organization?saved=1");
 }

@@ -59,7 +59,7 @@ export type OrgProfile = {
   hq_location: string | null;
   org_values: string | null;
   outcomes: string | null;
-  notable_funders: string | null;
+  notable_funders: string[] | null;
   updated_by: string | null;
   updated_at: string;
 };
