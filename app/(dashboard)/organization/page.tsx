@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { saveOrgProfile } from "./actions";
 import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, type OrgProfile } from "@/lib/organization";
 import TagInput from "@/components/TagInput";
+import CurrencyInput from "@/components/CurrencyInput";
+import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
 import { spacing, colors, fieldStyle, labelStyle, sectionStyle, buttonPrimary } from "@/lib/ui";
 
 const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.text, padding: "0 4px" };
@@ -19,6 +21,7 @@ export default async function OrganizationProfilePage() {
       </p>
 
       <form action={saveOrgProfile} style={{ display: "grid", gap: spacing.lg, marginTop: spacing.lg }}>
+        <EnterAdvancesFocus />
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Identity</legend>
           <label style={labelStyle}>
@@ -53,15 +56,10 @@ export default async function OrganizationProfilePage() {
 
         <fieldset style={sectionStyle}>
           <legend style={legendStyle}>Financial</legend>
-          <label style={labelStyle}>
-            Annual operating budget (USD)
-            <input
-              name="annual_budget"
-              type="number"
-              defaultValue={profile?.annual_budget ?? ""}
-              style={fieldStyle}
-            />
-          </label>
+          <div>
+            <span style={labelStyle}>Annual operating budget (USD)</span>
+            <CurrencyInput name="annual_budget" defaultValue={profile?.annual_budget ?? null} />
+          </div>
           <label style={labelStyle}>
             Current funding need or gap
             <textarea
