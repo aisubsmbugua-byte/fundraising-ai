@@ -60,7 +60,7 @@ export default function DeepDivePanel({
         }
         if (latest.status === "ready_for_review" && latest.organization_intel) {
           setIntel(latest.organization_intel);
-          setFocusAreasText(latest.organization_intel.focus_areas.join(", "));
+          setFocusAreasText((latest.organization_intel.focus_areas ?? []).join(", "));
         }
       }
     }, 1200);

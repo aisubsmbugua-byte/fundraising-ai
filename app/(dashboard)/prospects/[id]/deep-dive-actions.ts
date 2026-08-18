@@ -156,18 +156,23 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
 
     const result = toolUse.input as { organization_intel: OrganizationIntel; strategy: Strategy };
 
+    // The tool schema is a strong hint, not a server-enforced
+    // contract -- guard against the AI omitting a field or returning
+    // the wrong shape (e.g. focus_areas as something other than an
+    // array) so malformed output can't crash the review UI later.
+    const aiFocusAreas = Array.isArray(result.organization_intel?.focus_areas)
+      ? result.organization_intel.focus_areas
+      : [];
+
     // AI fills gaps, never overwrites data that's already there --
     // if this candidate had location/funder_type/etc. entered
     // manually at intake, an empty AI result shouldn't clobber it.
     const mergedIntel: OrganizationIntel = {
-      location: prospect.location || result.organization_intel.location,
-      funder_type: prospect.funder_type || result.organization_intel.funder_type,
-      geographic_focus: prospect.geographic_focus || result.organization_intel.geographic_focus,
-      typical_grant_size: prospect.typical_grant_size || result.organization_intel.typical_grant_size,
-      focus_areas:
-        prospect.focus_areas && prospect.focus_areas.length > 0
-          ? prospect.focus_areas
-          : result.organization_intel.focus_areas,
+      location: prospect.location || result.organization_intel?.location || "",
+      funder_type: prospect.funder_type || result.organization_intel?.funder_type || "",
+      geographic_focus: prospect.geographic_focus || result.organization_intel?.geographic_focus || "",
+      typical_grant_size: prospect.typical_grant_size || result.organization_intel?.typical_grant_size || "",
+      focus_areas: prospect.focus_areas && prospect.focus_areas.length > 0 ? prospect.focus_areas : aiFocusAreas,
     };
 
     await supabase
