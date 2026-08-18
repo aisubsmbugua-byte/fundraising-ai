@@ -188,7 +188,7 @@ export default async function OrganizationProfilePage({
               <input
                 name="website"
                 type="text"
-                placeholder="e.g. villageworshipinitiative.com"
+                placeholder="e.g. yournonprofit.org"
                 defaultValue={profile?.website ?? ""}
                 style={fieldStyle}
               />
