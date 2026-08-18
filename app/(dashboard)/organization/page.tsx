@@ -97,11 +97,16 @@ export default async function OrganizationProfilePage({
     <div style={{ maxWidth: 640 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>Organization Profile</h1>
-        {!isEditing && (
-          <Link href="/organization?edit=1" style={buttonSecondary}>
-            Edit
+        <div style={{ display: "flex", gap: spacing.sm }}>
+          <Link href="/organization/documents" style={buttonSecondary}>
+            Documents
           </Link>
-        )}
+          {!isEditing && (
+            <Link href="/organization?edit=1" style={buttonSecondary}>
+              Edit
+            </Link>
+          )}
+        </div>
       </div>
       <p style={{ color: colors.textMuted, fontSize: 14 }}>
         This is the nonprofit&apos;s own knowledge base — AI will use it to propose which funder types
