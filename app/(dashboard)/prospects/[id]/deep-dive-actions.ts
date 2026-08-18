@@ -9,17 +9,28 @@ import { channelLabel } from "@/lib/prospects";
 import type { Strategy, OrganizationIntel, DeepDiveRun } from "@/lib/deep-dive";
 import type { OrgProfile } from "@/lib/organization";
 
-// The heavy-lifting call. Called by the client without being awaited
-// (fire-and-poll pattern) so the UI can navigate to the prospect page
-// and show live progress immediately rather than blocking on the
-// full research + strategy sequence. Each stage writes its own
-// status update, which is what the polling UI actually reads.
+// The heavy-lifting call. Triggered by the DESTINATION page (the
+// prospect's own DeepDivePanel) on mount, not by whatever page
+// navigated there -- a component that's about to unmount (like the
+// candidates list right before router.push) risks the browser
+// cancelling its in-flight request, which would silently kill the
+// research with no error and no result. started_at acts as a lock so
+// a page refresh mid-run doesn't fire a duplicate.
 export async function runDeepDive(runId: string, prospectId: string) {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
+
+  const { data: claimed } = await supabase
+    .from("deep_dive_runs")
+    .update({ started_at: new Date().toISOString() })
+    .eq("id", runId)
+    .is("started_at", null)
+    .select("id")
+    .maybeSingle();
+  if (!claimed) return; // already started (or started elsewhere) -- don't run it twice
 
   try {
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
@@ -31,16 +42,19 @@ export async function runDeepDive(runId: string, prospectId: string) {
       .limit(1)
       .maybeSingle<OrgProfile>();
 
+    // max_uses caps how many searches Claude can run in this pass --
+    // the main lever on latency. Kept tight on purpose: this is
+    // meant to be "fast enough to wait for," not exhaustive research.
     const searchResponse = await anthropic.messages.create({
       model: DRAFT_MODEL,
-      max_tokens: 3000,
-      tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 5 }],
+      max_tokens: 2000,
+      tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
       messages: [
         {
           role: "user",
           content: `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
 
-Find real, current information: funding priorities/focus areas, typical grant or gift size if publicly known, application process or how they prefer to be approached, recent notable gifts, and anything relevant to whether they're a good fit. Only report things you actually find -- do not invent facts.`,
+Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`,
         },
       ],
     });
@@ -196,7 +210,7 @@ export async function retryDeepDive(prospectId: string) {
     .insert({
       prospect_id: prospectId,
       status: "researching",
-      status_message: `Searching the web for information about ${prospect.name}...`,
+      status_message: `Researching ${prospect.name} and drafting a strategy...`,
       created_by: user.id,
     })
     .select("id")

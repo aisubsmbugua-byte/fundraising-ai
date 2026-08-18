@@ -153,17 +153,19 @@ export async function acceptCandidate(candidateId: string) {
     .eq("id", candidateId);
   if (updateError) throw new Error(updateError.message);
 
-  // Accepting is a commitment to pursue this prospect -- kick off the
-  // deep-dive research run now. Only the row is created here (fast);
-  // the actual research happens in a separate call the client
-  // triggers right after, so this action returns quickly and the
-  // client can navigate to the prospect page to show live progress.
+  // Accepting is a commitment to pursue this prospect -- create the
+  // deep-dive run row now (fast, just an insert). The actual research
+  // is deliberately NOT triggered from here: this component is about
+  // to unmount as we navigate to the prospect page, and an in-flight
+  // request from an unmounting component risks getting cancelled by
+  // the browser. The destination page's DeepDivePanel triggers the
+  // real work on mount instead, since it stays alive for the duration.
   const { data: run, error: runError } = await supabase
     .from("deep_dive_runs")
     .insert({
       prospect_id: prospect.id,
       status: "researching",
-      status_message: `Searching the web for information about ${candidate.name}...`,
+      status_message: `Researching ${candidate.name} and drafting a strategy...`,
       created_by: user.id,
     })
     .select("id")

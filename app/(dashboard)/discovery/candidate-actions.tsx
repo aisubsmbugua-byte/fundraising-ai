@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { acceptCandidate, dismissCandidate } from "./actions";
-import { runDeepDive } from "../prospects/[id]/deep-dive-actions";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { buttonPrimary, buttonSecondary } from "@/lib/ui";
 
@@ -41,10 +40,10 @@ export default function CandidateActions({ id, name }: { id: string; name: strin
           startTransition(async () => {
             const result = await acceptCandidate(id);
             if (result) {
-              // Fire the actual research without awaiting it here --
-              // the prospect page polls for progress, it doesn't need
-              // this call to resolve before navigating.
-              runDeepDive(result.runId, result.prospectId);
+              // The prospect page's DeepDivePanel triggers the actual
+              // research on mount -- not here, since this component
+              // is about to unmount and an in-flight request from an
+              // unmounting component risks getting cancelled.
               router.push(`/prospects/${result.prospectId}`);
             }
           });

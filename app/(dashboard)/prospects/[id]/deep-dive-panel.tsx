@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { getLatestDeepDiveRun, approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
 import type { DeepDiveRun, Strategy, OrganizationIntel } from "@/lib/deep-dive";
@@ -29,6 +29,20 @@ export default function DeepDivePanel({
   const [rationale, setRationale] = useState(run?.strategy?.rationale ?? "");
   const [intel, setIntel] = useState<OrganizationIntel>(run?.organization_intel ?? emptyIntel);
   const [focusAreasText, setFocusAreasText] = useState((run?.organization_intel?.focus_areas ?? []).join(", "));
+  const triggeredRef = useRef<string | null>(null);
+
+  // This panel is the stable "destination" component for a run, so
+  // it's responsible for actually kicking off the work -- not
+  // whatever page navigated here (see runDeepDive's comment for why).
+  // triggeredRef guards against firing twice for the same run within
+  // this component instance (e.g. React re-render); started_at on the
+  // server guards against firing twice across page loads/refreshes.
+  useEffect(() => {
+    if (run && run.status === "researching" && !run.started_at && triggeredRef.current !== run.id) {
+      triggeredRef.current = run.id;
+      runDeepDive(run.id, prospectId);
+    }
+  }, [run, prospectId]);
 
   // Poll while a run is actively researching/analyzing. Stops itself
   // once the run reaches a terminal state.
@@ -63,18 +77,25 @@ export default function DeepDivePanel({
       <h2 style={{ fontSize: 16 }}>Strategy</h2>
 
       {RUNNING_STATUSES.has(run.status) && (
-        <div style={{ ...cardStyle, marginTop: spacing.md, display: "flex", alignItems: "center", gap: spacing.sm }}>
-          <span
-            style={{
-              display: "inline-block",
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: colors.warning,
-              animation: "pulse 1.5s ease-in-out infinite",
-            }}
-          />
-          <span style={{ fontSize: 14, color: colors.text }}>{run.status_message ?? "Working…"}</span>
+        <div style={{ ...cardStyle, marginTop: spacing.md }}>
+          <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm }}>
+            Our AI is doing a deep dive on this prospect to formulate an outreach and ask strategy.
+            This typically takes a minute or two — this will update automatically as soon as it&apos;s
+            ready for your review.
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: colors.warning,
+                animation: "pulse 1.5s ease-in-out infinite",
+              }}
+            />
+            <span style={{ fontSize: 14, color: colors.text }}>{run.status_message ?? "Working…"}</span>
+          </div>
         </div>
       )}
 

@@ -20,6 +20,7 @@ export type DeepDiveRun = {
   prospect_id: string;
   status: DeepDiveStatus;
   status_message: string | null;
+  started_at: string | null;
   findings: string | null;
   strategy: Strategy | null;
   organization_intel: OrganizationIntel | null;
