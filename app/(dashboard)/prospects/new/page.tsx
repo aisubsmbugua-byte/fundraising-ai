@@ -1,6 +1,6 @@
 import { createProspect } from "../actions";
 import { CHANNELS } from "@/lib/prospects";
-import { spacing, fieldStyle, labelStyle, buttonPrimary } from "@/lib/ui";
+import { spacing, colors, fieldStyle, labelStyle, buttonPrimary } from "@/lib/ui";
 
 export default function NewProspectPage() {
   return (
@@ -44,6 +44,31 @@ export default function NewProspectPage() {
           Notes
           <textarea name="notes" rows={4} style={fieldStyle} />
         </label>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
+          Funder intelligence (optional — fill in what you already know)
+        </div>
+        <label style={labelStyle}>
+          Location
+          <input name="location" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          Funder type
+          <input name="funder_type" placeholder="e.g. private foundation, corporate giving" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          Geographic focus
+          <input name="geographic_focus" placeholder="e.g. nationwide, California only" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          Typical grant size
+          <input name="typical_grant_size" placeholder="e.g. $5,000-$25,000" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          Focus areas (comma-separated)
+          <input name="focus_areas" style={fieldStyle} />
+        </label>
+
         <button type="submit" style={buttonPrimary}>
           Create Prospect
         </button>
