@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { getLatestDeepDiveRun, approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
+import CollapsibleField from "@/components/CollapsibleField";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
 import type { DeepDiveRun, Strategy, OrganizationIntel } from "@/lib/deep-dive";
 
@@ -151,15 +152,15 @@ export default function DeepDivePanel({
                 </div>
                 <div>
                   <div style={labelStyle}>Outreach approach</div>
-                  <p>{run.approved_strategy?.outreach_approach}</p>
+                  <CollapsibleField value={run.approved_strategy?.outreach_approach ?? ""} />
                 </div>
                 <div>
                   <div style={labelStyle}>Ask positioning</div>
-                  <p>{run.approved_strategy?.ask_positioning}</p>
+                  <CollapsibleField value={run.approved_strategy?.ask_positioning ?? ""} />
                 </div>
                 <div>
                   <div style={labelStyle}>Rationale</div>
-                  <p style={{ color: colors.textMuted }}>{run.approved_strategy?.rationale}</p>
+                  <CollapsibleField value={run.approved_strategy?.rationale ?? ""} />
                 </div>
               </div>
             </>
@@ -220,33 +221,18 @@ export default function DeepDivePanel({
                 Strategy
               </div>
               <div style={{ display: "grid", gap: spacing.md, marginTop: spacing.xs }}>
-                <label style={labelStyle}>
-                  Outreach approach
-                  <textarea
-                    value={outreach}
-                    onChange={(e) => setOutreach(e.target.value)}
-                    rows={3}
-                    style={fieldStyle}
-                  />
-                </label>
-                <label style={labelStyle}>
-                  Ask positioning
-                  <textarea
-                    value={positioning}
-                    onChange={(e) => setPositioning(e.target.value)}
-                    rows={3}
-                    style={fieldStyle}
-                  />
-                </label>
-                <label style={labelStyle}>
-                  Rationale
-                  <textarea
-                    value={rationale}
-                    onChange={(e) => setRationale(e.target.value)}
-                    rows={3}
-                    style={fieldStyle}
-                  />
-                </label>
+                <div>
+                  <div style={labelStyle}>Outreach approach</div>
+                  <CollapsibleField value={outreach} onChange={setOutreach} />
+                </div>
+                <div>
+                  <div style={labelStyle}>Ask positioning</div>
+                  <CollapsibleField value={positioning} onChange={setPositioning} />
+                </div>
+                <div>
+                  <div style={labelStyle}>Rationale</div>
+                  <CollapsibleField value={rationale} onChange={setRationale} />
+                </div>
               </div>
               <button
                 type="button"
