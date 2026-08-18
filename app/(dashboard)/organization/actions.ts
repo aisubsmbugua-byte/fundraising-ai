@@ -13,7 +13,10 @@ export async function saveOrgProfile(formData: FormData) {
 
   const causeAreas = formData.getAll("cause_areas") as string[];
   const geographicAreas = formData.getAll("geographic_areas") as string[];
-  const notableFunders = formData.getAll("notable_funders") as string[];
+  const outcomes = formData.getAll("outcomes") as string[];
+  const orgValues = formData.getAll("org_values") as string[];
+  const notableFundersRaw = formData.get("notable_funders") as string | null;
+  const notableFunders = notableFundersRaw ? JSON.parse(notableFundersRaw) : [];
 
   const fields = {
     name: (formData.get("name") as string) || null,
@@ -31,8 +34,8 @@ export async function saveOrgProfile(formData: FormData) {
     who_we_serve: (formData.get("who_we_serve") as string) || null,
     geographic_areas: geographicAreas.length > 0 ? geographicAreas : null,
     hq_location: (formData.get("hq_location") as string) || null,
-    org_values: (formData.get("org_values") as string) || null,
-    outcomes: (formData.get("outcomes") as string) || null,
+    org_values: orgValues.length > 0 ? orgValues : null,
+    outcomes: outcomes.length > 0 ? outcomes : null,
     notable_funders: notableFunders.length > 0 ? notableFunders : null,
     updated_by: user.id,
     updated_at: new Date().toISOString(),

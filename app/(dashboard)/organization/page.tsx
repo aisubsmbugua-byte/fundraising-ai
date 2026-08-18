@@ -3,10 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { saveOrgProfile } from "./actions";
 import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, orgTypeLabel, type OrgProfile } from "@/lib/organization";
 import TagInput from "@/components/TagInput";
+import ListInput from "@/components/ListInput";
+import FunderInput from "@/components/FunderInput";
 import CurrencyInput from "@/components/CurrencyInput";
 import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
 import SubmitButton from "@/components/SubmitButton";
 import { spacing, colors, fieldStyle, labelStyle, sectionStyle, buttonSecondary } from "@/lib/ui";
+import type { Funder } from "@/lib/organization";
 
 const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.text, padding: "0 4px" };
 const viewLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
@@ -16,6 +19,43 @@ function ViewField({ label, value }: { label: string; value: React.ReactNode }) 
     <div>
       <div style={viewLabelStyle}>{label}</div>
       <div style={{ whiteSpace: "pre-wrap" }}>{value || "—"}</div>
+    </div>
+  );
+}
+
+function ViewList({ label, items }: { label: string; items?: string[] | null }) {
+  return (
+    <div>
+      <div style={viewLabelStyle}>{label}</div>
+      {items && items.length > 0 ? (
+        <ol style={{ margin: 0, paddingLeft: 20 }}>
+          {items.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ol>
+      ) : (
+        <div>—</div>
+      )}
+    </div>
+  );
+}
+
+function ViewFunders({ label, funders }: { label: string; funders?: Funder[] | null }) {
+  return (
+    <div>
+      <div style={viewLabelStyle}>{label}</div>
+      {funders && funders.length > 0 ? (
+        <ul style={{ margin: 0, paddingLeft: 20 }}>
+          {funders.map((f, i) => (
+            <li key={i}>
+              {f.name}
+              {f.location && <span style={{ color: colors.textMuted }}> — {f.location}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div>—</div>
+      )}
     </div>
   );
 }
@@ -208,27 +248,37 @@ export default async function OrganizationProfilePage({
 
           <fieldset style={sectionStyle}>
             <legend style={legendStyle}>Values</legend>
-            <label style={labelStyle}>
-              Core values or guiding principles that shape how you work (faith tradition, community
-              values, operating philosophy — whatever applies)
-              <textarea name="org_values" rows={3} defaultValue={profile?.org_values ?? ""} style={fieldStyle} />
-            </label>
+            <div>
+              <span style={labelStyle}>
+                Core values or guiding principles that shape how you work (faith tradition, community
+                values, operating philosophy — whatever applies)
+              </span>
+              <div style={{ marginTop: spacing.xs }}>
+                <ListInput
+                  name="org_values"
+                  defaultValue={profile?.org_values ?? []}
+                  placeholder="Type a value, press Enter to add"
+                />
+              </div>
+            </div>
           </fieldset>
 
           <fieldset style={sectionStyle}>
             <legend style={legendStyle}>Track record</legend>
-            <label style={labelStyle}>
-              Key outcomes / impact metrics
-              <textarea name="outcomes" rows={3} defaultValue={profile?.outcomes ?? ""} style={fieldStyle} />
-            </label>
+            <div>
+              <span style={labelStyle}>Key outcomes / impact metrics</span>
+              <div style={{ marginTop: spacing.xs }}>
+                <ListInput
+                  name="outcomes"
+                  defaultValue={profile?.outcomes ?? []}
+                  placeholder="Type an outcome, press Enter to add"
+                />
+              </div>
+            </div>
             <div>
               <span style={labelStyle}>Notable past or current funders</span>
               <div style={{ marginTop: spacing.xs }}>
-                <TagInput
-                  name="notable_funders"
-                  defaultValue={profile?.notable_funders ?? []}
-                  placeholder="Type a funder name, press Enter to add"
-                />
+                <FunderInput name="notable_funders" defaultValue={profile?.notable_funders ?? []} />
               </div>
             </div>
           </fieldset>
@@ -276,12 +326,12 @@ export default async function OrganizationProfilePage({
           </ViewSection>
 
           <ViewSection title="Values">
-            <ViewField label="Core values or guiding principles" value={profile?.org_values} />
+            <ViewList label="Core values or guiding principles" items={profile?.org_values} />
           </ViewSection>
 
           <ViewSection title="Track record">
-            <ViewField label="Key outcomes / impact metrics" value={profile?.outcomes} />
-            <ViewField label="Notable past or current funders" value={profile?.notable_funders?.join(", ")} />
+            <ViewList label="Key outcomes / impact metrics" items={profile?.outcomes} />
+            <ViewFunders label="Notable past or current funders" funders={profile?.notable_funders} />
           </ViewSection>
         </div>
       )}

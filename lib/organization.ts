@@ -44,6 +44,8 @@ export const GEO_SUGGESTIONS = [
   "Wisconsin", "Wyoming",
 ] as const;
 
+export type Funder = { name: string; location: string };
+
 export type OrgProfile = {
   id: string;
   name: string | null;
@@ -61,9 +63,9 @@ export type OrgProfile = {
   who_we_serve: string | null;
   geographic_areas: string[] | null;
   hq_location: string | null;
-  org_values: string | null;
-  outcomes: string | null;
-  notable_funders: string[] | null;
+  org_values: string[] | null;
+  outcomes: string[] | null;
+  notable_funders: Funder[] | null;
   updated_by: string | null;
   updated_at: string;
 };
