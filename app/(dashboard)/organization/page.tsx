@@ -99,7 +99,7 @@ export default async function OrganizationProfilePage({
         <h1>Organization Profile</h1>
         <div style={{ display: "flex", gap: spacing.sm }}>
           <Link href="/organization/documents" style={buttonSecondary}>
-            Documents
+            Upload Documents
           </Link>
           {!isEditing && (
             <Link href="/organization?edit=1" style={buttonSecondary}>

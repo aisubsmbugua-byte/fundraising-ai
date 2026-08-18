@@ -44,7 +44,7 @@ export default async function OrgDocumentsPage() {
       <Link href="/organization" style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
         ← Back to Organization Profile
       </Link>
-      <h1>Documents</h1>
+      <h1>Upload Documents</h1>
       <p style={{ color: colors.textMuted, fontSize: 14 }}>
         Upload supporting documents (990s, strategic plans, annual reports) for your team&apos;s
         reference. These are stored for humans to read — they aren&apos;t yet parsed for AI to use
