@@ -152,15 +152,15 @@ export default function DeepDivePanel({
                 </div>
                 <div>
                   <div style={labelStyle}>Outreach approach</div>
-                  <CollapsibleField value={run.approved_strategy?.outreach_approach ?? ""} />
+                  <CollapsibleField label="Outreach approach" value={run.approved_strategy?.outreach_approach ?? ""} />
                 </div>
                 <div>
                   <div style={labelStyle}>Ask positioning</div>
-                  <CollapsibleField value={run.approved_strategy?.ask_positioning ?? ""} />
+                  <CollapsibleField label="Ask positioning" value={run.approved_strategy?.ask_positioning ?? ""} />
                 </div>
                 <div>
                   <div style={labelStyle}>Rationale</div>
-                  <CollapsibleField value={run.approved_strategy?.rationale ?? ""} />
+                  <CollapsibleField label="Rationale" value={run.approved_strategy?.rationale ?? ""} />
                 </div>
               </div>
             </>
@@ -223,15 +223,15 @@ export default function DeepDivePanel({
               <div style={{ display: "grid", gap: spacing.md, marginTop: spacing.xs }}>
                 <div>
                   <div style={labelStyle}>Outreach approach</div>
-                  <CollapsibleField value={outreach} onChange={setOutreach} />
+                  <CollapsibleField label="Outreach approach" value={outreach} onChange={setOutreach} />
                 </div>
                 <div>
                   <div style={labelStyle}>Ask positioning</div>
-                  <CollapsibleField value={positioning} onChange={setPositioning} />
+                  <CollapsibleField label="Ask positioning" value={positioning} onChange={setPositioning} />
                 </div>
                 <div>
                   <div style={labelStyle}>Rationale</div>
-                  <CollapsibleField value={rationale} onChange={setRationale} />
+                  <CollapsibleField label="Rationale" value={rationale} onChange={setRationale} />
                 </div>
               </div>
               <button
