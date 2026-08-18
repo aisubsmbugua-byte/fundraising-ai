@@ -7,6 +7,14 @@ export type Strategy = {
   rationale: string;
 };
 
+export type OrganizationIntel = {
+  location: string;
+  funder_type: string;
+  geographic_focus: string;
+  typical_grant_size: string;
+  focus_areas: string[];
+};
+
 export type DeepDiveRun = {
   id: string;
   prospect_id: string;
@@ -14,6 +22,7 @@ export type DeepDiveRun = {
   status_message: string | null;
   findings: string | null;
   strategy: Strategy | null;
+  organization_intel: OrganizationIntel | null;
   model: string | null;
   error_message: string | null;
   created_by: string;

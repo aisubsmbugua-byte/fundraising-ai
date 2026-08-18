@@ -3,9 +3,17 @@
 import { useEffect, useState, useTransition } from "react";
 import { getLatestDeepDiveRun, approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
-import type { DeepDiveRun, Strategy } from "@/lib/deep-dive";
+import type { DeepDiveRun, Strategy, OrganizationIntel } from "@/lib/deep-dive";
 
 const RUNNING_STATUSES = new Set(["researching", "analyzing"]);
+
+const emptyIntel: OrganizationIntel = {
+  location: "",
+  funder_type: "",
+  geographic_focus: "",
+  typical_grant_size: "",
+  focus_areas: [],
+};
 
 export default function DeepDivePanel({
   prospectId,
@@ -19,6 +27,8 @@ export default function DeepDivePanel({
   const [outreach, setOutreach] = useState(run?.strategy?.outreach_approach ?? "");
   const [positioning, setPositioning] = useState(run?.strategy?.ask_positioning ?? "");
   const [rationale, setRationale] = useState(run?.strategy?.rationale ?? "");
+  const [intel, setIntel] = useState<OrganizationIntel>(run?.organization_intel ?? emptyIntel);
+  const [focusAreasText, setFocusAreasText] = useState((run?.organization_intel?.focus_areas ?? []).join(", "));
 
   // Poll while a run is actively researching/analyzing. Stops itself
   // once the run reaches a terminal state.
@@ -33,6 +43,10 @@ export default function DeepDivePanel({
           setOutreach(latest.strategy.outreach_approach);
           setPositioning(latest.strategy.ask_positioning);
           setRationale(latest.strategy.rationale);
+        }
+        if (latest.status === "ready_for_review" && latest.organization_intel) {
+          setIntel(latest.organization_intel);
+          setFocusAreasText(latest.organization_intel.focus_areas.join(", "));
         }
       }
     }, 1200);
@@ -97,6 +111,24 @@ export default function DeepDivePanel({
               </p>
               <div style={{ display: "grid", gap: spacing.sm, fontSize: 14 }}>
                 <div>
+                  <div style={labelStyle}>Funder intelligence</div>
+                  <p style={{ color: colors.textMuted }}>
+                    {[
+                      run.organization_intel?.funder_type,
+                      run.organization_intel?.location,
+                      run.organization_intel?.geographic_focus,
+                      run.organization_intel?.typical_grant_size,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </p>
+                  {run.organization_intel?.focus_areas && run.organization_intel.focus_areas.length > 0 && (
+                    <p style={{ color: colors.textMuted, fontSize: 13 }}>
+                      Focus areas: {run.organization_intel.focus_areas.join(", ")}
+                    </p>
+                  )}
+                </div>
+                <div>
                   <div style={labelStyle}>Outreach approach</div>
                   <p>{run.approved_strategy?.outreach_approach}</p>
                 </div>
@@ -113,10 +145,60 @@ export default function DeepDivePanel({
           ) : (
             <>
               <p style={{ fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm }}>
-                AI-proposed strategy — review and edit before approving. Nothing downstream (drafting
-                outreach content) happens until this is approved.
+                AI-proposed — review and edit before approving. Approving applies the funder intelligence
+                below to this prospect's record and unlocks outreach drafting. Nothing happens until then.
               </p>
-              <div style={{ display: "grid", gap: spacing.md }}>
+
+              <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.md }}>
+                Funder intelligence
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.sm, marginTop: spacing.xs }}>
+                <label style={labelStyle}>
+                  Location
+                  <input
+                    value={intel.location}
+                    onChange={(e) => setIntel({ ...intel, location: e.target.value })}
+                    style={fieldStyle}
+                  />
+                </label>
+                <label style={labelStyle}>
+                  Funder type
+                  <input
+                    value={intel.funder_type}
+                    onChange={(e) => setIntel({ ...intel, funder_type: e.target.value })}
+                    style={fieldStyle}
+                  />
+                </label>
+                <label style={labelStyle}>
+                  Geographic focus
+                  <input
+                    value={intel.geographic_focus}
+                    onChange={(e) => setIntel({ ...intel, geographic_focus: e.target.value })}
+                    style={fieldStyle}
+                  />
+                </label>
+                <label style={labelStyle}>
+                  Typical grant size
+                  <input
+                    value={intel.typical_grant_size}
+                    onChange={(e) => setIntel({ ...intel, typical_grant_size: e.target.value })}
+                    style={fieldStyle}
+                  />
+                </label>
+              </div>
+              <label style={{ ...labelStyle, display: "block", marginTop: spacing.sm }}>
+                Focus areas (comma-separated)
+                <input
+                  value={focusAreasText}
+                  onChange={(e) => setFocusAreasText(e.target.value)}
+                  style={fieldStyle}
+                />
+              </label>
+
+              <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.lg }}>
+                Strategy
+              </div>
+              <div style={{ display: "grid", gap: spacing.md, marginTop: spacing.xs }}>
                 <label style={labelStyle}>
                   Outreach approach
                   <textarea
@@ -150,12 +232,19 @@ export default function DeepDivePanel({
                 disabled={isPending}
                 onClick={() =>
                   startTransition(async () => {
-                    const approved: Strategy = {
+                    const approvedStrategy: Strategy = {
                       outreach_approach: outreach,
                       ask_positioning: positioning,
                       rationale,
                     };
-                    await approveStrategy(run.id, prospectId, approved);
+                    const approvedIntel: OrganizationIntel = {
+                      ...intel,
+                      focus_areas: focusAreasText
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    };
+                    await approveStrategy(run.id, prospectId, approvedStrategy, approvedIntel);
                     const latest = await getLatestDeepDiveRun(prospectId);
                     setRun(latest);
                   })

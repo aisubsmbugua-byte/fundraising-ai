@@ -40,6 +40,13 @@ export type Prospect = {
   notes: string | null;
   owner_id: string;
   stage: Stage;
+  // Funder intelligence -- populated from AI deep-dive research when
+  // a human approves the strategy, not hand-entered.
+  location: string | null;
+  funder_type: string | null;
+  geographic_focus: string | null;
+  typical_grant_size: string | null;
+  focus_areas: string[] | null;
   created_at: string;
   updated_at: string;
 };

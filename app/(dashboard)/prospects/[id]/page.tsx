@@ -165,6 +165,26 @@ export default async function ProspectDetailPage({
             <dt style={fieldLabelStyle}>Notes</dt>
             <dd style={{ whiteSpace: "pre-wrap" }}>{prospect.notes ?? "—"}</dd>
           </div>
+          <div>
+            <dt style={fieldLabelStyle}>Location</dt>
+            <dd>{prospect.location ?? "— (from deep-dive research, once approved)"}</dd>
+          </div>
+          <div>
+            <dt style={fieldLabelStyle}>Funder type</dt>
+            <dd>{prospect.funder_type ?? "—"}</dd>
+          </div>
+          <div>
+            <dt style={fieldLabelStyle}>Geographic focus</dt>
+            <dd>{prospect.geographic_focus ?? "—"}</dd>
+          </div>
+          <div>
+            <dt style={fieldLabelStyle}>Typical grant size</dt>
+            <dd>{prospect.typical_grant_size ?? "—"}</dd>
+          </div>
+          <div>
+            <dt style={fieldLabelStyle}>Focus areas</dt>
+            <dd>{prospect.focus_areas?.join(", ") ?? "—"}</dd>
+          </div>
         </dl>
       )}
 

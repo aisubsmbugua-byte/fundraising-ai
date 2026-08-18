@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { buildProfileSummary } from "@/lib/channel-match";
 import { channelLabel } from "@/lib/prospects";
-import type { Strategy, DeepDiveRun } from "@/lib/deep-dive";
+import type { Strategy, OrganizationIntel, DeepDiveRun } from "@/lib/deep-dive";
 import type { OrgProfile } from "@/lib/organization";
 
 // The heavy-lifting call. Called by the client without being awaited
@@ -60,37 +60,71 @@ Find real, current information: funding priorities/focus areas, typical grant or
 
     const strategyResponse = await anthropic.messages.create({
       model: DRAFT_MODEL,
-      max_tokens: 1500,
+      max_tokens: 2000,
       tools: [
         {
-          name: "submit_strategy",
-          description: "Submit the proposed outreach and ask strategy for this prospect.",
+          name: "submit_deep_dive_results",
+          description: "Submit the extracted funder intelligence and proposed strategy for this prospect.",
           input_schema: {
             type: "object",
             properties: {
-              outreach_approach: {
-                type: "string",
-                description: "How to make first contact and build the relationship",
-              },
-              ask_positioning: {
-                type: "string",
+              organization_intel: {
+                type: "object",
                 description:
-                  "How to position the proposal/grant/ask, including likely ask size or type if determinable",
+                  "Structured facts about the funder extracted from research. Use an empty string / empty array for anything not determinable -- do not guess.",
+                properties: {
+                  location: { type: "string", description: "City/state/country the funder is based in, if found" },
+                  funder_type: {
+                    type: "string",
+                    description:
+                      "e.g. private foundation, corporate giving program, family foundation, denominational fund, individual/DAF",
+                  },
+                  geographic_focus: {
+                    type: "string",
+                    description: "Where this funder typically gives, e.g. 'nationwide', 'California only'",
+                  },
+                  typical_grant_size: {
+                    type: "string",
+                    description: "Typical grant/gift range if publicly determinable, e.g. '$5,000-$25,000'",
+                  },
+                  focus_areas: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Cause areas or program areas this funder typically supports",
+                  },
+                },
+                required: ["location", "funder_type", "geographic_focus", "typical_grant_size", "focus_areas"],
               },
-              rationale: {
-                type: "string",
-                description: "Why this approach, grounded in the research findings and the nonprofit's profile",
+              strategy: {
+                type: "object",
+                properties: {
+                  outreach_approach: {
+                    type: "string",
+                    description: "How to make first contact and build the relationship",
+                  },
+                  ask_positioning: {
+                    type: "string",
+                    description:
+                      "How to position the proposal/grant/ask, including likely ask size or type if determinable",
+                  },
+                  rationale: {
+                    type: "string",
+                    description:
+                      "Why this approach, grounded in the research findings and the nonprofit's profile",
+                  },
+                },
+                required: ["outreach_approach", "ask_positioning", "rationale"],
               },
             },
-            required: ["outreach_approach", "ask_positioning", "rationale"],
+            required: ["organization_intel", "strategy"],
           },
         },
       ],
-      tool_choice: { type: "tool", name: "submit_strategy" },
+      tool_choice: { type: "tool", name: "submit_deep_dive_results" },
       messages: [
         {
           role: "user",
-          content: `Based on the research findings below about "${prospect.name}", propose a strategy for pursuing this funder.
+          content: `Based on the research findings below about "${prospect.name}", extract structured funder intelligence and propose a strategy for pursuing this funder.
 
 Research findings:
 ${findings || "(no findings)"}
@@ -103,10 +137,10 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
 
     const toolUse = strategyResponse.content.find((block) => block.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") {
-      throw new Error("AI did not return a structured strategy. Try again.");
+      throw new Error("AI did not return a structured result. Try again.");
     }
 
-    const strategy = toolUse.input as Strategy;
+    const result = toolUse.input as { organization_intel: OrganizationIntel; strategy: Strategy };
 
     await supabase
       .from("deep_dive_runs")
@@ -114,7 +148,8 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
         status: "ready_for_review",
         status_message: "Strategy ready for review",
         findings,
-        strategy,
+        strategy: result.strategy,
+        organization_intel: result.organization_intel,
         model: DRAFT_MODEL,
       })
       .eq("id", runId);
@@ -170,7 +205,12 @@ export async function getLatestDeepDiveRun(prospectId: string): Promise<DeepDive
   return data ?? null;
 }
 
-export async function approveStrategy(runId: string, prospectId: string, approvedStrategy: Strategy) {
+export async function approveStrategy(
+  runId: string,
+  prospectId: string,
+  approvedStrategy: Strategy,
+  approvedIntel: OrganizationIntel
+) {
   const supabase = createClient();
   const {
     data: { user },
@@ -186,6 +226,22 @@ export async function approveStrategy(runId: string, prospectId: string, approve
     })
     .eq("id", runId);
   if (error) throw new Error(error.message);
+
+  // Applying the (human-reviewed, possibly edited) funder intel to
+  // the prospect record happens in this same approval step -- one
+  // gate covers both the strategy and the CRM data it's grounded in.
+  const { error: prospectError } = await supabase
+    .from("prospects")
+    .update({
+      location: approvedIntel.location || null,
+      funder_type: approvedIntel.funder_type || null,
+      geographic_focus: approvedIntel.geographic_focus || null,
+      typical_grant_size: approvedIntel.typical_grant_size || null,
+      focus_areas: approvedIntel.focus_areas?.length ? approvedIntel.focus_areas : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", prospectId);
+  if (prospectError) throw new Error(prospectError.message);
 
   revalidatePath(`/prospects/${prospectId}`);
 }
