@@ -126,6 +126,31 @@ export default async function ProspectDetailPage({
             Notes
             <textarea name="notes" rows={4} defaultValue={prospect.notes ?? ""} style={fieldStyle} />
           </label>
+
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
+            Funder intelligence
+          </div>
+          <label style={labelStyle}>
+            Location
+            <input name="location" defaultValue={prospect.location ?? ""} style={fieldStyle} />
+          </label>
+          <label style={labelStyle}>
+            Funder type
+            <input name="funder_type" defaultValue={prospect.funder_type ?? ""} style={fieldStyle} />
+          </label>
+          <label style={labelStyle}>
+            Geographic focus
+            <input name="geographic_focus" defaultValue={prospect.geographic_focus ?? ""} style={fieldStyle} />
+          </label>
+          <label style={labelStyle}>
+            Typical grant size
+            <input name="typical_grant_size" defaultValue={prospect.typical_grant_size ?? ""} style={fieldStyle} />
+          </label>
+          <label style={labelStyle}>
+            Focus areas (comma-separated)
+            <input name="focus_areas" defaultValue={prospect.focus_areas?.join(", ") ?? ""} style={fieldStyle} />
+          </label>
+
           <div style={{ display: "flex", gap: spacing.sm }}>
             <button type="submit" style={buttonPrimary}>
               Save Changes

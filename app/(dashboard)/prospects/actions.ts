@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 
 function fieldsFromForm(formData: FormData) {
+  const focusAreas = (formData.get("focus_areas") as string) || "";
   return {
     name: formData.get("name") as string,
     channel: formData.get("channel") as string,
@@ -14,6 +15,16 @@ function fieldsFromForm(formData: FormData) {
     contact_email: (formData.get("contact_email") as string) || null,
     website: (formData.get("website") as string) || null,
     notes: (formData.get("notes") as string) || null,
+    location: (formData.get("location") as string) || null,
+    funder_type: (formData.get("funder_type") as string) || null,
+    geographic_focus: (formData.get("geographic_focus") as string) || null,
+    typical_grant_size: (formData.get("typical_grant_size") as string) || null,
+    focus_areas: focusAreas
+      ? focusAreas
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null,
   };
 }
 

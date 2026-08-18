@@ -19,6 +19,8 @@ export async function createCandidate(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const focusAreas = (formData.get("focus_areas") as string) || "";
+
   const candidate = {
     name: formData.get("name") as string,
     channel: formData.get("channel") as string,
@@ -26,6 +28,16 @@ export async function createCandidate(formData: FormData) {
     website: (formData.get("website") as string) || null,
     contact_name: (formData.get("contact_name") as string) || null,
     contact_email: (formData.get("contact_email") as string) || null,
+    location: (formData.get("location") as string) || null,
+    funder_type: (formData.get("funder_type") as string) || null,
+    geographic_focus: (formData.get("geographic_focus") as string) || null,
+    typical_grant_size: (formData.get("typical_grant_size") as string) || null,
+    focus_areas: focusAreas
+      ? focusAreas
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null,
     source: "manual",
     raw: null,
   };
@@ -74,6 +86,16 @@ export async function importCandidatesCsv(formData: FormData) {
       website: row.website || null,
       contact_name: row.contact_name || null,
       contact_email: row.contact_email || null,
+      location: row.location || null,
+      funder_type: row.funder_type || null,
+      geographic_focus: row.geographic_focus || null,
+      typical_grant_size: row.typical_grant_size || null,
+      focus_areas: row.focus_areas
+        ? row.focus_areas
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : null,
       source: "csv_import",
       raw: row,
     };
@@ -113,6 +135,11 @@ export async function acceptCandidate(candidateId: string) {
       contact_name: candidate.contact_name,
       contact_email: candidate.contact_email,
       website: candidate.website,
+      location: candidate.location,
+      funder_type: candidate.funder_type,
+      geographic_focus: candidate.geographic_focus,
+      typical_grant_size: candidate.typical_grant_size,
+      focus_areas: candidate.focus_areas,
       owner_id: user.id,
       stage: "discovery",
     })

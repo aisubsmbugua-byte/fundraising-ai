@@ -142,6 +142,20 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
 
     const result = toolUse.input as { organization_intel: OrganizationIntel; strategy: Strategy };
 
+    // AI fills gaps, never overwrites data that's already there --
+    // if this candidate had location/funder_type/etc. entered
+    // manually at intake, an empty AI result shouldn't clobber it.
+    const mergedIntel: OrganizationIntel = {
+      location: prospect.location || result.organization_intel.location,
+      funder_type: prospect.funder_type || result.organization_intel.funder_type,
+      geographic_focus: prospect.geographic_focus || result.organization_intel.geographic_focus,
+      typical_grant_size: prospect.typical_grant_size || result.organization_intel.typical_grant_size,
+      focus_areas:
+        prospect.focus_areas && prospect.focus_areas.length > 0
+          ? prospect.focus_areas
+          : result.organization_intel.focus_areas,
+    };
+
     await supabase
       .from("deep_dive_runs")
       .update({
@@ -149,7 +163,7 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
         status_message: "Strategy ready for review",
         findings,
         strategy: result.strategy,
-        organization_intel: result.organization_intel,
+        organization_intel: mergedIntel,
         model: DRAFT_MODEL,
       })
       .eq("id", runId);

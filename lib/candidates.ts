@@ -9,6 +9,11 @@ export type Candidate = {
   website: string | null;
   contact_name: string | null;
   contact_email: string | null;
+  location: string | null;
+  funder_type: string | null;
+  geographic_focus: string | null;
+  typical_grant_size: string | null;
+  focus_areas: string[] | null;
   source: string | null;
   raw: Record<string, unknown> | null;
   suggested_tier: number | null;
