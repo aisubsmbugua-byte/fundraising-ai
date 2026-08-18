@@ -17,12 +17,19 @@ export async function saveOrgProfile(formData: FormData) {
   const orgValues = formData.getAll("org_values") as string[];
   const notableFundersRaw = formData.get("notable_funders") as string | null;
   const notableFunders = notableFundersRaw ? JSON.parse(notableFundersRaw) : [];
+  const keyPeopleRaw = formData.get("key_people") as string | null;
+  const keyPeople = keyPeopleRaw ? JSON.parse(keyPeopleRaw) : [];
+  const socialLinksRaw = formData.get("social_links") as string | null;
+  const socialLinks = socialLinksRaw ? JSON.parse(socialLinksRaw) : [];
 
   const fields = {
     name: (formData.get("name") as string) || null,
     org_type: (formData.get("org_type") as string) || null,
     org_type_other: (formData.get("org_type_other") as string) || null,
     year_founded: formData.get("year_founded") ? Number(formData.get("year_founded")) : null,
+    website: (formData.get("website") as string) || null,
+    key_people: keyPeople.length > 0 ? keyPeople : null,
+    social_links: socialLinks.length > 0 ? socialLinks : null,
     annual_budget: formData.get("annual_budget") ? Number(formData.get("annual_budget")) : null,
     funding_need: (formData.get("funding_need") as string) || null,
     problem_statement: (formData.get("problem_statement") as string) || null,

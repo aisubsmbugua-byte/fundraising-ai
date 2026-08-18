@@ -5,11 +5,11 @@ import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, orgTypeLabel, type OrgProfile 
 import TagInput from "@/components/TagInput";
 import ListInput from "@/components/ListInput";
 import FunderInput from "@/components/FunderInput";
+import PairRepeater from "@/components/PairRepeater";
 import CurrencyInput from "@/components/CurrencyInput";
 import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
 import SubmitButton from "@/components/SubmitButton";
 import { spacing, colors, fieldStyle, labelStyle, sectionStyle, buttonSecondary } from "@/lib/ui";
-import type { Funder } from "@/lib/organization";
 
 const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.text, padding: "0 4px" };
 const viewLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
@@ -40,16 +40,26 @@ function ViewList({ label, items }: { label: string; items?: string[] | null }) 
   );
 }
 
-function ViewFunders({ label, funders }: { label: string; funders?: Funder[] | null }) {
+function ViewPairs({
+  label,
+  items,
+  keyA,
+  keyB,
+}: {
+  label: string;
+  items?: Record<string, string>[] | null;
+  keyA: string;
+  keyB: string;
+}) {
   return (
     <div>
       <div style={viewLabelStyle}>{label}</div>
-      {funders && funders.length > 0 ? (
+      {items && items.length > 0 ? (
         <ul style={{ margin: 0, paddingLeft: 20 }}>
-          {funders.map((f, i) => (
+          {items.map((item, i) => (
             <li key={i}>
-              {f.name}
-              {f.location && <span style={{ color: colors.textMuted }}> — {f.location}</span>}
+              {item[keyA]}
+              {item[keyB] && <span style={{ color: colors.textMuted }}> — {item[keyB]}</span>}
             </li>
           ))}
         </ul>
@@ -145,6 +155,46 @@ export default async function OrganizationProfilePage({
                 style={fieldStyle}
               />
             </label>
+            <label style={labelStyle}>
+              Website
+              <input name="website" type="url" defaultValue={profile?.website ?? ""} style={fieldStyle} />
+            </label>
+          </fieldset>
+
+          <fieldset style={sectionStyle}>
+            <legend style={legendStyle}>Key people</legend>
+            <div>
+              <span style={labelStyle}>Leadership (founder, executive director, board chair, etc.)</span>
+              <div style={{ marginTop: spacing.xs }}>
+                <PairRepeater
+                  name="key_people"
+                  defaultValue={profile?.key_people ?? []}
+                  keyA="name"
+                  keyB="role"
+                  placeholderA="Full name"
+                  placeholderB="Title / role"
+                />
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset style={sectionStyle}>
+            <legend style={legendStyle}>Online presence</legend>
+            <div>
+              <span style={labelStyle}>Social media links</span>
+              <div style={{ marginTop: spacing.xs }}>
+                <PairRepeater
+                  name="social_links"
+                  defaultValue={profile?.social_links ?? []}
+                  keyA="platform"
+                  keyB="url"
+                  placeholderA="Platform (e.g. Instagram)"
+                  placeholderB="URL"
+                  widthA={1}
+                  widthB={2}
+                />
+              </div>
+            </div>
           </fieldset>
 
           <fieldset style={sectionStyle}>
@@ -301,6 +351,24 @@ export default async function OrganizationProfilePage({
               value={profile?.org_type === "other" ? profile?.org_type_other : orgTypeLabel(profile?.org_type ?? null)}
             />
             <ViewField label="Year founded" value={profile?.year_founded} />
+            <ViewField
+              label="Website"
+              value={
+                profile?.website ? (
+                  <a href={profile.website} target="_blank" rel="noopener noreferrer">
+                    {profile.website}
+                  </a>
+                ) : null
+              }
+            />
+          </ViewSection>
+
+          <ViewSection title="Key people">
+            <ViewPairs label="Leadership" items={profile?.key_people} keyA="name" keyB="role" />
+          </ViewSection>
+
+          <ViewSection title="Online presence">
+            <ViewPairs label="Social media links" items={profile?.social_links} keyA="platform" keyB="url" />
           </ViewSection>
 
           <ViewSection title="Financial">
@@ -331,7 +399,7 @@ export default async function OrganizationProfilePage({
 
           <ViewSection title="Track record">
             <ViewList label="Key outcomes / impact metrics" items={profile?.outcomes} />
-            <ViewFunders label="Notable past or current funders" funders={profile?.notable_funders} />
+            <ViewPairs label="Notable past or current funders" items={profile?.notable_funders} keyA="name" keyB="location" />
           </ViewSection>
         </div>
       )}
