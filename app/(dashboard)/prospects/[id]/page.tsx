@@ -7,7 +7,9 @@ import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import DeleteProspectButton from "./delete-button";
 import ScreenButton from "./screen-button";
 import TierBadge from "@/components/TierBadge";
+import DeepDivePanel from "./deep-dive-panel";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
+import type { DeepDiveRun } from "@/lib/deep-dive";
 
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
 
@@ -42,6 +44,14 @@ export default async function ProspectDetailPage({
     .returns<ScreeningResult[]>();
 
   const latestScreening = screenings?.[0] ?? null;
+
+  const { data: deepDiveRun } = await supabase
+    .from("deep_dive_runs")
+    .select("*")
+    .eq("prospect_id", prospect.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<DeepDiveRun>();
 
   const isEditing = searchParams.edit === "1";
   const boundUpdate = updateProspect.bind(null, prospect.id);
@@ -209,6 +219,8 @@ export default async function ProspectDetailPage({
           <p style={{ color: colors.textFaint, fontSize: 13, marginTop: spacing.sm }}>Not screened yet.</p>
         )}
       </div>
+
+      <DeepDivePanel prospectId={prospect.id} initialRun={deepDiveRun ?? null} />
     </div>
   );
 }

@@ -104,17 +104,21 @@ export async function acceptCandidate(candidateId: string) {
     .single();
   if (fetchError || !candidate) throw new Error("Candidate not found");
 
-  const { error: insertError } = await supabase.from("prospects").insert({
-    name: candidate.name,
-    channel: candidate.channel,
-    organization: candidate.organization,
-    contact_name: candidate.contact_name,
-    contact_email: candidate.contact_email,
-    website: candidate.website,
-    owner_id: user.id,
-    stage: "discovery",
-  });
-  if (insertError) throw new Error(insertError.message);
+  const { data: prospect, error: insertError } = await supabase
+    .from("prospects")
+    .insert({
+      name: candidate.name,
+      channel: candidate.channel,
+      organization: candidate.organization,
+      contact_name: candidate.contact_name,
+      contact_email: candidate.contact_email,
+      website: candidate.website,
+      owner_id: user.id,
+      stage: "discovery",
+    })
+    .select("id")
+    .single();
+  if (insertError || !prospect) throw new Error(insertError?.message ?? "Failed to create prospect");
 
   const { error: updateError } = await supabase
     .from("candidates")
@@ -122,8 +126,27 @@ export async function acceptCandidate(candidateId: string) {
     .eq("id", candidateId);
   if (updateError) throw new Error(updateError.message);
 
+  // Accepting is a commitment to pursue this prospect -- kick off the
+  // deep-dive research run now. Only the row is created here (fast);
+  // the actual research happens in a separate call the client
+  // triggers right after, so this action returns quickly and the
+  // client can navigate to the prospect page to show live progress.
+  const { data: run, error: runError } = await supabase
+    .from("deep_dive_runs")
+    .insert({
+      prospect_id: prospect.id,
+      status: "researching",
+      status_message: `Searching the web for information about ${candidate.name}...`,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (runError || !run) throw new Error(runError?.message ?? "Failed to start deep dive");
+
   revalidatePath("/discovery");
   revalidatePath("/prospects");
+
+  return { prospectId: prospect.id as string, runId: run.id as string };
 }
 
 export async function dismissCandidate(candidateId: string) {
