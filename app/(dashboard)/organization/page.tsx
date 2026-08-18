@@ -9,6 +9,7 @@ import PairRepeater from "@/components/PairRepeater";
 import CurrencyInput from "@/components/CurrencyInput";
 import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
 import SubmitButton from "@/components/SubmitButton";
+import DocumentsModal from "./documents-modal";
 import { spacing, colors, fieldStyle, labelStyle, sectionStyle, buttonSecondary } from "@/lib/ui";
 
 const legendStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.text, padding: "0 4px" };
@@ -91,6 +92,18 @@ export default async function OrganizationProfilePage({
   const supabase = createClient();
   const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
 
+  const { data: documents } = await supabase
+    .from("org_documents")
+    .select("*")
+    .order("uploaded_at", { ascending: false });
+
+  const documentsWithUrls = await Promise.all(
+    (documents ?? []).map(async (doc) => {
+      const { data } = await supabase.storage.from("org-documents").createSignedUrl(doc.storage_path, 3600);
+      return { ...doc, url: data?.signedUrl ?? null };
+    })
+  );
+
   const isEditing = searchParams.edit === "1" || !profile;
 
   return (
@@ -98,9 +111,7 @@ export default async function OrganizationProfilePage({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>Organization Profile</h1>
         <div style={{ display: "flex", gap: spacing.sm }}>
-          <Link href="/organization/documents" style={buttonSecondary}>
-            Upload Documents
-          </Link>
+          <DocumentsModal documents={documentsWithUrls} />
           {!isEditing && (
             <Link href="/organization?edit=1" style={buttonSecondary}>
               Edit

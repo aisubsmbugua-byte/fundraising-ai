@@ -35,7 +35,7 @@ export async function uploadOrgDocument(formData: FormData) {
   });
   if (insertError) throw new Error(insertError.message);
 
-  revalidatePath("/organization/documents");
+  revalidatePath("/organization");
 }
 
 export async function deleteOrgDocument(id: string, storagePath: string) {
@@ -50,5 +50,5 @@ export async function deleteOrgDocument(id: string, storagePath: string) {
   const { error } = await supabase.from("org_documents").delete().eq("id", id);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/organization/documents");
+  revalidatePath("/organization");
 }
