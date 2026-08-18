@@ -22,6 +22,22 @@ This is compatible with the hard rules above, not an exception to them. AI does 
 
 Slices build toward this incrementally. Slices 1–3 are deliberately human-scaffolded (manual CRM, human-gated pipeline, human-authored screening rules) — that scaffolding doesn't get replaced, AI-suggested capability layers on top of it. Later slices add the knowledge bases (evidence library, Slice 6) and AI capability (drafting, Slice 5; AI-assisted discovery and matching, planned expansions of Slices 3–4) that this vision needs. Each relevant slice doc has a "Where this grows" note pointing at its planned AI extension.
 
+## The advancement workflow (per prospect, once accepted)
+
+Once a candidate is accepted into the pipeline, the intended flow is a sequence of AI-prepares / human-approves handoffs, not a single draft-then-send step:
+
+1. Accepting a candidate automatically triggers a deep-dive: AI researches the specific funder and proposes a **strategy** (outreach approach, proposal/ask positioning, rationale). This research runs without a separate human trigger — accepting a candidate is a commitment to do the work of pursuing it — but its output is a proposal, not a decision.
+2. A human approves (or edits) the strategy. Nothing downstream happens without this.
+3. AI drafts outreach content (intro email, or call-prep notes) based on the approved strategy.
+4. A human approves the content. If it's an email, the system executes the send as the direct, immediate result of that approval click — there is no separate autonomous send step, ever. If it's a call, the human makes the call using the AI-prepped notes.
+5. AI drafts the proposal/grant/deck/ask.
+6. A human approves. If email is the right vehicle, the system sends on approval, same as step 4; otherwise AI preps materials for a human-led meeting.
+7. Stewardship/CRM follow-through (reporting, renewal, relationship memory) is a later slice, not yet designed in detail.
+
+"Strategy" is a new artifact type this workflow introduces — distinct from a draft (Slice 5's `drafts` table). It's the AI's proposed plan for a prospect: reviewed and approved before any content gets drafted from it, not skipped past.
+
+Since the deep-dive involves real web search and takes several seconds, the UI shows genuine progressive status (what step is running right now), not a static spinner — sourced from the actual run's state, not a simulated animation.
+
 ## How we build
 
 - **Vertical slices.** Each slice in `docs/slices/` is a thin end-to-end feature. Build one at a time, in order (0 → 8).
@@ -42,6 +58,7 @@ Next.js (App Router) · Supabase (Postgres/auth/storage) · Vercel · Anthropic 
 - **Evidence library** — verifiable outcomes + case studies with permission tags. This is the core differentiator; treat it as first-class data.
 - **Relationship memory** — the full interaction history, including "no → yes" tracking. A "no" is data, not a dead end.
 - **Knowledge base** — the nonprofit's own profile (mission, programs, outcomes, who it serves) plus general funding-landscape data. AI uses both to propose funder-type matches and to ground drafts in real evidence. The evidence library (Slice 6) is where the nonprofit-side half of this lives.
+- **Strategy** — the AI's proposed plan for pursuing a specific accepted prospect (outreach approach, ask positioning, rationale), produced by an automatic deep-dive on acceptance. Reviewed and approved by a human before any content is drafted from it — see "The advancement workflow."
 
 ## When in doubt
 

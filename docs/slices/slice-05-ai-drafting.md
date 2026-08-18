@@ -41,4 +41,4 @@ Drafting is where AI creates the most leverage. It needs a prospect (CRM), a fit
 - [ ] No send capability exists yet; the Anthropic key is server-only.
 
 ## Where this grows
-Today's drafting is prompted by a human per-prospect. The end-state vision (see `CLAUDE.md`) has AI drafting proactively as part of a continuous discovery-to-outreach flow — drafts still land in this same review state either way; only what triggers drafting changes, never whether a human approves before anything sends.
+Today's drafting is prompted by a human per-prospect. The end-state vision (see `CLAUDE.md`'s "The advancement workflow") sequences drafting behind an approved **strategy** — a deep-dive research + plan step that runs automatically on candidate acceptance and requires human approval before any content gets drafted from it. Drafts still land in this same review state either way; only what triggers drafting changes, never whether a human approves before anything sends.

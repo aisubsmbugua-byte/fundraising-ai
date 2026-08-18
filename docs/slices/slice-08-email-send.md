@@ -37,3 +37,6 @@ Add to `drafts`:
 - [ ] Send requires a final confirmation showing exact recipient/subject/body.
 - [ ] Send delivers via Resend and logs an interaction.
 - [ ] No batch, scheduled, or triggered send path exists anywhere in the code.
+
+## Where this grows
+See `CLAUDE.md`'s "The advancement workflow" — outreach and proposal content both eventually flow through this exact same gate (approve, then a confirmed send click), just triggered from more places in the sequence (post-strategy outreach, post-proposal-approval ask) rather than only from a single generic draft. The mechanism doesn't change: the system only ever sends as the direct, immediate result of a human's confirmed click.
