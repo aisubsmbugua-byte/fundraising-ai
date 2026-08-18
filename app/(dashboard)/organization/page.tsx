@@ -123,6 +123,9 @@ export default async function OrganizationProfilePage({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>Organization Profile</h1>
         <div style={{ display: "flex", gap: spacing.sm }}>
+          <Link href="/organization/channel-fit" style={buttonSecondary}>
+            Channel Fit
+          </Link>
           <DocumentsModal documents={documentsWithUrls} />
           {!isEditing && (
             <Link href="/organization?edit=1" style={buttonSecondary}>
