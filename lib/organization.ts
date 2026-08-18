@@ -12,6 +12,18 @@ export function orgTypeLabel(value: string | null) {
   return ORG_TYPES.find((t) => t.value === value)?.label ?? value ?? "—";
 }
 
+// Native <input type="url"> rejects anything without a scheme (e.g.
+// "www.example.com" fails, "https://www.example.com" passes), which
+// is a bad UX for people who don't think to type "https://" first.
+// So form fields use type="text" and we normalize here on save
+// instead of fighting the browser's built-in validation.
+export function normalizeUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 export const CAUSE_AREAS = [
   "Education",
   "Health & Wellness",

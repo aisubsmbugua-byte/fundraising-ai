@@ -46,11 +46,13 @@ function ViewPairs({
   items,
   keyA,
   keyB,
+  keyBIsLink,
 }: {
   label: string;
   items?: Record<string, string>[] | null;
   keyA: string;
   keyB: string;
+  keyBIsLink?: boolean;
 }) {
   return (
     <div>
@@ -60,7 +62,17 @@ function ViewPairs({
           {items.map((item, i) => (
             <li key={i}>
               {item[keyA]}
-              {item[keyB] && <span style={{ color: colors.textMuted }}> — {item[keyB]}</span>}
+              {item[keyB] &&
+                (keyBIsLink ? (
+                  <>
+                    {" — "}
+                    <a href={item[keyB]} target="_blank" rel="noopener noreferrer">
+                      {item[keyB]}
+                    </a>
+                  </>
+                ) : (
+                  <span style={{ color: colors.textMuted }}> — {item[keyB]}</span>
+                ))}
             </li>
           ))}
         </ul>
@@ -173,7 +185,13 @@ export default async function OrganizationProfilePage({
             </label>
             <label style={labelStyle}>
               Website
-              <input name="website" type="url" defaultValue={profile?.website ?? ""} style={fieldStyle} />
+              <input
+                name="website"
+                type="text"
+                placeholder="e.g. villageworshipinitiative.com"
+                defaultValue={profile?.website ?? ""}
+                style={fieldStyle}
+              />
             </label>
           </fieldset>
 
@@ -384,7 +402,13 @@ export default async function OrganizationProfilePage({
           </ViewSection>
 
           <ViewSection title="Online presence">
-            <ViewPairs label="Social media links" items={profile?.social_links} keyA="platform" keyB="url" />
+            <ViewPairs
+              label="Social media links"
+              items={profile?.social_links}
+              keyA="platform"
+              keyB="url"
+              keyBIsLink
+            />
           </ViewSection>
 
           <ViewSection title="Financial">
