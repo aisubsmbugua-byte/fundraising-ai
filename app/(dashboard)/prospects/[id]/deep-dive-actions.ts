@@ -126,8 +126,26 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
                     description:
                       "Why this approach, grounded in the research findings and the nonprofit's profile",
                   },
+                  key_talking_points: {
+                    type: "array",
+                    items: { type: "string" },
+                    description:
+                      "3-5 concrete, reusable talking points to anchor any communication with this funder -- email, call, proposal, or presentation. Should be consistent across all of them.",
+                  },
+                  evidence_to_highlight: {
+                    type: "array",
+                    items: { type: "string" },
+                    description:
+                      "What kinds of outcomes, metrics, or proof points would resonate most with this specific funder given their focus areas -- guides what evidence to gather/cite later.",
+                  },
                 },
-                required: ["outreach_approach", "ask_positioning", "rationale"],
+                required: [
+                  "outreach_approach",
+                  "ask_positioning",
+                  "rationale",
+                  "key_talking_points",
+                  "evidence_to_highlight",
+                ],
               },
             },
             required: ["organization_intel", "strategy"],
@@ -175,13 +193,25 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
       focus_areas: prospect.focus_areas && prospect.focus_areas.length > 0 ? prospect.focus_areas : aiFocusAreas,
     };
 
+    const safeStrategy: Strategy = {
+      outreach_approach: result.strategy?.outreach_approach || "",
+      ask_positioning: result.strategy?.ask_positioning || "",
+      rationale: result.strategy?.rationale || "",
+      key_talking_points: Array.isArray(result.strategy?.key_talking_points)
+        ? result.strategy.key_talking_points
+        : [],
+      evidence_to_highlight: Array.isArray(result.strategy?.evidence_to_highlight)
+        ? result.strategy.evidence_to_highlight
+        : [],
+    };
+
     await supabase
       .from("deep_dive_runs")
       .update({
         status: "ready_for_review",
         status_message: "Strategy ready for review",
         findings,
-        strategy: result.strategy,
+        strategy: safeStrategy,
         organization_intel: mergedIntel,
         model: DRAFT_MODEL,
       })

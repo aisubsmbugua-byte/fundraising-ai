@@ -5,6 +5,15 @@ export type Strategy = {
   outreach_approach: string;
   ask_positioning: string;
   rationale: string;
+  // Reusable across every downstream artifact -- outreach email, call
+  // prep, and eventually proposals/decks -- so there's one consistent
+  // narrative instead of each draft reinventing it.
+  key_talking_points: string[];
+  // What kind of outcomes/proof points would resonate with this
+  // specific funder. The Evidence Library doesn't exist yet (Slice
+  // 6), but capturing what to look for now means proposal/deck
+  // generation already knows what to go find once it does.
+  evidence_to_highlight: string[];
 };
 
 export type OrganizationIntel = {

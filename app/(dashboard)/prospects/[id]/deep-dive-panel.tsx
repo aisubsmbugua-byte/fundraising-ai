@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { getLatestDeepDiveRun, approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
 import CollapsibleField from "@/components/CollapsibleField";
+import ControlledListInput from "@/components/ControlledListInput";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
 import type { DeepDiveRun, Strategy, OrganizationIntel } from "@/lib/deep-dive";
 
@@ -28,6 +29,10 @@ export default function DeepDivePanel({
   const [outreach, setOutreach] = useState(run?.strategy?.outreach_approach ?? "");
   const [positioning, setPositioning] = useState(run?.strategy?.ask_positioning ?? "");
   const [rationale, setRationale] = useState(run?.strategy?.rationale ?? "");
+  const [talkingPoints, setTalkingPoints] = useState<string[]>(run?.strategy?.key_talking_points ?? []);
+  const [evidenceToHighlight, setEvidenceToHighlight] = useState<string[]>(
+    run?.strategy?.evidence_to_highlight ?? []
+  );
   const [intel, setIntel] = useState<OrganizationIntel>(run?.organization_intel ?? emptyIntel);
   const [focusAreasText, setFocusAreasText] = useState((run?.organization_intel?.focus_areas ?? []).join(", "));
   const triggeredRef = useRef<string | null>(null);
@@ -58,6 +63,8 @@ export default function DeepDivePanel({
           setOutreach(latest.strategy.outreach_approach);
           setPositioning(latest.strategy.ask_positioning);
           setRationale(latest.strategy.rationale);
+          setTalkingPoints(latest.strategy.key_talking_points ?? []);
+          setEvidenceToHighlight(latest.strategy.evidence_to_highlight ?? []);
         }
         if (latest.status === "ready_for_review" && latest.organization_intel) {
           setIntel(latest.organization_intel);
@@ -162,6 +169,30 @@ export default function DeepDivePanel({
                   <div style={labelStyle}>Rationale</div>
                   <CollapsibleField label="Rationale" value={run.approved_strategy?.rationale ?? ""} />
                 </div>
+                <div>
+                  <div style={labelStyle}>Key talking points</div>
+                  {run.approved_strategy?.key_talking_points && run.approved_strategy.key_talking_points.length > 0 ? (
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      {run.approved_strategy.key_talking_points.map((point, i) => (
+                        <li key={i}>{point}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ color: colors.textFaint }}>—</p>
+                  )}
+                </div>
+                <div>
+                  <div style={labelStyle}>Evidence to highlight</div>
+                  {run.approved_strategy?.evidence_to_highlight && run.approved_strategy.evidence_to_highlight.length > 0 ? (
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      {run.approved_strategy.evidence_to_highlight.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ color: colors.textFaint }}>—</p>
+                  )}
+                </div>
               </div>
             </>
           ) : (
@@ -233,6 +264,22 @@ export default function DeepDivePanel({
                   <div style={labelStyle}>Rationale</div>
                   <CollapsibleField label="Rationale" value={rationale} onChange={setRationale} />
                 </div>
+                <div>
+                  <div style={labelStyle}>Key talking points</div>
+                  <ControlledListInput
+                    value={talkingPoints}
+                    onChange={setTalkingPoints}
+                    placeholder="Type a talking point, press Enter to add"
+                  />
+                </div>
+                <div>
+                  <div style={labelStyle}>Evidence to highlight</div>
+                  <ControlledListInput
+                    value={evidenceToHighlight}
+                    onChange={setEvidenceToHighlight}
+                    placeholder="Type what kind of evidence would resonate, press Enter to add"
+                  />
+                </div>
               </div>
               <button
                 type="button"
@@ -243,6 +290,8 @@ export default function DeepDivePanel({
                       outreach_approach: outreach,
                       ask_positioning: positioning,
                       rationale,
+                      key_talking_points: talkingPoints,
+                      evidence_to_highlight: evidenceToHighlight,
                     };
                     const approvedIntel: OrganizationIntel = {
                       ...intel,
