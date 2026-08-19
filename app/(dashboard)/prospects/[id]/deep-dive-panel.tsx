@@ -194,6 +194,26 @@ export default function DeepDivePanel({
                   )}
                 </div>
               </div>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() =>
+                  startTransition(async () => {
+                    const newRunId = await retryDeepDive(prospectId);
+                    const latest = await getLatestDeepDiveRun(prospectId);
+                    setRun(latest);
+                    runDeepDive(newRunId, prospectId);
+                  })
+                }
+                style={{ ...buttonSecondary, marginTop: spacing.md }}
+              >
+                {isPending ? "Starting…" : "Run New Deep Dive"}
+              </button>
+              <p style={{ fontSize: 11, color: colors.textFaint, marginTop: spacing.xs }}>
+                Useful if your Organization Profile has changed since this was approved, or to pick up
+                new fields added since. This creates a fresh strategy to review and approve — it doesn&apos;t
+                touch the one above unless you approve the new one too.
+              </p>
             </>
           ) : (
             <>
