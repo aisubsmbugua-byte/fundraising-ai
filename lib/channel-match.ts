@@ -59,7 +59,10 @@ export function buildProfileSummary(profile: OrgProfile): string {
     lines.push(`Notable funders: ${funders}`);
   }
   if (profile.key_people?.length) {
-    lines.push(`Key people: ${profile.key_people.map((p) => `${p.name} (${p.role})`).join(", ")}`);
+    const people = profile.key_people
+      .map((p) => `${p.name} (${p.role})${p.phone ? ` [phone: ${p.phone}]` : ""}`)
+      .join(", ");
+    lines.push(`Key people: ${people}`);
   }
   return lines.join("\n");
 }

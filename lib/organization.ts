@@ -57,7 +57,7 @@ export const GEO_SUGGESTIONS = [
 ] as const;
 
 export type Funder = { name: string; location: string };
-export type Person = { name: string; role: string };
+export type Person = { name: string; role: string; phone: string };
 export type SocialLink = { platform: string; url: string };
 
 export type OrgProfile = {

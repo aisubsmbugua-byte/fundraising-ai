@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { saveOrgProfile } from "./actions";
-import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, orgTypeLabel, type OrgProfile } from "@/lib/organization";
+import { ORG_TYPES, CAUSE_AREAS, GEO_SUGGESTIONS, orgTypeLabel, type OrgProfile, type Person } from "@/lib/organization";
 import TagInput from "@/components/TagInput";
 import ListInput from "@/components/ListInput";
 import FunderInput from "@/components/FunderInput";
 import PairRepeater from "@/components/PairRepeater";
+import PersonInput from "@/components/PersonInput";
 import CurrencyInput from "@/components/CurrencyInput";
 import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
 import SubmitButton from "@/components/SubmitButton";
@@ -73,6 +74,27 @@ function ViewPairs({
                 ) : (
                   <span style={{ color: colors.textMuted }}> — {item[keyB]}</span>
                 ))}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div>—</div>
+      )}
+    </div>
+  );
+}
+
+function ViewPeople({ label, people }: { label: string; people?: Person[] | null }) {
+  return (
+    <div>
+      <div style={viewLabelStyle}>{label}</div>
+      {people && people.length > 0 ? (
+        <ul style={{ margin: 0, paddingLeft: 20 }}>
+          {people.map((p, i) => (
+            <li key={i}>
+              {p.name}
+              {p.role && <span style={{ color: colors.textMuted }}> — {p.role}</span>}
+              {p.phone && <span style={{ color: colors.textMuted }}> · {p.phone}</span>}
             </li>
           ))}
         </ul>
@@ -203,14 +225,7 @@ export default async function OrganizationProfilePage({
             <div>
               <span style={labelStyle}>Leadership (founder, executive director, board chair, etc.)</span>
               <div style={{ marginTop: spacing.xs }}>
-                <PairRepeater
-                  name="key_people"
-                  defaultValue={profile?.key_people ?? []}
-                  keyA="name"
-                  keyB="role"
-                  placeholderA="Full name"
-                  placeholderB="Title / role"
-                />
+                <PersonInput name="key_people" defaultValue={profile?.key_people ?? []} />
               </div>
             </div>
           </fieldset>
@@ -401,7 +416,7 @@ export default async function OrganizationProfilePage({
           </ViewSection>
 
           <ViewSection title="Key people">
-            <ViewPairs label="Leadership" items={profile?.key_people} keyA="name" keyB="role" />
+            <ViewPeople label="Leadership" people={profile?.key_people} />
           </ViewSection>
 
           <ViewSection title="Online presence">
