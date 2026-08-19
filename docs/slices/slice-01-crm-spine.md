@@ -22,7 +22,7 @@ No external CRM. Everything — pipeline, screening, drafting, memory — attach
 `prospects`:
 - `id` (uuid, pk)
 - `name` (text, required)
-- `channel` (enum: `foundation`, `regranting`, `christian_business`, `denomination`, `daf`, `major_donor`)
+- `channel` (enum: `foundation`, `regranting`, `christian_business`, `denomination`, `church`, `daf`, `major_donor` -- `church` added post-launch as a 7th value, distinct from `denomination`, via migration 0018)
 - `organization` (text, nullable)
 - `contact_name` (text, nullable)
 - `contact_email` (text, nullable)
@@ -39,10 +39,10 @@ Add RLS: a user can read/write rows they own (single-tenant for now is fine, but
 - `/(dashboard)/prospects/new` — create.
 
 ## Guardrails
-- Channel is a fixed enum matching the six channels. Don't let it be free text.
+- Channel is a fixed enum matching the defined channels. Don't let it be free text.
 
 ## Definition of done
 - [ ] Migration applied; `prospects` table exists with RLS.
 - [ ] Can create, view, edit, and list prospects on the live app.
-- [ ] Channel is constrained to the six values.
+- [ ] Channel is constrained to the defined enum values.
 - [ ] Search by name and filter by channel work.

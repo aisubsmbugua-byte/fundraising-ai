@@ -56,7 +56,7 @@ export async function runChannelMatch() {
     messages: [
       {
         role: "user",
-        content: `You are helping a nonprofit advancement team assess funder-channel fit. Given the nonprofit's profile below, evaluate its fit against each of the following six funding channels. For EACH channel (even ones you don't recommend), give a boolean recommendation, a confidence level, and a short rationale (2-3 sentences) grounded specifically in the profile details provided -- do not invent facts not present in the profile.
+        content: `You are helping a nonprofit advancement team assess funder-channel fit. Given the nonprofit's profile below, evaluate its fit against each of the following funding channels. For EACH channel (even ones you don't recommend), give a boolean recommendation, a confidence level, and a short rationale (2-3 sentences) grounded specifically in the profile details provided -- do not invent facts not present in the profile.
 
 Nonprofit profile:
 ${buildProfileSummary(profile) || "(no profile data provided)"}

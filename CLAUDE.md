@@ -4,7 +4,7 @@ You are building **Fundraising AI**, an AI-assisted advancement platform for non
 
 ## What we're building
 
-A web app that helps a small nonprofit team identify, qualify, and steward funding opportunities across six channels, with AI doing the automatable work and a human owning every funder-facing decision.
+A web app that helps a small nonprofit team identify, qualify, and steward funding opportunities across seven channels, with AI doing the automatable work and a human owning every funder-facing decision.
 
 ## Hard rules (never violate)
 
@@ -52,7 +52,7 @@ Next.js (App Router) · Supabase (Postgres/auth/storage) · Vercel · Anthropic 
 
 ## Domain glossary
 
-- **Channel** — one of six funder types. Drives how much AI automation applies.
+- **Channel** — one of seven funder types (added Individual Church, distinct from Denomination & Network Fund, since many churches are standalone or not meaningfully denomination-affiliated). Drives how much AI automation applies.
 - **Stage** — one of seven pipeline stages, each gated by human approval.
 - **Three-tier classification** — screening output: Tier 1 (strong fit) / Tier 2 (possible) / Tier 3 (unlikely).
 - **Evidence library** — verifiable outcomes + case studies with permission tags. This is the core differentiator; treat it as first-class data.

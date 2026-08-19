@@ -1,6 +1,6 @@
 # Fundraising AI
 
-An AI-assisted advancement platform for nonprofits. It identifies, qualifies, and helps steward funding opportunities across six channels while keeping a human at every funder-facing decision.
+An AI-assisted advancement platform for nonprofits. It identifies, qualifies, and helps steward funding opportunities across seven channels while keeping a human at every funder-facing decision.
 
 **Guiding principle:** automate the automatable, make the non-automatable easy, keep humans at the most critical touchpoints only.
 
@@ -11,14 +11,15 @@ An AI-assisted advancement platform for nonprofits. It identifies, qualifies, an
 - Humans own all funder-facing decisions and physical touchpoints.
 - AI drafts, scores, summarizes, and remembers. Humans decide.
 
-## The six funding channels
+## The seven funding channels
 
 1. Foundations & family trusts *(data-rich → high automation)*
 2. Regranting ministries *(data-rich → high automation)*
 3. Christian businesses & marketplace giving *(mixed)*
-4. Denominations & network funds *(mixed)*
-5. Donor-advised funds (DAFs) *(relationship-led → support only)*
-6. Major donors & individuals *(relationship-led → support only)*
+4. Denominations & network funds *(mixed)* — formal HQ-level/network-level giving programs
+5. Individual churches *(relationship-led → support only)* — standalone or not meaningfully denomination-affiliated, giving from their own missions/outreach budget
+6. Donor-advised funds (DAFs) *(relationship-led → support only)*
+7. Major donors & individuals *(relationship-led → support only)*
 
 AI automation is **tiered by channel**: heavy in data-rich channels (discovery, screening, drafting), support-only in relationship-led channels (memory, prep, reminders).
 

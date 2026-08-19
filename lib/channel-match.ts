@@ -24,7 +24,10 @@ export const CHANNEL_DESCRIPTIONS: Record<Channel, string> = {
   regranting: "Regranting ministries -- data-rich, redistribute funds to aligned organizations",
   christian_business:
     "Christian businesses & marketplace giving -- mixed automation, values-aligned business giving",
-  denomination: "Denominations & network funds -- mixed automation, church/denominational giving structures",
+  denomination:
+    "Denominations & network funds -- mixed automation, formal HQ-level or network-level denominational giving/grant programs, not individual congregations",
+  church:
+    "Individual churches -- relationship-led, standalone or not meaningfully denomination-affiliated, giving from their own missions/outreach budget directly, decided by a pastor or missions committee rather than a formal grants process",
   daf: "Donor-advised funds (DAFs) -- relationship-led, individual donors directing funds through a sponsor",
   major_donor: "Major donors & individuals -- relationship-led, high-capacity individual giving",
 };

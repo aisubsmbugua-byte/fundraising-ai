@@ -3,6 +3,7 @@ export const CHANNELS = [
   { value: "regranting", label: "Regranting Ministry" },
   { value: "christian_business", label: "Christian Business" },
   { value: "denomination", label: "Denomination & Network Fund" },
+  { value: "church", label: "Individual Church" },
   { value: "daf", label: "Donor-Advised Fund (DAF)" },
   { value: "major_donor", label: "Major Donor" },
 ] as const;
