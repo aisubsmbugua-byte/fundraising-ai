@@ -8,8 +8,10 @@ import DeleteProspectButton from "./delete-button";
 import ScreenButton from "./screen-button";
 import TierBadge from "@/components/TierBadge";
 import DeepDivePanel from "./deep-dive-panel";
+import DraftPanel from "./draft-panel";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import type { DeepDiveRun } from "@/lib/deep-dive";
+import type { Draft } from "@/lib/drafts";
 
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
 
@@ -52,6 +54,13 @@ export default async function ProspectDetailPage({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<DeepDiveRun>();
+
+  const { data: drafts } = await supabase
+    .from("drafts")
+    .select("*")
+    .eq("prospect_id", prospect.id)
+    .order("created_at", { ascending: false })
+    .returns<Draft[]>();
 
   const isEditing = searchParams.edit === "1";
   const boundUpdate = updateProspect.bind(null, prospect.id);
@@ -266,6 +275,10 @@ export default async function ProspectDetailPage({
       </div>
 
       <DeepDivePanel prospectId={prospect.id} initialRun={deepDiveRun ?? null} />
+
+      {deepDiveRun?.approved_strategy && (
+        <DraftPanel prospectId={prospect.id} deepDiveRunId={deepDiveRun.id} drafts={drafts ?? []} />
+      )}
     </div>
   );
 }
