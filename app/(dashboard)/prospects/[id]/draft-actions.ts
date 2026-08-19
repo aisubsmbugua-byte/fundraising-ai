@@ -60,7 +60,7 @@ export async function generateDraft(prospectId: string, deepDiveRunId: string, k
         role: "user",
         content: `Draft ${isEmail ? "an introductory outreach email" : "call prep notes"} for approaching "${prospect.name}" (${channelLabel(prospect.channel)} channel), based on the approved strategy below.
 
-${isEmail ? "Write in a warm, professional, concise tone appropriate to a first outreach email -- it should open the door to a conversation, not close the ask." : "Write as bullet-point talking points a human will glance at right before/during the call -- not a script."}
+${isEmail ? "Write in a warm, professional, concise tone appropriate to a first outreach email -- it should open the door to a conversation, not close the ask. Write it directly in first person, as if from the person actually sending it. Do not use \"on behalf of\" or similar third-party framing -- the sender is writing for themselves, not relaying a message for someone else." : "Write as bullet-point talking points a human will glance at right before/during the call -- not a script."}
 
 Approved strategy:
 - Outreach approach: ${strategy.outreach_approach}

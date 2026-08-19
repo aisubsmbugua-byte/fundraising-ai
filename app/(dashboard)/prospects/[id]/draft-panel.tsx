@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { generateDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { DRAFT_KINDS, draftKindLabel, type Draft } from "@/lib/drafts";
+import { DRAFT_KINDS, draftKindLabel, type Draft, type DraftKind } from "@/lib/drafts";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, cardStyle } from "@/lib/ui";
 
 export default function DraftPanel({
@@ -16,7 +16,26 @@ export default function DraftPanel({
   deepDiveRunId: string;
   drafts: Draft[];
 }) {
-  const [isPending, startTransition] = useTransition();
+  // Tracked per-kind (not a single shared isPending) so clicking one
+  // button doesn't show "Drafting..." on both -- each kind runs and
+  // reports its own state independently.
+  const [pendingKinds, setPendingKinds] = useState<Set<DraftKind>>(new Set());
+  const [, startTransition] = useTransition();
+
+  function handleDraft(kind: DraftKind) {
+    setPendingKinds((prev) => new Set(prev).add(kind));
+    startTransition(async () => {
+      try {
+        await generateDraft(prospectId, deepDiveRunId, kind);
+      } finally {
+        setPendingKinds((prev) => {
+          const next = new Set(prev);
+          next.delete(kind);
+          return next;
+        });
+      }
+    });
+  }
 
   return (
     <div style={{ marginTop: spacing.xxl }}>
@@ -30,11 +49,11 @@ export default function DraftPanel({
           <button
             key={k.value}
             type="button"
-            disabled={isPending}
-            onClick={() => startTransition(() => generateDraft(prospectId, deepDiveRunId, k.value))}
+            disabled={pendingKinds.has(k.value)}
+            onClick={() => handleDraft(k.value)}
             style={buttonSecondary}
           >
-            {isPending ? "Drafting…" : `Draft ${k.label}`}
+            {pendingKinds.has(k.value) ? "Drafting…" : `Draft ${k.label}`}
           </button>
         ))}
       </div>
