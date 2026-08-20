@@ -130,8 +130,11 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
         model: DRAFT_MODEL,
         max_tokens: 3000,
         // max_uses is the main latency lever -- each search round-trip
-        // adds real time. 6 was letting single runs regularly exceed
-        // two minutes; 4 is still enough to surface several candidates.
+        // adds real time. Kept at 4 (down from 6) for a real chance of
+        // surfacing several candidates without an excessive number of
+        // round-trips; the timeout below is now the primary defense
+        // against a genuinely slow run, not a hard cap that cuts off
+        // otherwise-successful searches.
         tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 4 }],
         messages: [
           {
@@ -145,7 +148,13 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
           },
         ],
       },
-      { timeout: 150_000 }
+      // 150s was consistently too tight for real runs -- this was
+      // landing on "Request timed out" far more often than it was
+      // landing on real results, defeating the point of the feature.
+      // 240s (route maxDuration is 450s, leaving room for the
+      // extraction call and ProPublica lookups after) gives the
+      // search genuine room to finish.
+      { timeout: 240_000 }
     );
 
     const findings = searchResponse.content

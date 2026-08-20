@@ -119,8 +119,7 @@ export default function SearchPanel() {
       {isRunning && (
         <div style={{ ...cardStyle, marginTop: spacing.md }}>
           <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm }}>
-            This typically takes a minute or two — this will update automatically as soon as results are
-            ready.
+            This can take a few minutes — this will update automatically as soon as results are ready.
           </p>
           <LoadingStatus active messages={[run.status_message ?? "Working…"]} />
         </div>

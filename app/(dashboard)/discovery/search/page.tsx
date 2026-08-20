@@ -3,11 +3,14 @@ import SearchPanel from "./search-panel";
 import { colors } from "@/lib/ui";
 
 // The search runs asynchronously (see search-panel.tsx / actions.ts)
-// against a DB-backed run row, polled from the client -- this route
-// no longer holds one request open for the duration of the AI call,
-// so a generous maxDuration here is just a safety margin, not the
-// thing standing between the user and a timeout.
-export const maxDuration = 280;
+// against a DB-backed run row, polled from the client, but
+// runDiscoverySearch still executes as a POST to this same route --
+// its actual runtime is bounded by this maxDuration regardless of the
+// client not waiting on it. Real runs were consistently exceeding a
+// 150s search-call timeout, so this and the Anthropic client timeout
+// in actions.ts were raised together to give the AI call genuine room
+// to finish instead of being cut off before it can produce results.
+export const maxDuration = 450;
 
 export default function DiscoverySearchPage() {
   return (
