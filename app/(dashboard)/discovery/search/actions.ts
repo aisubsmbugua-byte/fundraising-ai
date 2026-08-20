@@ -54,6 +54,22 @@ async function cachedProPublicaLookup(supabase: ReturnType<typeof createClient>,
   return saved ?? null;
 }
 
+// Checks both candidates (any status -- pending, accepted, or
+// dismissed -- since accepting a candidate leaves its row in place
+// with status updated, it doesn't move elsewhere) and prospects
+// (covers prospects added directly via manual entry, which never had
+// a candidates row at all). Name match only, case-insensitive -- no
+// EIN to key off for orgs ProPublica doesn't have. Best-effort: a
+// close-but-not-exact name variant can still slip through, so this is
+// an anti-clutter measure, not a hard uniqueness guarantee.
+async function isAlreadyKnown(supabase: ReturnType<typeof createClient>, name: string): Promise<boolean> {
+  const [{ data: existingCandidate }, { data: existingProspect }] = await Promise.all([
+    supabase.from("candidates").select("id").ilike("name", name).limit(1).maybeSingle(),
+    supabase.from("prospects").select("id").ilike("name", name).limit(1).maybeSingle(),
+  ]);
+  return !!existingCandidate || !!existingProspect;
+}
+
 // Creates the run row and returns immediately -- the actual search is
 // kicked off separately (see runDiscoverySearch) so the browser isn't
 // stuck holding one request open for however long the AI call takes.
@@ -236,7 +252,13 @@ ${findings || "(no findings)"}`,
     const rules = (rulesData ?? []) as ScreeningRule[];
 
     let inserted = 0;
+    let skippedDuplicates = 0;
     for (const found_candidate of found) {
+      if (await isAlreadyKnown(supabase, found_candidate.name)) {
+        skippedDuplicates++;
+        continue;
+      }
+
       const propublica = await cachedProPublicaLookup(supabase, found_candidate.name);
 
       const latestFiling = propublica?.raw?.filings_with_data?.[0];
@@ -272,11 +294,16 @@ ${findings || "(no findings)"}`,
       }
     }
 
+    console.log(`[discovery-search] channel=${channel} inserted=${inserted} skipped_duplicates=${skippedDuplicates}`);
+
     await supabase
       .from("discovery_search_runs")
       .update({
         status: "done",
-        status_message: `Found ${inserted} candidate${inserted === 1 ? "" : "s"}`,
+        status_message:
+          skippedDuplicates > 0
+            ? `Found ${inserted} candidate${inserted === 1 ? "" : "s"} (${skippedDuplicates} already known, skipped)`
+            : `Found ${inserted} candidate${inserted === 1 ? "" : "s"}`,
         found_count: inserted,
       })
       .eq("id", runId);
