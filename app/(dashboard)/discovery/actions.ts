@@ -113,11 +113,18 @@ export async function importCandidatesCsv(formData: FormData) {
 }
 
 export async function acceptCandidate(candidateId: string) {
+  // Temporary timing instrumentation -- the client's isPending state
+  // was observed staying stuck for 8+ seconds after Accept, and it
+  // wasn't clear whether that's this function genuinely being slow or
+  // something in the client's transition handling. Remove once
+  // diagnosed.
+  const t0 = Date.now();
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+  console.log(`[accept-candidate] auth done at +${Date.now() - t0}ms`);
 
   const { data: candidate, error: fetchError } = await supabase
     .from("candidates")
@@ -125,6 +132,7 @@ export async function acceptCandidate(candidateId: string) {
     .eq("id", candidateId)
     .single();
   if (fetchError || !candidate) throw new Error("Candidate not found");
+  console.log(`[accept-candidate] candidate fetched at +${Date.now() - t0}ms`);
 
   const { data: prospect, error: insertError } = await supabase
     .from("prospects")
@@ -146,12 +154,14 @@ export async function acceptCandidate(candidateId: string) {
     .select("id")
     .single();
   if (insertError || !prospect) throw new Error(insertError?.message ?? "Failed to create prospect");
+  console.log(`[accept-candidate] prospect inserted at +${Date.now() - t0}ms`);
 
   const { error: updateError } = await supabase
     .from("candidates")
     .update({ status: "accepted", reviewed_by: user.id })
     .eq("id", candidateId);
   if (updateError) throw new Error(updateError.message);
+  console.log(`[accept-candidate] candidate status updated at +${Date.now() - t0}ms`);
 
   // Accepting is a commitment to pursue this prospect -- create the
   // deep-dive run row now (fast, just an insert). The actual research
@@ -170,9 +180,11 @@ export async function acceptCandidate(candidateId: string) {
     .select("id")
     .single();
   if (runError || !run) throw new Error(runError?.message ?? "Failed to start deep dive");
+  console.log(`[accept-candidate] deep_dive_run inserted at +${Date.now() - t0}ms`);
 
   revalidatePath("/discovery");
   revalidatePath("/prospects");
+  console.log(`[accept-candidate] revalidated, returning at +${Date.now() - t0}ms`);
 
   return { prospectId: prospect.id as string, runId: run.id as string };
 }
