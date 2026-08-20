@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { getLatestDeepDiveRun, approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
+import { approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ControlledListInput from "@/components/ControlledListInput";
 import LoadingStatus from "@/components/LoadingStatus";
@@ -38,6 +38,15 @@ export default function DeepDivePanel({
   const [focusAreasText, setFocusAreasText] = useState((run?.organization_intel?.focus_areas ?? []).join(", "));
   const triggeredRef = useRef<string | null>(null);
 
+  // Fetches run status via a plain REST route, not a Server Action --
+  // see app/api/deep-dive-runs/[prospectId]/route.ts for why.
+  async function fetchRun() {
+    const res = await fetch(`/api/deep-dive-runs/${prospectId}`);
+    if (!res.ok) return null;
+    const { run: latest } = await res.json();
+    return latest as DeepDiveRun | null;
+  }
+
   // This panel is the stable "destination" component for a run, so
   // it's responsible for actually kicking off the work -- not
   // whatever page navigated here (see runDeepDive's comment for why).
@@ -57,7 +66,7 @@ export default function DeepDivePanel({
     if (!run || !RUNNING_STATUSES.has(run.status)) return;
 
     const interval = setInterval(async () => {
-      const latest = await getLatestDeepDiveRun(prospectId);
+      const latest = await fetchRun();
       if (latest) {
         setRun(latest);
         if (latest.status === "ready_for_review" && latest.strategy) {
@@ -108,7 +117,7 @@ export default function DeepDivePanel({
             onClick={() =>
               startTransition(async () => {
                 const newRunId = await retryDeepDive(prospectId);
-                const latest = await getLatestDeepDiveRun(prospectId);
+                const latest = await fetchRun();
                 setRun(latest);
                 runDeepDive(newRunId, prospectId);
               })
@@ -189,7 +198,7 @@ export default function DeepDivePanel({
                 onClick={() =>
                   startTransition(async () => {
                     const newRunId = await retryDeepDive(prospectId);
-                    const latest = await getLatestDeepDiveRun(prospectId);
+                    const latest = await fetchRun();
                     setRun(latest);
                     runDeepDive(newRunId, prospectId);
                   })
@@ -310,7 +319,7 @@ export default function DeepDivePanel({
                         .filter(Boolean),
                     };
                     await approveStrategy(run.id, prospectId, approvedStrategy, approvedIntel);
-                    const latest = await getLatestDeepDiveRun(prospectId);
+                    const latest = await fetchRun();
                     setRun(latest);
                   })
                 }

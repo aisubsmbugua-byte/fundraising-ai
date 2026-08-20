@@ -262,18 +262,6 @@ export async function retryDeepDive(prospectId: string) {
   return run.id as string;
 }
 
-export async function getLatestDeepDiveRun(prospectId: string): Promise<DeepDiveRun | null> {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("deep_dive_runs")
-    .select("*")
-    .eq("prospect_id", prospectId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<DeepDiveRun>();
-  return data ?? null;
-}
-
 export async function approveStrategy(
   runId: string,
   prospectId: string,

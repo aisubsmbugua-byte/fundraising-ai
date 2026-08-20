@@ -58,28 +58,42 @@ async function cachedProPublicaLookup(supabase: ReturnType<typeof createClient>,
 // kicked off separately (see runDiscoverySearch) so the browser isn't
 // stuck holding one request open for however long the AI call takes.
 export async function startDiscoverySearch(channel: Channel): Promise<string> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) redirect("/login");
 
-  const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
-  if (!profile) throw new Error("Fill in the Organization Profile before running a discovery search.");
+    const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
+    if (!profile) throw new Error("Fill in the Organization Profile before running a discovery search.");
 
-  const { data: run, error } = await supabase
-    .from("discovery_search_runs")
-    .insert({
-      channel,
-      status: "searching",
-      status_message: `Searching the web for ${channelLabel(channel)} candidates...`,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
-  if (error || !run) throw new Error(error?.message ?? "Failed to start discovery search");
+    const { data: run, error } = await supabase
+      .from("discovery_search_runs")
+      .insert({
+        channel,
+        status: "searching",
+        status_message: `Searching the web for ${channelLabel(channel)} candidates...`,
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
+    if (error || !run) throw new Error(error?.message ?? "Failed to start discovery search");
 
-  return run.id as string;
+    return run.id as string;
+  } catch (err) {
+    // Logged explicitly since an uncaught throw here previously
+    // surfaced as an opaque full-page crash with no diagnosable
+    // client-side detail -- channel=church reproduced this
+    // consistently and this is the only path that could explain it.
+    // redirect() throws internally too (digest starts with
+    // NEXT_REDIRECT) -- that's expected control flow, not a bug.
+    const digest = (err as { digest?: string })?.digest;
+    if (typeof digest !== "string" || !digest.startsWith("NEXT_REDIRECT")) {
+      console.error(`[discovery-search] startDiscoverySearch failed for channel=${channel}:`, err);
+    }
+    throw err;
+  }
 }
 
 // The heavy-lifting call. Triggered by the search page itself (which

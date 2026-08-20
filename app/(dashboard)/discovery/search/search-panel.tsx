@@ -13,6 +13,7 @@ const RUNNING_STATUSES = new Set(["searching", "extracting", "screening"]);
 export default function SearchPanel() {
   const [channel, setChannel] = useState<Channel>(CHANNELS[0].value);
   const [run, setRun] = useState<DiscoverySearchRun | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const triggeredRef = useRef<string | null>(null);
 
@@ -53,18 +54,34 @@ export default function SearchPanel() {
     return () => clearInterval(interval);
   }, [run]);
 
+  // startDiscoverySearch/retryDiscoverySearch can throw (missing org
+  // profile, a DB error) -- without a catch here, that becomes an
+  // uncaught client-side rejection with no graceful UI, same failure
+  // mode the polling fix addressed for the long-running path.
   function handleSearch() {
+    setStartError(null);
     startTransition(async () => {
-      const runId = await startDiscoverySearch(channel);
-      setRun(await fetchRun(runId));
+      try {
+        const runId = await startDiscoverySearch(channel);
+        setRun(await fetchRun(runId));
+      } catch (err) {
+        console.error("[discovery-search] startDiscoverySearch failed:", err);
+        setStartError(err instanceof Error ? err.message : "Failed to start search");
+      }
     });
   }
 
   function handleRetry() {
     if (!run) return;
+    setStartError(null);
     startTransition(async () => {
-      const runId = await retryDiscoverySearch(run.channel);
-      setRun(await fetchRun(runId));
+      try {
+        const runId = await retryDiscoverySearch(run.channel);
+        setRun(await fetchRun(runId));
+      } catch (err) {
+        console.error("[discovery-search] retryDiscoverySearch failed:", err);
+        setStartError(err instanceof Error ? err.message : "Failed to start search");
+      }
     });
   }
 
@@ -92,6 +109,12 @@ export default function SearchPanel() {
           {isRunning ? "Searching…" : "Search"}
         </button>
       </div>
+
+      {startError && (
+        <div style={{ ...cardStyle, marginTop: spacing.md }}>
+          <p style={{ fontSize: 14, color: "crimson" }}>Search failed: {startError}</p>
+        </div>
+      )}
 
       {isRunning && (
         <div style={{ ...cardStyle, marginTop: spacing.md }}>
