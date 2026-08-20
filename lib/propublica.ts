@@ -29,11 +29,16 @@ export type ProPublicaOrgDetail = {
   }[];
 };
 
+// Bounded so a slow/unresponsive ProPublica endpoint can't hang an
+// entire discovery search indefinitely -- this is a best-effort
+// enrichment step, not a required one.
+const FETCH_TIMEOUT_MS = 8000;
+
 export async function searchProPublica(query: string): Promise<ProPublicaSearchResult[]> {
   try {
     const res = await fetch(
       `https://projects.propublica.org/nonprofits/api/v2/search.json?q=${encodeURIComponent(query)}`,
-      { cache: "no-store" }
+      { cache: "no-store", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -47,6 +52,7 @@ export async function getProPublicaOrgDetail(ein: number): Promise<ProPublicaOrg
   try {
     const res = await fetch(`https://projects.propublica.org/nonprofits/api/v2/organizations/${ein}.json`, {
       cache: "no-store",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const data = await res.json();

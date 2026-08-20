@@ -1,5 +1,10 @@
 import Link from "next/link";
 import { runDiscoverySearch } from "./actions";
+
+// Two sequential AI calls plus up to 10 sequential ProPublica lookups
+// can genuinely run past the Vercel Pro default (60s) -- give this
+// route real headroom instead of racing the clock.
+export const maxDuration = 180;
 import SubmitButton from "@/components/SubmitButton";
 import FormLoadingStatus from "@/components/FormLoadingStatus";
 import { CHANNELS, channelLabel } from "@/lib/prospects";

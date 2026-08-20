@@ -13,6 +13,11 @@ import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary
 import type { DeepDiveRun } from "@/lib/deep-dive";
 import type { Draft } from "@/lib/drafts";
 
+// Deep dive runs two sequential AI calls with real web search, which
+// can run past the Vercel Pro default (60s) -- give this route real
+// headroom instead of racing the clock.
+export const maxDuration = 180;
+
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
 
 export default async function ProspectDetailPage({
