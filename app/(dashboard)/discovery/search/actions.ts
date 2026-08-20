@@ -129,35 +129,29 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        // 240s wasn't enough either -- real runs were consistently
-        // running the full budget and timing out rather than finishing
-        // early. Rather than keep extending the timeout, cut the
-        // actual amount of work: fewer search round-trips and fewer
-        // requested candidates means less for the model to research
-        // and write up, which should make completion the norm instead
-        // of the exception. A reliable run of 5 beats an unreliable
-        // one of 10.
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 2 }],
+        // 240s with max_uses=2 STILL timed out -- cutting scope in
+        // half didn't meaningfully change the outcome, which is a real
+        // signal, not just "needs more tuning." Stripped to the
+        // absolute floor (a single search, a single candidate) as a
+        // diagnostic: if this reliably works, scope back up gradually;
+        // if even this times out, the problem isn't scope at all.
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 1 }],
         messages: [
           {
             role: "user",
-            content: `Search the web for up to 5 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+            content: `Search the web for exactly 1 real, currently-operating candidate funder for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
-Only include organizations you found real evidence for via search -- do not invent names. For each, try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale for why it could be a fit given this nonprofit's profile. Work efficiently -- a couple of well-chosen searches, not exhaustive research.
+This must be a genuine strategic fit, not just any organization that happens to exist in this channel -- pick the single best match based on real evidence of alignment with this nonprofit's mission, programs, or focus areas (see profile below), not just category membership. Only include it if you found real evidence via search -- do not invent a name. Try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale grounded in specific alignment with this nonprofit's profile, not a generic description. Do exactly one search and commit to your best answer from it.
 
 Nonprofit profile:
 ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
           },
         ],
       },
-      // 150s was consistently too tight for real runs -- this was
-      // landing on "Request timed out" far more often than it was
-      // landing on real results, defeating the point of the feature.
-      // 240s (route maxDuration is 450s, leaving room for the
-      // extraction call and ProPublica lookups after) gives the
-      // search genuine room to finish.
       { timeout: 240_000 }
     );
+
+    console.log(`[discovery-search] channel=${channel} search call resolved, content_blocks=${searchResponse.content.length}`);
 
     const findings = searchResponse.content
       .filter((block) => block.type === "text")
