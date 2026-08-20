@@ -57,6 +57,11 @@ export default async function DiscoveryPage() {
                 {channelLabel(c.channel)}
                 {c.organization ? ` · ${c.organization}` : ""} · via {c.source ?? "unknown"}
               </div>
+              {typeof c.raw?.rationale === "string" && c.raw.rationale && (
+                <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, maxWidth: 560 }}>
+                  {c.raw.rationale}
+                </p>
+              )}
             </div>
             <CandidateActions id={c.id} name={c.name} />
           </div>
