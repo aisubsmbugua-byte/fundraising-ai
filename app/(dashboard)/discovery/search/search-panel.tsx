@@ -118,7 +118,7 @@ export default function SearchPanel() {
         >
           ✓ Found {run.found_count ?? 0} candidate{run.found_count === 1 ? "" : "s"} for{" "}
           {channelLabel(run.channel)} — review them in the{" "}
-          <Link href="/discovery" style={{ color: "#166534", fontWeight: 600 }}>
+          <Link href="/discovery" prefetch={false} style={{ color: "#166534", fontWeight: 600 }}>
             Discovery queue
           </Link>
           .

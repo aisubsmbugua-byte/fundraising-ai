@@ -12,7 +12,7 @@ export const maxDuration = 280;
 export default function DiscoverySearchPage() {
   return (
     <div style={{ maxWidth: 480 }}>
-      <Link href="/discovery" style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
+      <Link href="/discovery" prefetch={false} style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
         ← Back to Discovery
       </Link>
       <h1>AI Discovery Search</h1>

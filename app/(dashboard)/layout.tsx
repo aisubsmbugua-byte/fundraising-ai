@@ -30,7 +30,7 @@ export default async function DashboardLayout({
         <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
           {NAV.map((n) => (
             <li key={n.href}>
-              <Link href={n.href} style={{ color: "#cbd5e1", textDecoration: "none" }}>
+              <Link href={n.href} prefetch={false} style={{ color: "#cbd5e1", textDecoration: "none" }}>
                 {n.label}
               </Link>
             </li>
