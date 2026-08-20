@@ -1,0 +1,129 @@
+"use client";
+
+import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { startDiscoverySearch, runDiscoverySearch, retryDiscoverySearch, getDiscoverySearchRun } from "./actions";
+import LoadingStatus from "@/components/LoadingStatus";
+import { CHANNELS, channelLabel, type Channel } from "@/lib/prospects";
+import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
+import type { DiscoverySearchRun } from "@/lib/discovery-search";
+
+const RUNNING_STATUSES = new Set(["searching", "extracting", "screening"]);
+
+export default function SearchPanel() {
+  const [channel, setChannel] = useState<Channel>(CHANNELS[0].value);
+  const [run, setRun] = useState<DiscoverySearchRun | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const triggeredRef = useRef<string | null>(null);
+
+  // This panel is the stable component for a run -- it's responsible
+  // for actually kicking off the work once a run row exists, mirroring
+  // DeepDivePanel. triggeredRef guards against firing twice within
+  // this component instance; started_at on the server guards against
+  // firing twice across page loads/refreshes.
+  useEffect(() => {
+    if (run && run.status === "searching" && !run.started_at && triggeredRef.current !== run.id) {
+      triggeredRef.current = run.id;
+      runDiscoverySearch(run.id, run.channel);
+    }
+  }, [run]);
+
+  // Poll while the run is actively in progress. Stops itself once the
+  // run reaches a terminal state.
+  useEffect(() => {
+    if (!run || !RUNNING_STATUSES.has(run.status)) return;
+
+    const interval = setInterval(async () => {
+      const latest = await getDiscoverySearchRun(run.id);
+      if (latest) setRun(latest);
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, [run]);
+
+  function handleSearch() {
+    startTransition(async () => {
+      const runId = await startDiscoverySearch(channel);
+      const latest = await getDiscoverySearchRun(runId);
+      setRun(latest);
+    });
+  }
+
+  function handleRetry() {
+    if (!run) return;
+    startTransition(async () => {
+      const runId = await retryDiscoverySearch(run.channel);
+      const latest = await getDiscoverySearchRun(runId);
+      setRun(latest);
+    });
+  }
+
+  const isRunning = !!run && RUNNING_STATUSES.has(run.status);
+
+  return (
+    <div>
+      <label style={labelStyle}>
+        Channel
+        <select
+          value={channel}
+          disabled={isRunning}
+          onChange={(e) => setChannel(e.target.value as Channel)}
+          style={fieldStyle}
+        >
+          {CHANNELS.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div style={{ marginTop: spacing.md }}>
+        <button type="button" disabled={isPending || isRunning} onClick={handleSearch} style={buttonPrimary}>
+          {isRunning ? "Searching…" : "Search"}
+        </button>
+      </div>
+
+      {isRunning && (
+        <div style={{ ...cardStyle, marginTop: spacing.md }}>
+          <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm }}>
+            This typically takes a minute or two — this will update automatically as soon as results are
+            ready.
+          </p>
+          <LoadingStatus active messages={[run.status_message ?? "Working…"]} />
+        </div>
+      )}
+
+      {run && run.status === "error" && (
+        <div style={{ ...cardStyle, marginTop: spacing.md }}>
+          <p style={{ fontSize: 14, color: "crimson" }}>
+            {run.status_message}
+            {run.error_message ? `: ${run.error_message}` : ""}
+          </p>
+          <button type="button" disabled={isPending} onClick={handleRetry} style={{ ...buttonSecondary, marginTop: spacing.sm }}>
+            {isPending ? "Retrying…" : "Retry Search"}
+          </button>
+        </div>
+      )}
+
+      {run && run.status === "done" && (
+        <div
+          style={{
+            background: "#dcfce7",
+            color: "#166534",
+            padding: spacing.sm,
+            borderRadius: 6,
+            marginTop: spacing.md,
+            fontSize: 14,
+          }}
+        >
+          ✓ Found {run.found_count ?? 0} candidate{run.found_count === 1 ? "" : "s"} for{" "}
+          {channelLabel(run.channel)} — review them in the{" "}
+          <Link href="/discovery" style={{ color: "#166534", fontWeight: 600 }}>
+            Discovery queue
+          </Link>
+          .
+        </div>
+      )}
+    </div>
+  );
+}

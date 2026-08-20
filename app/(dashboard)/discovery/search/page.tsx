@@ -1,28 +1,15 @@
 import Link from "next/link";
-import { runDiscoverySearch } from "./actions";
+import SearchPanel from "./search-panel";
+import { colors } from "@/lib/ui";
 
-// Two sequential AI calls plus up to 10 sequential ProPublica lookups
-// can genuinely run past the Vercel Pro default (60s) -- give this
-// route real headroom instead of racing the clock.
+// The search runs asynchronously (see search-panel.tsx / actions.ts)
+// against a DB-backed run row, polled from the client -- this route
+// no longer holds one request open for the duration of the AI call,
+// so a generous maxDuration here is just a safety margin, not the
+// thing standing between the user and a timeout.
 export const maxDuration = 280;
-import SubmitButton from "@/components/SubmitButton";
-import FormLoadingStatus from "@/components/FormLoadingStatus";
-import { CHANNELS, channelLabel } from "@/lib/prospects";
-import { spacing, colors, fieldStyle, labelStyle } from "@/lib/ui";
 
-const SEARCH_MESSAGES = [
-  "Searching the web for candidate funders...",
-  "Reading through search results...",
-  "Extracting names, websites, and contact info...",
-  "Cross-referencing against public IRS filing data...",
-  "Screening each candidate and saving to the queue...",
-];
-
-export default function DiscoverySearchPage({
-  searchParams,
-}: {
-  searchParams: { found?: string; channel?: string };
-}) {
+export default function DiscoverySearchPage() {
   return (
     <div style={{ maxWidth: 480 }}>
       <Link href="/discovery" style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
@@ -37,45 +24,9 @@ export default function DiscoverySearchPage({
         pipeline without an explicit Accept.
       </p>
 
-      {searchParams.found !== undefined && (
-        <div
-          style={{
-            background: "#dcfce7",
-            color: "#166534",
-            padding: spacing.sm,
-            borderRadius: 6,
-            marginTop: spacing.sm,
-            fontSize: 14,
-          }}
-        >
-          ✓ Found {searchParams.found} candidate{searchParams.found === "1" ? "" : "s"}
-          {searchParams.channel ? ` for ${channelLabel(searchParams.channel)}` : ""} — review them in the{" "}
-          <Link href="/discovery" style={{ color: "#166534", fontWeight: 600 }}>
-            Discovery queue
-          </Link>
-          .
-        </div>
-      )}
-
-      <form action={runDiscoverySearch} style={{ marginTop: spacing.lg }}>
-        <label style={labelStyle}>
-          Channel
-          <select name="channel" required defaultValue="" style={fieldStyle}>
-            <option value="" disabled>
-              Select a channel
-            </option>
-            {CHANNELS.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div style={{ marginTop: spacing.md }}>
-          <SubmitButton>Search</SubmitButton>
-          <FormLoadingStatus messages={SEARCH_MESSAGES} />
-        </div>
-      </form>
+      <div style={{ marginTop: 24 }}>
+        <SearchPanel />
+      </div>
     </div>
   );
 }
