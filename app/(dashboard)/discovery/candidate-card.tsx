@@ -12,9 +12,9 @@ import type { Candidate } from "@/lib/candidates";
 
 type CardStatus = "idle" | "accepting" | "justAccepted" | "removed" | "dismissing";
 
-// A brief confirmation flash before the card disappears, long enough
-// to register as "yes, that worked" without making the reviewer wait.
-const CONFIRMATION_DISPLAY_MS = 1400;
+// A confirmation flash before the card disappears -- long enough to
+// actually read the message, not just register a color change.
+const CONFIRMATION_DISPLAY_MS = 3000;
 
 export default function CandidateCard({ candidate }: { candidate: Candidate }) {
   const [status, setStatus] = useState<CardStatus>("idle");
