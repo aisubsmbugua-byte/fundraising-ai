@@ -129,19 +129,21 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        // max_uses is the main latency lever -- each search round-trip
-        // adds real time. Kept at 4 (down from 6) for a real chance of
-        // surfacing several candidates without an excessive number of
-        // round-trips; the timeout below is now the primary defense
-        // against a genuinely slow run, not a hard cap that cuts off
-        // otherwise-successful searches.
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 4 }],
+        // 240s wasn't enough either -- real runs were consistently
+        // running the full budget and timing out rather than finishing
+        // early. Rather than keep extending the timeout, cut the
+        // actual amount of work: fewer search round-trips and fewer
+        // requested candidates means less for the model to research
+        // and write up, which should make completion the norm instead
+        // of the exception. A reliable run of 5 beats an unreliable
+        // one of 10.
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 2 }],
         messages: [
           {
             role: "user",
-            content: `Search the web for up to 10 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+            content: `Search the web for up to 5 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
-Only include organizations you found real evidence for via search -- do not invent names. For each, try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale for why it could be a fit given this nonprofit's profile.
+Only include organizations you found real evidence for via search -- do not invent names. For each, try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale for why it could be a fit given this nonprofit's profile. Work efficiently -- a couple of well-chosen searches, not exhaustive research.
 
 Nonprofit profile:
 ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
