@@ -129,19 +129,18 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        // 240s with max_uses=2 STILL timed out -- cutting scope in
-        // half didn't meaningfully change the outcome, which is a real
-        // signal, not just "needs more tuning." Stripped to the
-        // absolute floor (a single search, a single candidate) as a
-        // diagnostic: if this reliably works, scope back up gradually;
-        // if even this times out, the problem isn't scope at all.
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 1 }],
+        // The single-result diagnostic worked reliably (real, well-
+        // reasoned candidate, well within budget) -- scoping up
+        // gradually from here (1 -> 2 -> ...) instead of jumping
+        // straight back to 5/10, to find where reliability actually
+        // starts to break down instead of guessing.
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 2 }],
         messages: [
           {
             role: "user",
-            content: `Search the web for exactly 1 real, currently-operating candidate funder for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+            content: `Search the web for up to 2 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
-This must be a genuine strategic fit, not just any organization that happens to exist in this channel -- pick the single best match based on real evidence of alignment with this nonprofit's mission, programs, or focus areas (see profile below), not just category membership. Only include it if you found real evidence via search -- do not invent a name. Try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale grounded in specific alignment with this nonprofit's profile, not a generic description. Do exactly one search and commit to your best answer from it.
+Each must be a genuine strategic fit, not just any organization that happens to exist in this channel -- pick matches based on real evidence of alignment with this nonprofit's mission, programs, or focus areas (see profile below), not just category membership. Only include an organization if you found real evidence for it via search -- do not invent names. Try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale grounded in specific alignment with this nonprofit's profile, not a generic description. Work efficiently -- a couple of well-chosen searches, not exhaustive research.
 
 Nonprofit profile:
 ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
