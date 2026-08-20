@@ -41,3 +41,5 @@ Discovery is the top of the funnel. It needs the CRM (to create records), screen
 
 ## Where this grows
 This slice's manual/CSV intake is the human-gated foundation for the same review-queue pattern that a later, continuous multi-source AI discovery process will feed into (see `CLAUDE.md`'s "The AI-driven end state"). "No live scraping" is a Slice 4 boundary, not a permanent one — when automated discovery arrives, candidates still land in this same pending queue for human accept/dismiss.
+
+**A specific search tactic to build in when that arrives:** if the nonprofit is a Christian organization and has individual churches (`church` channel) among its notable/current funders (`org_profile.notable_funders`), the AI discovery search should check whether those supporting churches belong to a broader denomination or network -- and if so, treat sibling churches in that same network as high-value candidates. An existing supporting relationship is a warm signal for the rest of that network, not just that one congregation.
