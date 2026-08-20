@@ -23,16 +23,19 @@ export default async function DiscoveryPage() {
         <div>
           <h1>Discovery</h1>
           <p style={{ color: colors.textMuted, fontSize: 14 }}>
-            Candidates from CSV import or manual entry. Nothing here reaches the pipeline until a
-            human accepts it.
+            Candidates from AI search, CSV import, or manual entry. Nothing here reaches the pipeline
+            until a human accepts it.
           </p>
         </div>
         <div style={{ display: "flex", gap: spacing.sm }}>
           <Link href="/discovery/import" style={buttonSecondary}>
             Import CSV
           </Link>
-          <Link href="/discovery/new" style={buttonPrimary}>
+          <Link href="/discovery/new" style={buttonSecondary}>
             + Add Candidate
+          </Link>
+          <Link href="/discovery/search" style={buttonPrimary}>
+            AI Search
           </Link>
         </div>
       </div>
