@@ -158,7 +158,16 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: scope }],
+        // web_search_20260318 is a _20260209-or-later tool version --
+        // those default to routing through an internal code-execution
+        // "dynamic filtering" caller rather than calling search
+        // directly, which is real, documented extra latency-variance
+        // machinery (confirmed against current Anthropic docs). Forcing
+        // "direct" bypasses it -- primary suspect for why this call
+        // times out so much more than its scope alone would suggest.
+        tools: [
+          { type: "web_search_20260318", name: "web_search", max_uses: scope, allowed_callers: ["direct"] },
+        ],
         messages: [
           {
             role: "user",
@@ -174,7 +183,9 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
       { timeout: 240_000 }
     );
 
-    console.log(`[discovery-search] channel=${channel} search call resolved, content_blocks=${searchResponse.content.length}`);
+    console.log(
+      `[discovery-search] channel=${channel} search call resolved, stop_reason=${searchResponse.stop_reason} content_blocks=${searchResponse.content.length}`
+    );
 
     const findings = searchResponse.content
       .filter((block) => block.type === "text")

@@ -45,11 +45,20 @@ export async function runDeepDive(runId: string, prospectId: string) {
     // max_uses caps how many searches Claude can run in this pass --
     // the main lever on latency. Kept tight on purpose: this is
     // meant to be "fast enough to wait for," not exhaustive research.
+    // allowed_callers: ["direct"] bypasses the code-execution "dynamic
+    // filtering" caller that _20260209-or-later tool versions default
+    // to (confirmed against current Anthropic docs) -- extra latency-
+    // variance machinery this call doesn't need. Applied here too even
+    // though Deep Dive has been reliable so far, since Discovery
+    // Search's repeated timeouts were traced to this same tool
+    // version's default behavior.
     const searchResponse = await anthropic.messages.create(
       {
         model: DRAFT_MODEL,
         max_tokens: 2000,
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
+        tools: [
+          { type: "web_search_20260318", name: "web_search", max_uses: 3, allowed_callers: ["direct"] },
+        ],
         messages: [
           {
             role: "user",
@@ -61,6 +70,8 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
       },
       { timeout: 120_000 }
     );
+
+    console.log(`[deep-dive] search call resolved, stop_reason=${searchResponse.stop_reason}`);
 
     const findings = searchResponse.content
       .filter((block) => block.type === "text")
