@@ -71,70 +71,79 @@ export async function runDiscoverySearch(formData: FormData) {
       ? `\n\nThis nonprofit has existing notable funders (see profile below). If any of them are individual churches, check whether they belong to a broader denomination or network, and if so, actively look for sibling churches within that same network as strong candidates -- an existing supporting relationship is a warm signal for the rest of that network. Note: individual churches are generally exempt from IRS Form 990 filing, so they won't show up in tax-filing databases -- rely on web search, denominational directories, and network/association websites instead.`
       : "";
 
-  const searchResponse = await anthropic.messages.create({
-    model: DRAFT_MODEL,
-    max_tokens: 3000,
-    tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 6 }],
-    messages: [
-      {
-        role: "user",
-        content: `Search the web for up to 10 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+  const searchResponse = await anthropic.messages.create(
+    {
+      model: DRAFT_MODEL,
+      max_tokens: 3000,
+      // max_uses is the main latency lever -- each search round-trip
+      // adds real time. 6 was letting single runs regularly exceed
+      // two minutes; 4 is still enough to surface several candidates.
+      tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 4 }],
+      messages: [
+        {
+          role: "user",
+          content: `Search the web for up to 10 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
 Only include organizations you found real evidence for via search -- do not invent names. For each, try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale for why it could be a fit given this nonprofit's profile.
 
 Nonprofit profile:
 ${buildProfileSummary(profile) || "(no profile data provided)"}`,
-      },
-    ],
-  });
+        },
+      ],
+    },
+    { timeout: 150_000 }
+  );
 
   const findings = searchResponse.content
     .filter((block) => block.type === "text")
     .map((block) => (block as { text: string }).text)
     .join("\n");
 
-  const extractResponse = await anthropic.messages.create({
-    model: DRAFT_MODEL,
-    max_tokens: 2500,
-    tools: [
-      {
-        name: "submit_candidates",
-        description: "Submit the structured list of candidate funders found.",
-        input_schema: {
-          type: "object",
-          properties: {
-            candidates: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  organization: { type: "string" },
-                  website: { type: "string" },
-                  contact_name: { type: "string" },
-                  contact_email: { type: "string" },
-                  location: { type: "string" },
-                  rationale: { type: "string" },
+  const extractResponse = await anthropic.messages.create(
+    {
+      model: DRAFT_MODEL,
+      max_tokens: 2500,
+      tools: [
+        {
+          name: "submit_candidates",
+          description: "Submit the structured list of candidate funders found.",
+          input_schema: {
+            type: "object",
+            properties: {
+              candidates: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    organization: { type: "string" },
+                    website: { type: "string" },
+                    contact_name: { type: "string" },
+                    contact_email: { type: "string" },
+                    location: { type: "string" },
+                    rationale: { type: "string" },
+                  },
+                  required: ["name", "rationale"],
                 },
-                required: ["name", "rationale"],
               },
             },
+            required: ["candidates"],
           },
-          required: ["candidates"],
         },
-      },
-    ],
-    tool_choice: { type: "tool", name: "submit_candidates" },
-    messages: [
-      {
-        role: "user",
-        content: `Extract a structured list of candidate organizations from the research notes below. Only include real, named organizations. Leave a field blank/omit it if not actually found -- do not invent contact info or websites.
+      ],
+      tool_choice: { type: "tool", name: "submit_candidates" },
+      messages: [
+        {
+          role: "user",
+          content: `Extract a structured list of candidate organizations from the research notes below. Only include real, named organizations. Leave a field blank/omit it if not actually found -- do not invent contact info or websites.
 
 Research notes:
 ${findings || "(no findings)"}`,
-      },
-    ],
-  });
+        },
+      ],
+    },
+    { timeout: 60_000 }
+  );
 
   const toolUse = extractResponse.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") {

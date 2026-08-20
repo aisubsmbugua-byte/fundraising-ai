@@ -45,19 +45,22 @@ export async function runDeepDive(runId: string, prospectId: string) {
     // max_uses caps how many searches Claude can run in this pass --
     // the main lever on latency. Kept tight on purpose: this is
     // meant to be "fast enough to wait for," not exhaustive research.
-    const searchResponse = await anthropic.messages.create({
-      model: DRAFT_MODEL,
-      max_tokens: 2000,
-      tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
-      messages: [
-        {
-          role: "user",
-          content: `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+    const searchResponse = await anthropic.messages.create(
+      {
+        model: DRAFT_MODEL,
+        max_tokens: 2000,
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
+        messages: [
+          {
+            role: "user",
+            content: `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
 
 Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`,
-        },
-      ],
-    });
+          },
+        ],
+      },
+      { timeout: 120_000 }
+    );
 
     const findings = searchResponse.content
       .filter((block) => block.type === "text")
@@ -72,7 +75,8 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
       })
       .eq("id", runId);
 
-    const strategyResponse = await anthropic.messages.create({
+    const strategyResponse = await anthropic.messages.create(
+      {
       model: DRAFT_MODEL,
       max_tokens: 2000,
       tools: [
@@ -165,7 +169,9 @@ Nonprofit profile:
 ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
         },
       ],
-    });
+      },
+      { timeout: 60_000 }
+    );
 
     const toolUse = strategyResponse.content.find((block) => block.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") {
