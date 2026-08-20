@@ -145,6 +145,8 @@ ${findings || "(no findings)"}`,
     (c) => c && c.name
   );
 
+  console.log(`[discovery-search] channel=${channel} findings_chars=${findings.length} ai_found=${found.length}`);
+
   const { data: rulesData } = await supabase.from("screening_rules").select("*").eq("active", true);
   const rules = (rulesData ?? []) as ScreeningRule[];
 
@@ -178,7 +180,11 @@ ${findings || "(no findings)"}`,
     const { tier } = screenProspect(candidate, rules);
 
     const { error } = await supabase.from("candidates").insert({ ...candidate, suggested_tier: tier, status: "pending" });
-    if (!error) inserted++;
+    if (error) {
+      console.error(`[discovery-search] insert failed for "${found_candidate.name}":`, error.message, error.details, error.hint);
+    } else {
+      inserted++;
+    }
   }
 
   revalidatePath("/discovery");
