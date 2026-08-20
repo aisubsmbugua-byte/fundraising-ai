@@ -10,16 +10,14 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 
-// TEMPORARY: testing whether allowed_callers: ["direct"] (see the
-// web_search tool config below) actually fixes the scope-3
-// reliability problem this comment used to describe -- foundation
-// bumped back to 3 specifically to retest the exact combination that
-// failed twice before. Revert to 2 if it fails again.
-const SEARCH_SCOPE_BY_CHANNEL: Partial<Record<Channel, number>> = {
-  regranting: 3,
-  foundation: 3,
-};
-const DEFAULT_SEARCH_SCOPE = 2;
+// Root cause of the scope-3 reliability problem was traced to
+// web_search_20260318 defaulting to routing through an internal
+// code-execution "dynamic filtering" caller; allowed_callers:
+// ["direct"] below bypasses it. Foundation (previously failed twice
+// at 3) succeeded cleanly once that was added, so scope 3 is now the
+// default across all channels pending a full per-channel retest.
+const SEARCH_SCOPE_BY_CHANNEL: Partial<Record<Channel, number>> = {};
+const DEFAULT_SEARCH_SCOPE = 3;
 
 type FoundCandidate = {
   name: string;
