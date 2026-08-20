@@ -10,14 +10,14 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 
-// Empirically, scope 2 has been reliable (3/3 successful runs across
-// channels) while scope 3 has not (1/4 -- only "regranting" succeeded;
-// "foundation" and "daf" both timed out at 3). Defaulting to 2 across
-// the board until there's real evidence a specific channel can
-// consistently sustain 3 -- see the Discovery Search reliability
-// writeup for the full investigation and open questions.
+// TEMPORARY: testing whether allowed_callers: ["direct"] (see the
+// web_search tool config below) actually fixes the scope-3
+// reliability problem this comment used to describe -- foundation
+// bumped back to 3 specifically to retest the exact combination that
+// failed twice before. Revert to 2 if it fails again.
 const SEARCH_SCOPE_BY_CHANNEL: Partial<Record<Channel, number>> = {
   regranting: 3,
+  foundation: 3,
 };
 const DEFAULT_SEARCH_SCOPE = 2;
 
