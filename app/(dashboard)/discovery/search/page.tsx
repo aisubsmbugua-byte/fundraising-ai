@@ -1,8 +1,17 @@
 import Link from "next/link";
 import { runDiscoverySearch } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
+import FormLoadingStatus from "@/components/FormLoadingStatus";
 import { CHANNELS, channelLabel } from "@/lib/prospects";
 import { spacing, colors, fieldStyle, labelStyle } from "@/lib/ui";
+
+const SEARCH_MESSAGES = [
+  "Searching the web for candidate funders...",
+  "Reading through search results...",
+  "Extracting names, websites, and contact info...",
+  "Cross-referencing against public IRS filing data...",
+  "Screening each candidate and saving to the queue...",
+];
 
 export default function DiscoverySearchPage({
   searchParams,
@@ -59,6 +68,7 @@ export default function DiscoverySearchPage({
         </label>
         <div style={{ marginTop: spacing.md }}>
           <SubmitButton>Search</SubmitButton>
+          <FormLoadingStatus messages={SEARCH_MESSAGES} />
         </div>
       </form>
     </div>

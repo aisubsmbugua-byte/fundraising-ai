@@ -4,8 +4,16 @@ import { useState, useTransition } from "react";
 import { generateDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import LoadingStatus from "@/components/LoadingStatus";
 import { DRAFT_KINDS, draftKindLabel, type Draft, type DraftKind } from "@/lib/drafts";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, cardStyle } from "@/lib/ui";
+
+const DRAFT_MESSAGES = [
+  "Reading the approved strategy...",
+  "Drafting content grounded in the talking points...",
+  "Refining tone and structure...",
+  "Almost done...",
+];
 
 export default function DraftPanel({
   prospectId,
@@ -57,6 +65,7 @@ export default function DraftPanel({
           </button>
         ))}
       </div>
+      <LoadingStatus active={pendingKinds.size > 0} messages={DRAFT_MESSAGES} />
 
       <div style={{ display: "grid", gap: spacing.md, marginTop: spacing.lg }}>
         {drafts.map((d) => (

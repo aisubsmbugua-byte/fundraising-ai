@@ -3,7 +3,15 @@ import { createClient } from "@/lib/supabase/server";
 import { runChannelMatch } from "./actions";
 import ReviewPanel from "./review-panel";
 import SubmitButton from "@/components/SubmitButton";
+import FormLoadingStatus from "@/components/FormLoadingStatus";
 import { spacing, colors, cardStyle } from "@/lib/ui";
+
+const ANALYSIS_MESSAGES = [
+  "Reading your Organization Profile...",
+  "Weighing fit against each of the seven channels...",
+  "Drafting rationale for each recommendation...",
+  "Almost done — finalizing the analysis...",
+];
 import type { ChannelMatchRun } from "@/lib/channel-match";
 
 export default async function ChannelFitPage() {
@@ -31,6 +39,7 @@ export default async function ChannelFitPage() {
 
       <form action={runChannelMatch} style={{ marginTop: spacing.lg }}>
         <SubmitButton>{latest ? "Run New Analysis" : "Run Analysis"}</SubmitButton>
+        <FormLoadingStatus messages={ANALYSIS_MESSAGES} />
       </form>
 
       {error && <p style={{ color: "crimson", marginTop: spacing.md }}>Error: {error.message}</p>}

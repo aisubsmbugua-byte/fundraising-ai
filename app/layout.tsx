@@ -1,3 +1,5 @@
+import "./globals.css";
+
 export const metadata = {
   title: "Fundraising AI",
   description: "AI-assisted advancement platform for nonprofits",

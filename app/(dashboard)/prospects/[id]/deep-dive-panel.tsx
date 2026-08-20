@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { getLatestDeepDiveRun, approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ControlledListInput from "@/components/ControlledListInput";
+import LoadingStatus from "@/components/LoadingStatus";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
 import type { DeepDiveRun, Strategy, OrganizationIntel } from "@/lib/deep-dive";
 
@@ -91,19 +92,7 @@ export default function DeepDivePanel({
             This typically takes a minute or two — this will update automatically as soon as it&apos;s
             ready for your review.
           </p>
-          <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
-            <span
-              style={{
-                display: "inline-block",
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: colors.warning,
-                animation: "pulse 1.5s ease-in-out infinite",
-              }}
-            />
-            <span style={{ fontSize: 14, color: colors.text }}>{run.status_message ?? "Working…"}</span>
-          </div>
+          <LoadingStatus active messages={[run.status_message ?? "Working…"]} />
         </div>
       )}
 
