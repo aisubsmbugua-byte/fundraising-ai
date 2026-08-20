@@ -80,7 +80,6 @@ export async function startDiscoverySearch(channel: Channel): Promise<string> {
     .single();
   if (error || !run) throw new Error(error?.message ?? "Failed to start discovery search");
 
-  revalidatePath("/discovery/search");
   return run.id as string;
 }
 
@@ -274,8 +273,6 @@ ${findings || "(no findings)"}`,
       })
       .eq("id", runId);
   }
-
-  revalidatePath("/discovery/search");
 }
 
 export async function retryDiscoverySearch(channel: Channel): Promise<string> {
