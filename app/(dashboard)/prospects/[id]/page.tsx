@@ -16,7 +16,7 @@ import type { Draft } from "@/lib/drafts";
 // Deep dive runs two sequential AI calls with real web search, which
 // can run past the Vercel Pro default (60s) -- give this route real
 // headroom instead of racing the clock.
-export const maxDuration = 180;
+export const maxDuration = 280;
 
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, color: colors.textMuted };
 

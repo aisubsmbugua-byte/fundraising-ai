@@ -32,7 +32,7 @@ export type ProPublicaOrgDetail = {
 // Bounded so a slow/unresponsive ProPublica endpoint can't hang an
 // entire discovery search indefinitely -- this is a best-effort
 // enrichment step, not a required one.
-const FETCH_TIMEOUT_MS = 8000;
+const FETCH_TIMEOUT_MS = 6000;
 
 export async function searchProPublica(query: string): Promise<ProPublicaSearchResult[]> {
   try {
