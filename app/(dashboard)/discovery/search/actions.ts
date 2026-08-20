@@ -10,6 +10,19 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 
+// Reliability ceiling varies by channel, not just candidate count --
+// "foundation" is a broad, crowded category with far more real
+// organizations to sift through and compare than a narrower channel
+// like "regranting", and timed out twice at scope 3 while succeeding
+// twice at scope 2. Default 3 (proven reliable for regranting,
+// christian_business, etc.); override per channel as evidence comes
+// in rather than picking one global number for every channel's very
+// different search difficulty.
+const SEARCH_SCOPE_BY_CHANNEL: Partial<Record<Channel, number>> = {
+  foundation: 2,
+};
+const DEFAULT_SEARCH_SCOPE = 3;
+
 type FoundCandidate = {
   name: string;
   organization?: string;
@@ -141,22 +154,17 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
         ? `\n\nThis nonprofit has existing notable funders (see profile below). If any of them are individual churches, check whether they belong to a broader denomination or network, and if so, actively look for sibling churches within that same network as strong candidates -- an existing supporting relationship is a warm signal for the rest of that network. Note: individual churches are generally exempt from IRS Form 990 filing, so they won't show up in tax-filing databases -- rely on web search, denominational directories, and network/association websites instead.`
         : "";
 
+    const scope = SEARCH_SCOPE_BY_CHANNEL[channel] ?? DEFAULT_SEARCH_SCOPE;
+
     const searchResponse = await anthropic.messages.create(
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        // Locked in at 3 after testing: 1/2/3 all succeeded reliably
-        // (multiple channels, multiple runs); 5 failed with a timeout
-        // three times running (twice under the original prompt, once
-        // under this efficient-search wording), a consistent enough
-        // pattern to treat 5 as past the reliability ceiling for a
-        // single search call rather than keep chasing it. Revisit if
-        // the underlying AI/tool gets meaningfully faster.
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: scope }],
         messages: [
           {
             role: "user",
-            content: `Search the web for up to 3 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+            content: `Search the web for up to ${scope} real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
 Each must be a genuine strategic fit, not just any organization that happens to exist in this channel -- pick matches based on real evidence of alignment with this nonprofit's mission, programs, or focus areas (see profile below), not just category membership. Only include an organization if you found real evidence for it via search -- do not invent names. Try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale grounded in specific alignment with this nonprofit's profile, not a generic description. Work efficiently -- a couple of well-chosen searches, not exhaustive research.
 
@@ -235,7 +243,7 @@ ${findings || "(no findings)"}`,
       (c) => c && c.name
     );
 
-    console.log(`[discovery-search] channel=${channel} findings_chars=${findings.length} ai_found=${found.length}`);
+    console.log(`[discovery-search] channel=${channel} scope=${scope} findings_chars=${findings.length} ai_found=${found.length}`);
 
     await supabase
       .from("discovery_search_runs")

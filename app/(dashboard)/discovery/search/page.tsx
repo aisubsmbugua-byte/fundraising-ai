@@ -21,7 +21,7 @@ export default function DiscoverySearchPage() {
       <h1>AI Discovery Search</h1>
       <p style={{ color: colors.textMuted, fontSize: 14 }}>
         Pick a channel and AI searches the web for candidate funders matching your Organization
-        Profile — up to 3 per run, the reliable ceiling for a single search call.
+        Profile — up to 2-3 per run, tuned per channel to what reliably completes in one search call.
         Each candidate is cross-referenced against public IRS filing data
         where a match exists (not available for individual churches, which generally don&apos;t file).
         Results land in the same review queue as manual/CSV candidates — nothing is added to the
