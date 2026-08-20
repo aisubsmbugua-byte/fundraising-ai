@@ -129,16 +129,14 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        // The single-result diagnostic worked reliably (real, well-
-        // reasoned candidate, well within budget) -- scoping up
-        // gradually from here (1 -> 2 -> ...) instead of jumping
-        // straight back to 5/10, to find where reliability actually
+        // 1 and 2 both worked reliably -- continuing to scope up
+        // gradually (1 -> 2 -> 3) to find where reliability actually
         // starts to break down instead of guessing.
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 2 }],
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
         messages: [
           {
             role: "user",
-            content: `Search the web for up to 2 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+            content: `Search the web for up to 3 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
 Each must be a genuine strategic fit, not just any organization that happens to exist in this channel -- pick matches based on real evidence of alignment with this nonprofit's mission, programs, or focus areas (see profile below), not just category membership. Only include an organization if you found real evidence for it via search -- do not invent names. Try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale grounded in specific alignment with this nonprofit's profile, not a generic description. Work efficiently -- a couple of well-chosen searches, not exhaustive research.
 
