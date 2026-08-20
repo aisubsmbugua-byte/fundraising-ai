@@ -10,18 +10,16 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 
-// Reliability ceiling varies by channel, not just candidate count --
-// "foundation" is a broad, crowded category with far more real
-// organizations to sift through and compare than a narrower channel
-// like "regranting", and timed out twice at scope 3 while succeeding
-// twice at scope 2. Default 3 (proven reliable for regranting,
-// christian_business, etc.); override per channel as evidence comes
-// in rather than picking one global number for every channel's very
-// different search difficulty.
+// Empirically, scope 2 has been reliable (3/3 successful runs across
+// channels) while scope 3 has not (1/4 -- only "regranting" succeeded;
+// "foundation" and "daf" both timed out at 3). Defaulting to 2 across
+// the board until there's real evidence a specific channel can
+// consistently sustain 3 -- see the Discovery Search reliability
+// writeup for the full investigation and open questions.
 const SEARCH_SCOPE_BY_CHANNEL: Partial<Record<Channel, number>> = {
-  foundation: 2,
+  regranting: 3,
 };
-const DEFAULT_SEARCH_SCOPE = 3;
+const DEFAULT_SEARCH_SCOPE = 2;
 
 type FoundCandidate = {
   name: string;
