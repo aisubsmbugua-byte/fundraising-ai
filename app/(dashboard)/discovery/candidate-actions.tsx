@@ -1,15 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { acceptCandidate, dismissCandidate } from "./actions";
+import { runDeepDive } from "../prospects/[id]/deep-dive-actions";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { buttonPrimary, buttonSecondary } from "@/lib/ui";
 
 export default function CandidateActions({ id, name }: { id: string; name: string }) {
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const router = useRouter();
 
   return (
     <div style={{ display: "flex", gap: 8 }}>
@@ -40,11 +39,15 @@ export default function CandidateActions({ id, name }: { id: string; name: strin
           startTransition(async () => {
             const result = await acceptCandidate(id);
             if (result) {
-              // The prospect page's DeepDivePanel triggers the actual
-              // research on mount -- not here, since this component
-              // is about to unmount and an in-flight request from an
-              // unmounting component risks getting cancelled.
-              router.push(`/prospects/${result.prospectId}`);
+              // Deliberately doesn't navigate to the prospect page --
+              // staying here lets the reviewer accept several
+              // candidates back-to-back. The Discovery page stays
+              // mounted, so it's now safe for this fire-and-forget
+              // call to be the trigger (previously this had to happen
+              // on the destination page instead, since navigating
+              // away right after firing it risked the browser
+              // cancelling the in-flight request).
+              runDeepDive(result.runId, result.prospectId);
             }
           });
         }}

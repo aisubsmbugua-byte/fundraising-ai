@@ -155,11 +155,10 @@ export async function acceptCandidate(candidateId: string) {
 
   // Accepting is a commitment to pursue this prospect -- create the
   // deep-dive run row now (fast, just an insert). The actual research
-  // is deliberately NOT triggered from here: this component is about
-  // to unmount as we navigate to the prospect page, and an in-flight
-  // request from an unmounting component risks getting cancelled by
-  // the browser. The destination page's DeepDivePanel triggers the
-  // real work on mount instead, since it stays alive for the duration.
+  // is triggered by the caller (CandidateActions), fire-and-forget,
+  // right after this returns -- the Discovery page stays mounted
+  // (Accept no longer navigates away), so there's no unmounting-
+  // component risk of the browser cancelling that request.
   const { data: run, error: runError } = await supabase
     .from("deep_dive_runs")
     .insert({
