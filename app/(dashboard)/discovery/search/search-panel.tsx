@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { startDiscoverySearch, runDiscoverySearch, retryDiscoverySearch, getDiscoverySearchRun } from "./actions";
+import { startDiscoverySearch, runDiscoverySearch, retryDiscoverySearch } from "./actions";
 import LoadingStatus from "@/components/LoadingStatus";
 import { CHANNELS, channelLabel, type Channel } from "@/lib/prospects";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
@@ -28,13 +28,25 @@ export default function SearchPanel() {
     }
   }, [run]);
 
+  // Fetches run status via a plain REST route, not a Server Action --
+  // a real search runs for minutes, meaning dozens of polls per run,
+  // and repeatedly routing that through Server Actions' RSC wire
+  // protocol was implicated in a production-only client crash that
+  // never reproduced locally no matter how it was tested.
+  async function fetchRun(runId: string) {
+    const res = await fetch(`/api/discovery-search-runs/${runId}`);
+    if (!res.ok) return null;
+    const { run: latest } = await res.json();
+    return latest as DiscoverySearchRun | null;
+  }
+
   // Poll while the run is actively in progress. Stops itself once the
   // run reaches a terminal state.
   useEffect(() => {
     if (!run || !RUNNING_STATUSES.has(run.status)) return;
 
     const interval = setInterval(async () => {
-      const latest = await getDiscoverySearchRun(run.id);
+      const latest = await fetchRun(run.id);
       if (latest) setRun(latest);
     }, 1200);
 
@@ -44,8 +56,7 @@ export default function SearchPanel() {
   function handleSearch() {
     startTransition(async () => {
       const runId = await startDiscoverySearch(channel);
-      const latest = await getDiscoverySearchRun(runId);
-      setRun(latest);
+      setRun(await fetchRun(runId));
     });
   }
 
@@ -53,8 +64,7 @@ export default function SearchPanel() {
     if (!run) return;
     startTransition(async () => {
       const runId = await retryDiscoverySearch(run.channel);
-      const latest = await getDiscoverySearchRun(runId);
-      setRun(latest);
+      setRun(await fetchRun(runId));
     });
   }
 

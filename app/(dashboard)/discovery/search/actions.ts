@@ -9,7 +9,6 @@ import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
-import type { DiscoverySearchRun } from "@/lib/discovery-search";
 
 type FoundCandidate = {
   name: string;
@@ -85,9 +84,9 @@ export async function startDiscoverySearch(channel: Channel): Promise<string> {
 
 // The heavy-lifting call. Triggered by the search page itself (which
 // stays mounted for the duration) via a fire-and-forget call, same
-// pattern as runDeepDive -- the panel polls getDiscoverySearchRun for
-// progress instead of awaiting this directly. started_at is a lock so
-// a duplicate trigger (e.g. re-render) doesn't run it twice.
+// pattern as runDeepDive -- the panel polls /api/discovery-search-runs
+// for progress instead of awaiting this directly. started_at is a
+// lock so a duplicate trigger (e.g. re-render) doesn't run it twice.
 export async function runDiscoverySearch(runId: string, channel: Channel) {
   const supabase = createClient();
   const {
@@ -277,14 +276,4 @@ ${findings || "(no findings)"}`,
 
 export async function retryDiscoverySearch(channel: Channel): Promise<string> {
   return startDiscoverySearch(channel);
-}
-
-export async function getDiscoverySearchRun(runId: string): Promise<DiscoverySearchRun | null> {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("discovery_search_runs")
-    .select("*")
-    .eq("id", runId)
-    .maybeSingle<DiscoverySearchRun>();
-  return data ?? null;
 }
