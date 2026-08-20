@@ -129,16 +129,18 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
       {
         model: DRAFT_MODEL,
         max_tokens: 3000,
-        // 1, 2, and 3 all worked reliably. 5 (at max_uses=4) is where
-        // this previously failed twice with the old, less efficient
-        // prompt wording -- retrying now with the "work efficiently"
-        // instruction in place to see if that alone was enough, or if
-        // 5 is genuinely past the reliability ceiling.
-        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 4 }],
+        // Locked in at 3 after testing: 1/2/3 all succeeded reliably
+        // (multiple channels, multiple runs); 5 failed with a timeout
+        // three times running (twice under the original prompt, once
+        // under this efficient-search wording), a consistent enough
+        // pattern to treat 5 as past the reliability ceiling for a
+        // single search call rather than keep chasing it. Revisit if
+        // the underlying AI/tool gets meaningfully faster.
+        tools: [{ type: "web_search_20260318", name: "web_search", max_uses: 3 }],
         messages: [
           {
             role: "user",
-            content: `Search the web for up to 5 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
+            content: `Search the web for up to 3 real, currently-operating candidate funders for this nonprofit within the "${channelLabel(channel)}" channel (${CHANNEL_DESCRIPTIONS[channel]}).${churchTactic}
 
 Each must be a genuine strategic fit, not just any organization that happens to exist in this channel -- pick matches based on real evidence of alignment with this nonprofit's mission, programs, or focus areas (see profile below), not just category membership. Only include an organization if you found real evidence for it via search -- do not invent names. Try to find: organization name, website, a contact name/email if publicly listed (e.g. a "contact us" or staff page), a general location, and a short rationale grounded in specific alignment with this nonprofit's profile, not a generic description. Work efficiently -- a couple of well-chosen searches, not exhaustive research.
 
