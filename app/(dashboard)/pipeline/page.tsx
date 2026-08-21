@@ -3,8 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { STAGES, CHANNELS, channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
 import type { ScreeningResult } from "@/lib/screening";
 import { spacing, colors, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
-import ProspectCard from "./prospect-card";
 import ProspectRow from "./prospect-row";
+import BoardView from "./board-view";
 
 const MS_PER_DAY = 86400000;
 
@@ -74,6 +74,14 @@ export default async function PipelinePage({
     .slice(0, 3)
     .filter((x) => x.days >= 1);
 
+  // BoardView is a Client Component (drag-and-drop needs interactive
+  // state), so only plain serializable data can cross that boundary
+  // -- not the Map/function versions used above.
+  const tierByProspect: Record<string, number> = {};
+  latestTierByProspect.forEach((tier, id) => (tierByProspect[id] = tier));
+  const daysInStageByProspect: Record<string, number> = {};
+  for (const p of all) daysInStageByProspect[p.id] = daysInStage(p);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -132,63 +140,8 @@ export default async function PipelinePage({
           daysInStage={daysInStage}
         />
       ) : (
-        <BoardView byStage={byStage} latestTierByProspect={latestTierByProspect} daysInStage={daysInStage} />
+        <BoardView prospects={all} tierByProspect={tierByProspect} daysInStageByProspect={daysInStageByProspect} />
       )}
-    </div>
-  );
-}
-
-function BoardView({
-  byStage,
-  latestTierByProspect,
-  daysInStage,
-}: {
-  byStage: Map<string, Prospect[]>;
-  latestTierByProspect: Map<string, number>;
-  daysInStage: (p: Prospect) => number;
-}) {
-  return (
-    <div style={{ overflowX: "auto", marginTop: spacing.lg, paddingBottom: 16 }}>
-      <div
-        style={{
-          display: "grid",
-          // The 140px floor (not "auto") is load-bearing: a grid
-          // track's default min size is its content's intrinsic
-          // width, so without an explicit fixed floor here, one long
-          // unwrapped prospect name blows a column -- and the
-          // ellipsis truncation meant to prevent that -- out past its
-          // fair 1/6 share. 140px keeps columns readable on narrow
-          // viewports (scrolling instead) without ever letting
-          // content dictate width on normal ones.
-          gridTemplateColumns: "repeat(6, minmax(140px, 1fr))",
-          gap: 10,
-          minWidth: 900,
-        }}
-      >
-        {STAGES.map((s) => (
-          <div key={s.value} style={{ minWidth: 0 }}>
-            <Link
-              href={`/pipeline?stage=${s.value}`}
-              style={{ fontSize: 13, fontWeight: 600, color: colors.text, textDecoration: "none" }}
-            >
-              {s.label} ({byStage.get(s.value)?.length ?? 0})
-            </Link>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6, marginTop: spacing.sm, minWidth: 0 }}>
-              {byStage.get(s.value)?.map((p) => (
-                <ProspectCard
-                  key={p.id}
-                  prospect={p}
-                  tier={latestTierByProspect.get(p.id)}
-                  daysInStage={daysInStage(p)}
-                />
-              ))}
-              {byStage.get(s.value)?.length === 0 && (
-                <p style={{ fontSize: 12, color: colors.textFaint }}>No prospects</p>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
