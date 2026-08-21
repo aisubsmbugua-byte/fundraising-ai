@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export const DEEP_DIVE_STATUSES = ["researching", "analyzing", "ready_for_review", "error"] as const;
 export type DeepDiveStatus = (typeof DEEP_DIVE_STATUSES)[number];
 
@@ -41,3 +43,25 @@ export type DeepDiveRun = {
   approved_at: string | null;
   approved_strategy: Strategy | null;
 };
+
+// Shared by the sidebar "Strategies to Review" badge, the
+// /prospects/review queue, and the overnight auto-search queue-depth
+// check -- one prospect can have multiple deep_dive_runs (e.g. via
+// "Run New Deep Dive"), and only the latest one per prospect counts.
+// No "latest per prospect" query built into deep_dive_runs, so
+// dedupe newest-first in JS; cheap at this app's scale.
+export async function countStrategiesReadyForReview(supabase: SupabaseClient): Promise<number> {
+  const { data: runs } = await supabase
+    .from("deep_dive_runs")
+    .select("prospect_id, status, approved_strategy, created_at")
+    .order("created_at", { ascending: false });
+
+  const seenProspects = new Set<string>();
+  let count = 0;
+  for (const run of runs ?? []) {
+    if (seenProspects.has(run.prospect_id)) continue;
+    seenProspects.add(run.prospect_id);
+    if (run.status === "ready_for_review" && !run.approved_strategy) count++;
+  }
+  return count;
+}

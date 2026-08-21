@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 
 const NAV = [
   { href: "/organization", label: "Organization Profile" },
@@ -24,23 +25,10 @@ export default async function DashboardLayout({
   if (!user) redirect("/login");
 
   // Deep dives now fire in the background right from the Discovery
-  // queue (see candidate-actions.tsx) instead of the reviewer having
+  // queue (see candidate-card.tsx) instead of the reviewer having
   // to sit on the destination page waiting -- this badge is how they
-  // find out a strategy finished and is ready to look at. No "latest
-  // per prospect" query built in, so dedupe newest-first in JS; cheap
-  // at this app's scale.
-  const { data: runs } = await supabase
-    .from("deep_dive_runs")
-    .select("prospect_id, status, approved_strategy, created_at")
-    .order("created_at", { ascending: false });
-
-  const seenProspects = new Set<string>();
-  let readyForReviewCount = 0;
-  for (const run of runs ?? []) {
-    if (seenProspects.has(run.prospect_id)) continue;
-    seenProspects.add(run.prospect_id);
-    if (run.status === "ready_for_review" && !run.approved_strategy) readyForReviewCount++;
-  }
+  // find out a strategy finished and is ready to look at.
+  const readyForReviewCount = await countStrategiesReadyForReview(supabase);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>

@@ -15,9 +15,12 @@ export default function AutoSearchForm({ settings }: { settings: AutoSearchSetti
       <h2 style={{ fontSize: 16 }}>Overnight Auto-Search</h2>
       <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
         When on, searches all channels once a night to keep the Discovery queue topped up --
-        stopping once it finds about 10 new candidates, or skipping the night entirely if the
-        queue is already at or above the threshold below. Nothing is ever accepted automatically;
-        this only adds to the same review queue manual and AI-search candidates already land in.
+        stopping once it finds about 10 new candidates, or skipping the night entirely if your
+        Strategies to Review queue is already at or above the threshold below (accepting a
+        candidate triggers a deep-dive that lands there, so finding more candidates while that
+        queue is backed up just adds more strain, not less). Nothing is ever accepted
+        automatically; this only adds to the same review queue manual and AI-search candidates
+        already land in.
       </p>
 
       <label style={{ display: "flex", alignItems: "center", gap: spacing.sm, marginTop: spacing.lg }}>
@@ -25,8 +28,8 @@ export default function AutoSearchForm({ settings }: { settings: AutoSearchSetti
         <span style={{ fontSize: 14 }}>Enabled</span>
       </label>
 
-      <label style={{ ...labelStyle, display: "block", marginTop: spacing.md, maxWidth: 200 }}>
-        Skip the night's run if the queue already has at least
+      <label style={{ ...labelStyle, display: "block", marginTop: spacing.md, maxWidth: 240 }}>
+        Skip the night's run if Strategies to Review already has at least
         <input
           type="number"
           min={1}
@@ -34,7 +37,7 @@ export default function AutoSearchForm({ settings }: { settings: AutoSearchSetti
           onChange={(e) => setThreshold(Math.max(1, Number(e.target.value) || 1))}
           style={fieldStyle}
         />
-        pending candidates
+        waiting
       </label>
 
       <button

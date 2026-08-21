@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAutoDiscoverySearchForChannel } from "@/app/(dashboard)/discovery/search/actions";
+import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import { CHANNELS } from "@/lib/prospects";
 
 // Up to 7 sequential channel searches (each search call alone can
@@ -38,13 +39,20 @@ export async function GET(request: Request) {
     return Response.json({ skipped: "no attributable user" });
   }
 
-  const { count: pendingCount } = await supabase
-    .from("candidates")
-    .select("*", { count: "exact", head: true })
-    .eq("status", "pending");
-  if ((pendingCount ?? 0) >= settings.queue_threshold) {
-    console.log(`[auto-discovery-search] skipped: queue already at ${pendingCount}/${settings.queue_threshold}`);
-    return Response.json({ skipped: "queue full", pendingCount });
+  // Gated on Strategies to Review, not raw Discovery candidates --
+  // Discovery candidates are quick to Accept/Dismiss in bulk, but
+  // Strategies to Review is the real backlog (each one takes actually
+  // reading a full AI-researched strategy and deciding on it), and
+  // it's also the queue auto-search indirectly feeds: every candidate
+  // accepted triggers a deep-dive that lands there. Searching for more
+  // candidates while that queue is already backed up just sets up more
+  // strain downstream instead of helping.
+  const readyForReviewCount = await countStrategiesReadyForReview(supabase);
+  if (readyForReviewCount >= settings.queue_threshold) {
+    console.log(
+      `[auto-discovery-search] skipped: Strategies to Review already at ${readyForReviewCount}/${settings.queue_threshold}`
+    );
+    return Response.json({ skipped: "queue full", readyForReviewCount });
   }
 
   // Shuffled so the same 2-3 channels don't always get first crack at
