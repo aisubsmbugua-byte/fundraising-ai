@@ -179,6 +179,17 @@ export async function acceptCandidate(candidateId: string) {
   if (insertError || !prospect) throw new Error(insertError?.message ?? "Failed to create prospect");
   console.log(`[accept-candidate] prospect inserted at +${Date.now() - t0}ms`);
 
+  // Re-points this contact's link from nowhere (candidates have no
+  // detail page) to the prospect that now exists for them -- upsert
+  // updates the existing row by email rather than creating a new one.
+  await upsertContact(supabase, {
+    name: candidate.contact_name,
+    email: candidate.contact_email,
+    organization: candidate.organization,
+    prospectId: prospect.id,
+    userId: user.id,
+  });
+
   const { error: updateError } = await supabase
     .from("candidates")
     .update({ status: "accepted", reviewed_by: user.id, updated_at: new Date().toISOString() })
