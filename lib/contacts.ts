@@ -31,9 +31,12 @@ export async function upsertContact(
     userId?: string;
   }
 ) {
-  if (!input.name && !input.email) return;
   const email = input.email?.trim().toLowerCase() || null;
-  const name = input.name || email!;
+  // Organization ranks above email as a fallback so a contact with no
+  // known person name reads as "National Community Church", not as
+  // its own raw email/URL string sitting where a name belongs.
+  const name = input.name?.trim() || input.organization?.trim() || email;
+  if (!name) return;
 
   if (email) {
     const { error } = await supabase.from("contacts").upsert(

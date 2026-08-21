@@ -38,7 +38,7 @@ export default async function PeoplePage() {
               <strong>{c.name}</strong>
               <div style={{ fontSize: 13, color: colors.textMuted }}>
                 {c.email ?? "No email on file"}
-                {c.organization ? ` · ${c.organization}` : ""}
+                {c.organization && c.organization !== c.name ? ` · ${c.organization}` : ""}
               </div>
             </div>
             {c.source_prospect_id && (
