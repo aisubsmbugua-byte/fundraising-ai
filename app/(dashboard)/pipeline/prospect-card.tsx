@@ -24,6 +24,8 @@ export default function ProspectCard({
       href={`/prospects/${prospect.id}`}
       style={{
         display: "block",
+        minWidth: 0,
+        boxSizing: "border-box",
         background: "#fff",
         border: `1px solid ${colors.border}`,
         borderLeft: `3px solid ${channelColor(prospect.channel)}`,

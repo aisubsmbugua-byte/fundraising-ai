@@ -4,6 +4,7 @@ import { STAGES, CHANNELS, channelLabel, stageLabel, type Prospect, type StageCh
 import type { ScreeningResult } from "@/lib/screening";
 import { spacing, colors, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import ProspectCard from "./prospect-card";
+import ProspectRow from "./prospect-row";
 
 const MS_PER_DAY = 86400000;
 
@@ -172,7 +173,7 @@ function BoardView({
             >
               {s.label} ({byStage.get(s.value)?.length ?? 0})
             </Link>
-            <div style={{ display: "grid", gap: 6, marginTop: spacing.sm }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6, marginTop: spacing.sm, minWidth: 0 }}>
               {byStage.get(s.value)?.map((p) => (
                 <ProspectCard
                   key={p.id}
@@ -211,16 +212,9 @@ function FilteredStageView({
       <h2 style={{ fontSize: 16, marginTop: spacing.sm }}>
         {stageLabel(stage)} ({prospects.length})
       </h2>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-          gap: spacing.sm,
-          marginTop: spacing.md,
-        }}
-      >
+      <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>
         {prospects.map((p) => (
-          <ProspectCard key={p.id} prospect={p} tier={latestTierByProspect.get(p.id)} daysInStage={daysInStage(p)} />
+          <ProspectRow key={p.id} prospect={p} tier={latestTierByProspect.get(p.id)} daysInStage={daysInStage(p)} />
         ))}
         {prospects.length === 0 && <p style={{ fontSize: 13, color: colors.textMuted }}>No prospects in this stage.</p>}
       </div>
