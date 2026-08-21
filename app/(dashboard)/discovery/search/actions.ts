@@ -10,6 +10,7 @@ import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
+import { upsertContact } from "@/lib/contacts";
 
 // Root cause of the scope-3 reliability problem was traced to
 // web_search_20260318 defaulting to routing through an internal
@@ -311,10 +312,24 @@ ${findings || "(no findings)"}`,
 
       const { tier } = screenProspect(candidate, rules);
 
-      const { error } = await supabase.from("candidates").insert({ ...candidate, suggested_tier: tier, status: "pending" });
+      const { data: insertedRow, error } = await supabase
+        .from("candidates")
+        .insert({ ...candidate, suggested_tier: tier, status: "pending" })
+        .select("id")
+        .single();
       if (error) {
         console.error(`[discovery-search] insert failed for "${found_candidate.name}":`, error.message, error.details, error.hint);
       } else {
+        // No interactive user in the overnight cron path (see
+        // runAutoDiscoverySearchForChannel) -- created_by on the
+        // contact row is attribution-only, so it's fine to leave it
+        // unset there rather than threading a userId through here.
+        await upsertContact(supabase, {
+          name: candidate.contact_name,
+          email: candidate.contact_email,
+          organization: candidate.organization,
+          candidateId: insertedRow.id,
+        });
         inserted++;
       }
     }

@@ -4,16 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import { colors } from "@/lib/ui";
 
-const NAV = [
-  { href: "/organization", label: "Organization Profile" },
-  { href: "/pipeline", label: "Pipeline" },
-  { href: "/prospects", label: "Prospects" },
-  { href: "/discovery", label: "Discovery" },
-  { href: "/evidence", label: "Evidence" },
-  { href: "/revisit", label: "Revisit" },
-  { href: "/settings", label: "Settings" },
-];
-
 export default async function DashboardLayout({
   children,
 }: {
@@ -25,11 +15,30 @@ export default async function DashboardLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Deep dives now fire in the background right from the Discovery
-  // queue (see candidate-card.tsx) instead of the reviewer having
-  // to sit on the destination page waiting -- this badge is how they
-  // find out a strategy finished and is ready to look at.
-  const readyForReviewCount = await countStrategiesReadyForReview(supabase);
+  // Both badges represent items that are, by definition, waiting on a
+  // human -- pending Donor Finder candidates and deep-dive strategies
+  // ready_for_review -- so both get the same "needs a look" treatment.
+  const [readyForReviewCount, { count: pendingCandidateCount }] = await Promise.all([
+    countStrategiesReadyForReview(supabase),
+    supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
+  ]);
+
+  // Order follows the actual workflow: overview, then setup, then the
+  // funnel itself (source -> stage strategy -> active pursuit), then
+  // supporting/reference items last -- replaces the old flat,
+  // build-order list per the nav-redesign discussion.
+  const NAV: { href: string; label: string; badge: number }[] = [
+    { href: "/dashboard", label: "Dashboard", badge: 0 },
+    { href: "/organization", label: "Org Profile", badge: 0 },
+    { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0 },
+    { href: "/prospects/review", label: "Strategy Staging", badge: readyForReviewCount },
+    { href: "/pipeline", label: "Pipeline", badge: 0 },
+    { href: "/prospects", label: "Prospects", badge: 0 },
+    { href: "/people", label: "People", badge: 0 },
+    { href: "/evidence", label: "Evidence", badge: 0 },
+    { href: "/revisit", label: "Revisit", badge: 0 },
+    { href: "/settings", label: "Settings", badge: 0 },
+  ];
 
   return (
     <div>
@@ -50,39 +59,33 @@ export default async function DashboardLayout({
         <nav style={{ width: 200, background: "#0f172a", color: "#fff", padding: 20 }}>
           <div style={{ fontWeight: 700, marginBottom: 24 }}>Fundraising AI</div>
           <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
-            {readyForReviewCount > 0 && (
-              <li>
+            {NAV.map((n) => (
+              <li key={n.href}>
                 <Link
-                  href="/prospects/review"
+                  href={n.href}
                   prefetch={false}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    color: "#fff",
-                    fontWeight: 600,
+                    color: "#cbd5e1",
                     textDecoration: "none",
                   }}
                 >
-                  Strategies to Review
-                  <span
-                    style={{
-                      background: "#d97706",
-                      color: "#fff",
-                      borderRadius: 10,
-                      padding: "1px 8px",
-                      fontSize: 12,
-                    }}
-                  >
-                    {readyForReviewCount}
-                  </span>
-                </Link>
-              </li>
-            )}
-            {NAV.map((n) => (
-              <li key={n.href}>
-                <Link href={n.href} prefetch={false} style={{ color: "#cbd5e1", textDecoration: "none" }}>
                   {n.label}
+                  {n.badge > 0 && (
+                    <span
+                      style={{
+                        background: colors.danger,
+                        color: "#fff",
+                        borderRadius: 10,
+                        padding: "1px 8px",
+                        fontSize: 12,
+                      }}
+                    >
+                      {n.badge}
+                    </span>
+                  )}
                 </Link>
               </li>
             ))}

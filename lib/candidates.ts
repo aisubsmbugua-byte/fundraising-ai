@@ -20,6 +20,7 @@ export type Candidate = {
   status: CandidateStatus;
   reviewed_by: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 // Minimal RFC4180-ish CSV parser (handles quoted fields containing

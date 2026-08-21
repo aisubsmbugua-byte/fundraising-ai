@@ -35,9 +35,17 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isDashboard = request.nextUrl.pathname.startsWith("/(dashboard)") ||
-    ["/pipeline", "/prospects", "/settings", "/discovery", "/evidence", "/revisit", "/organization"].some((p) =>
-      request.nextUrl.pathname.startsWith(p)
-    );
+    [
+      "/dashboard",
+      "/pipeline",
+      "/prospects",
+      "/settings",
+      "/discovery",
+      "/evidence",
+      "/revisit",
+      "/organization",
+      "/people",
+    ].some((p) => request.nextUrl.pathname.startsWith(p));
 
   if (isDashboard && !user && process.env.DISABLE_AUTH === "true") {
     // Mints a real session for the one known dev account via the

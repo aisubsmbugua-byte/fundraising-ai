@@ -15,12 +15,11 @@ export function channelLabel(channel: string) {
 }
 
 export const STAGES = [
+  { value: "contact", label: "Contact" },
   { value: "discovery", label: "Discovery" },
-  { value: "screening", label: "Screening" },
-  { value: "qualification", label: "Qualification" },
-  { value: "cultivation", label: "Cultivation" },
-  { value: "ask", label: "Ask" },
+  { value: "proposal", label: "Proposal" },
   { value: "decision", label: "Decision" },
+  { value: "awarding", label: "Awarding" },
   { value: "stewardship", label: "Stewardship" },
 ] as const;
 

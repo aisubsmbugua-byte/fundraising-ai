@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
+import { upsertContact } from "@/lib/contacts";
 
 function fieldsFromForm(formData: FormData) {
   const focusAreas = (formData.get("focus_areas") as string) || "";
@@ -35,13 +36,22 @@ export async function createProspect(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const fields = fieldsFromForm(formData);
   const { data, error } = await supabase
     .from("prospects")
-    .insert({ ...fieldsFromForm(formData), owner_id: user.id })
+    .insert({ ...fields, owner_id: user.id })
     .select("id")
     .single();
 
   if (error) throw new Error(error.message);
+
+  await upsertContact(supabase, {
+    name: fields.contact_name,
+    email: fields.contact_email,
+    organization: fields.organization,
+    prospectId: data.id,
+    userId: user.id,
+  });
 
   revalidatePath("/prospects");
   redirect(`/prospects/${data.id}`);
@@ -54,12 +64,21 @@ export async function updateProspect(id: string, formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const fields = fieldsFromForm(formData);
   const { error } = await supabase
     .from("prospects")
-    .update({ ...fieldsFromForm(formData), updated_at: new Date().toISOString() })
+    .update({ ...fields, updated_at: new Date().toISOString() })
     .eq("id", id);
 
   if (error) throw new Error(error.message);
+
+  await upsertContact(supabase, {
+    name: fields.contact_name,
+    email: fields.contact_email,
+    organization: fields.organization,
+    prospectId: id,
+    userId: user.id,
+  });
 
   revalidatePath("/prospects");
   revalidatePath(`/prospects/${id}`);

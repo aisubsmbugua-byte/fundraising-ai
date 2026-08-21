@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { parseCsv } from "@/lib/candidates";
 import { CHANNELS } from "@/lib/prospects";
+import { upsertContact } from "@/lib/contacts";
 
 async function getActiveRules(supabase: ReturnType<typeof createClient>) {
   const { data } = await supabase.from("screening_rules").select("*").eq("active", true);
@@ -45,10 +46,20 @@ export async function createCandidate(formData: FormData) {
   const rules = await getActiveRules(supabase);
   const { tier } = screenProspect(candidate, rules);
 
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .from("candidates")
-    .insert({ ...candidate, suggested_tier: tier, status: "pending" });
+    .insert({ ...candidate, suggested_tier: tier, status: "pending" })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
+
+  await upsertContact(supabase, {
+    name: candidate.contact_name,
+    email: candidate.contact_email,
+    organization: candidate.organization,
+    candidateId: inserted.id,
+    userId: user.id,
+  });
 
   revalidatePath("/discovery");
   redirect("/discovery");
@@ -106,6 +117,18 @@ export async function importCandidatesCsv(formData: FormData) {
   if (toInsert.length > 0) {
     const { error } = await supabase.from("candidates").insert(toInsert);
     if (error) throw new Error(error.message);
+
+    // No per-row id back from a batch insert, so contacts imported
+    // this way aren't linked to a source_candidate_id -- name/email/
+    // organization is still enough for the directory to be useful.
+    for (const c of toInsert) {
+      await upsertContact(supabase, {
+        name: c.contact_name as string | null,
+        email: c.contact_email as string | null,
+        organization: c.organization as string | null,
+        userId: user.id,
+      });
+    }
   }
 
   revalidatePath("/discovery");
@@ -158,7 +181,7 @@ export async function acceptCandidate(candidateId: string) {
 
   const { error: updateError } = await supabase
     .from("candidates")
-    .update({ status: "accepted", reviewed_by: user.id })
+    .update({ status: "accepted", reviewed_by: user.id, updated_at: new Date().toISOString() })
     .eq("id", candidateId);
   if (updateError) throw new Error(updateError.message);
   console.log(`[accept-candidate] candidate status updated at +${Date.now() - t0}ms`);
@@ -198,7 +221,7 @@ export async function dismissCandidate(candidateId: string) {
 
   const { error } = await supabase
     .from("candidates")
-    .update({ status: "dismissed", reviewed_by: user.id })
+    .update({ status: "dismissed", reviewed_by: user.id, updated_at: new Date().toISOString() })
     .eq("id", candidateId);
   if (error) throw new Error(error.message);
 
