@@ -65,20 +65,41 @@ async function cachedProPublicaLookup(supabase: SupabaseClient, name: string) {
   return saved ?? null;
 }
 
-// Checks both candidates (any status -- pending, accepted, or
-// dismissed -- since accepting a candidate leaves its row in place
-// with status updated, it doesn't move elsewhere) and prospects
-// (covers prospects added directly via manual entry, which never had
-// a candidates row at all). Name match only, case-insensitive -- no
-// EIN to key off for orgs ProPublica doesn't have. Best-effort: a
-// close-but-not-exact name variant can still slip through, so this is
-// an anti-clutter measure, not a hard uniqueness guarantee.
-async function isAlreadyKnown(supabase: SupabaseClient, name: string): Promise<boolean> {
-  const [{ data: existingCandidate }, { data: existingProspect }] = await Promise.all([
-    supabase.from("candidates").select("id").ilike("name", name).limit(1).maybeSingle(),
-    supabase.from("prospects").select("id").ilike("name", name).limit(1).maybeSingle(),
-  ]);
-  return !!existingCandidate || !!existingProspect;
+// Strips a leading "The " and normalizes case/whitespace so "The
+// Maclellan Foundation" and "Maclellan Foundation" compare equal.
+function normalizeOrgName(s: string): string {
+  return s.trim().toLowerCase().replace(/^the\s+/, "");
+}
+
+// Two names/orgs are the same real thing if they're equal after
+// normalizing, or one contains the other (e.g. "Assemblies of God"
+// vs. "Assemblies of God World Missions (AGWM)"). Guarded to at
+// least 4 characters so a short generic word doesn't false-positive
+// against everything.
+function isSameOrg(a: string, b: string): boolean {
+  const na = normalizeOrgName(a);
+  const nb = normalizeOrgName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length < 4 || nb.length < 4) return false;
+  return na.includes(nb) || nb.includes(na);
+}
+
+type KnownOrg = { name: string; organization: string | null };
+
+// Best-effort, not a hard uniqueness guarantee: catches exact and
+// near-exact name/organization variants (see isSameOrg), but two
+// genuinely differently-worded names for the same funder with no
+// organization field set on either side (e.g. an abbreviation like
+// "2PC Foundation" vs. "Second Presbyterian Church Foundation") can
+// still slip through -- there's no EIN to key off for orgs
+// ProPublica doesn't have.
+function isAlreadyKnown(known: KnownOrg[], name: string, organization?: string | null): boolean {
+  return known.some((row) => {
+    if (isSameOrg(row.name, name)) return true;
+    if (organization && row.organization && isSameOrg(row.organization, organization)) return true;
+    return false;
+  });
 }
 
 // Creates the run row and returns immediately -- the actual search is
@@ -277,10 +298,21 @@ ${findings || "(no findings)"}`,
     const { data: rulesData } = await supabase.from("screening_rules").select("*").eq("active", true);
     const rules = (rulesData ?? []) as ScreeningRule[];
 
+    // Fetched once and appended to as candidates get inserted below,
+    // rather than re-querying both tables on every iteration --
+    // within-run duplicates (the same funder turning up twice in one
+    // search) still get caught since each insert updates this list
+    // before the next candidate is checked.
+    const [{ data: knownCandidates }, { data: knownProspects }] = await Promise.all([
+      supabase.from("candidates").select("name, organization").returns<KnownOrg[]>(),
+      supabase.from("prospects").select("name, organization").returns<KnownOrg[]>(),
+    ]);
+    const known: KnownOrg[] = [...(knownCandidates ?? []), ...(knownProspects ?? [])];
+
     let inserted = 0;
     let skippedDuplicates = 0;
     for (const found_candidate of found) {
-      if (await isAlreadyKnown(supabase, found_candidate.name)) {
+      if (isAlreadyKnown(known, found_candidate.name, found_candidate.organization)) {
         skippedDuplicates++;
         continue;
       }
@@ -330,6 +362,7 @@ ${findings || "(no findings)"}`,
           organization: candidate.organization,
           candidateId: insertedRow.id,
         });
+        known.push({ name: candidate.name, organization: candidate.organization });
         inserted++;
       }
     }
