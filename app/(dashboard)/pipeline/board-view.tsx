@@ -181,7 +181,7 @@ function DraggableCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      style={{ opacity: isDragging ? 0.4 : 1, cursor: "grab" }}
+      style={{ opacity: isDragging ? 0.4 : 1, cursor: "grab", minWidth: 0 }}
     >
       <ProspectCard prospect={prospect} tier={tier} daysInStage={daysInStage} />
     </div>
