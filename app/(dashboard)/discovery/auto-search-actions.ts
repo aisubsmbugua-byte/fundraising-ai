@@ -48,5 +48,5 @@ export async function updateAutoSearchSettings(enabled: boolean, queueThreshold:
     : await supabase.from("auto_search_settings").insert(payload);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/settings");
+  revalidatePath("/discovery");
 }
