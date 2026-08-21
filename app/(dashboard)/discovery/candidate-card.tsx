@@ -7,7 +7,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
 import TierBadge from "@/components/TierBadge";
 import { channelLabel } from "@/lib/prospects";
-import { spacing, colors, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
+import { spacing, colors, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
 import type { Candidate } from "@/lib/candidates";
 
 type CardStatus = "idle" | "accepting" | "justAccepted" | "removed" | "dismissing";
@@ -60,9 +60,10 @@ export default function CandidateCard({ candidate }: { candidate: Candidate }) {
           {candidate.organization ? ` · ${candidate.organization}` : ""} · via {candidate.source ?? "unknown"}
         </div>
         {typeof candidate.raw?.rationale === "string" && candidate.raw.rationale && status === "idle" && (
-          <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, maxWidth: 560 }}>
-            {candidate.raw.rationale}
-          </p>
+          <div style={{ marginTop: spacing.xs, maxWidth: 560 }}>
+            <div style={labelStyle}>Why This Organization</div>
+            <p style={{ fontSize: 13, color: colors.text, marginTop: 2 }}>{candidate.raw.rationale}</p>
+          </div>
         )}
         {status === "accepting" && (
           <LoadingStatus
