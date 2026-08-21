@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
+import { colors } from "@/lib/ui";
 
 const NAV = [
   { href: "/organization", label: "Organization Profile" },
@@ -31,49 +32,64 @@ export default async function DashboardLayout({
   const readyForReviewCount = await countStrategiesReadyForReview(supabase);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <nav style={{ width: 200, background: "#0f172a", color: "#fff", padding: 20 }}>
-        <div style={{ fontWeight: 700, marginBottom: 24 }}>Fundraising AI</div>
-        <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
-          {readyForReviewCount > 0 && (
-            <li>
-              <Link
-                href="/prospects/review"
-                prefetch={false}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  color: "#fff",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                }}
-              >
-                Strategies to Review
-                <span
+    <div>
+      {process.env.DISABLE_AUTH === "true" && (
+        <div
+          style={{
+            background: colors.warning,
+            color: "#fff",
+            fontSize: 13,
+            textAlign: "center",
+            padding: "4px 0",
+          }}
+        >
+          Sign-in disabled for the build phase — re-enable before Beta
+        </div>
+      )}
+      <div style={{ display: "flex", minHeight: "100vh" }}>
+        <nav style={{ width: 200, background: "#0f172a", color: "#fff", padding: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 24 }}>Fundraising AI</div>
+          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
+            {readyForReviewCount > 0 && (
+              <li>
+                <Link
+                  href="/prospects/review"
+                  prefetch={false}
                   style={{
-                    background: "#d97706",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
                     color: "#fff",
-                    borderRadius: 10,
-                    padding: "1px 8px",
-                    fontSize: 12,
+                    fontWeight: 600,
+                    textDecoration: "none",
                   }}
                 >
-                  {readyForReviewCount}
-                </span>
-              </Link>
-            </li>
-          )}
-          {NAV.map((n) => (
-            <li key={n.href}>
-              <Link href={n.href} prefetch={false} style={{ color: "#cbd5e1", textDecoration: "none" }}>
-                {n.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <main style={{ flex: 1, padding: 32 }}>{children}</main>
+                  Strategies to Review
+                  <span
+                    style={{
+                      background: "#d97706",
+                      color: "#fff",
+                      borderRadius: 10,
+                      padding: "1px 8px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {readyForReviewCount}
+                  </span>
+                </Link>
+              </li>
+            )}
+            {NAV.map((n) => (
+              <li key={n.href}>
+                <Link href={n.href} prefetch={false} style={{ color: "#cbd5e1", textDecoration: "none" }}>
+                  {n.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <main style={{ flex: 1, padding: 32 }}>{children}</main>
+      </div>
     </div>
   );
 }
