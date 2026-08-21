@@ -217,7 +217,7 @@ export async function acceptCandidate(candidateId: string) {
   console.log(`[accept-candidate] deep_dive_run inserted at +${Date.now() - t0}ms`);
 
   revalidatePath("/discovery");
-  revalidatePath("/prospects");
+  revalidatePath("/pipeline");
   console.log(`[accept-candidate] revalidated, returning at +${Date.now() - t0}ms`);
 
   return { prospectId: prospect.id as string, runId: run.id as string };

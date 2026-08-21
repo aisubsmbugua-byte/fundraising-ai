@@ -70,7 +70,7 @@ export default async function ReviewStrategiesPage() {
       </div>
 
       <div style={{ marginTop: spacing.xl }}>
-        <Link href="/prospects" style={buttonPrimary}>
+        <Link href="/pipeline?view=list" style={buttonPrimary}>
           ← All Prospects
         </Link>
       </div>

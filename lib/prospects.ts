@@ -14,6 +14,24 @@ export function channelLabel(channel: string) {
   return CHANNELS.find((c) => c.value === channel)?.label ?? channel;
 }
 
+// A cool-toned categorical palette, deliberately clear of red/amber/
+// green -- those hues already carry status meaning elsewhere (needs
+// review, warning, accepted), so a channel tag never gets misread as
+// a status.
+const CHANNEL_COLORS: Record<Channel, string> = {
+  foundation: "#6366f1",
+  regranting: "#0ea5e9",
+  christian_business: "#8b5cf6",
+  denomination: "#d946ef",
+  church: "#14b8a6",
+  daf: "#3b82f6",
+  major_donor: "#a855f7",
+};
+
+export function channelColor(channel: string) {
+  return CHANNEL_COLORS[channel as Channel] ?? "#94a3b8";
+}
+
 export const STAGES = [
   { value: "contact", label: "Contact" },
   { value: "discovery", label: "Discovery" },

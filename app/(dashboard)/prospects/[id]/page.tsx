@@ -7,6 +7,7 @@ import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import DeleteProspectButton from "./delete-button";
 import ScreenButton from "./screen-button";
 import TierBadge from "@/components/TierBadge";
+import MoveStageControl from "@/app/(dashboard)/pipeline/move-stage-control";
 import DeepDivePanel from "./deep-dive-panel";
 import DraftPanel from "./draft-panel";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
@@ -72,7 +73,7 @@ export default async function ProspectDetailPage({
 
   return (
     <div style={{ maxWidth: 480 }}>
-      <Link href="/prospects" style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
+      <Link href="/pipeline?view=list" style={{ fontSize: 14, color: colors.textMuted, textDecoration: "none" }}>
         ← Back to Prospects
       </Link>
 
@@ -179,6 +180,7 @@ export default async function ProspectDetailPage({
           <div>
             <dt style={fieldLabelStyle}>Stage</dt>
             <dd>{stageLabel(prospect.stage)}</dd>
+            <MoveStageControl prospectId={prospect.id} prospectName={prospect.name} currentStage={prospect.stage} />
           </div>
           <div>
             <dt style={fieldLabelStyle}>Channel</dt>

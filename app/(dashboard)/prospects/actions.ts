@@ -53,7 +53,7 @@ export async function createProspect(formData: FormData) {
     userId: user.id,
   });
 
-  revalidatePath("/prospects");
+  revalidatePath("/pipeline");
   redirect(`/prospects/${data.id}`);
 }
 
@@ -80,7 +80,7 @@ export async function updateProspect(id: string, formData: FormData) {
     userId: user.id,
   });
 
-  revalidatePath("/prospects");
+  revalidatePath("/pipeline");
   revalidatePath(`/prospects/${id}`);
   redirect(`/prospects/${id}`);
 }
@@ -130,6 +130,6 @@ export async function deleteProspect(id: string) {
   const { error } = await supabase.from("prospects").delete().eq("id", id);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/prospects");
-  redirect("/prospects");
+  revalidatePath("/pipeline");
+  redirect("/pipeline?view=list");
 }
