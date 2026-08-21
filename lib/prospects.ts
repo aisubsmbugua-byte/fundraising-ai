@@ -33,8 +33,8 @@ export function channelColor(channel: string) {
 }
 
 export const STAGES = [
-  { value: "outreach", label: "Outreach" },
   { value: "discovery", label: "Discovery" },
+  { value: "outreach", label: "Outreach" },
   { value: "proposal", label: "Proposal" },
   { value: "decision", label: "Decision" },
   { value: "awarding", label: "Awarding" },

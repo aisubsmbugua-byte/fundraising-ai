@@ -53,7 +53,7 @@ Next.js (App Router) · Supabase (Postgres/auth/storage) · Vercel · Anthropic 
 ## Domain glossary
 
 - **Channel** — one of seven funder types (added Individual Church, distinct from Denomination & Network Fund, since many churches are standalone or not meaningfully denomination-affiliated). Drives how much AI automation applies.
-- **Stage** — one of six pipeline stages (Contact, Discovery, Proposal, Decision, Awarding, Stewardship), each gated by human approval. Stewardship covers everything after Awarding: reporting, renewal, relationship memory.
+- **Stage** — one of six pipeline stages (Discovery, Outreach, Proposal, Decision, Awarding, Stewardship), each gated by human approval. Stewardship covers everything after Awarding: reporting, renewal, relationship memory.
 - **Three-tier classification** — screening output: Tier 1 (strong fit) / Tier 2 (possible) / Tier 3 (unlikely).
 - **Evidence library** — verifiable outcomes + case studies with permission tags. This is the core differentiator; treat it as first-class data.
 - **Relationship memory** — the full interaction history, including "no → yes" tracking. A "no" is data, not a dead end.
