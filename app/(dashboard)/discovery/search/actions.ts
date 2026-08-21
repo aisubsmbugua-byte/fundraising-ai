@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { buildProfileSummary, CHANNEL_DESCRIPTIONS } from "@/lib/channel-match";
@@ -29,7 +30,7 @@ type FoundCandidate = {
   rationale: string;
 };
 
-async function cachedProPublicaLookup(supabase: ReturnType<typeof createClient>, name: string) {
+async function cachedProPublicaLookup(supabase: SupabaseClient, name: string) {
   // Best-effort org-name match against our own cache first (instant,
   // free) before hitting ProPublica's API. Cache entries never
   // expire here -- financial data only updates annually anyway.
@@ -71,7 +72,7 @@ async function cachedProPublicaLookup(supabase: ReturnType<typeof createClient>,
 // EIN to key off for orgs ProPublica doesn't have. Best-effort: a
 // close-but-not-exact name variant can still slip through, so this is
 // an anti-clutter measure, not a hard uniqueness guarantee.
-async function isAlreadyKnown(supabase: ReturnType<typeof createClient>, name: string): Promise<boolean> {
+async function isAlreadyKnown(supabase: SupabaseClient, name: string): Promise<boolean> {
   const [{ data: existingCandidate }, { data: existingProspect }] = await Promise.all([
     supabase.from("candidates").select("id").ilike("name", name).limit(1).maybeSingle(),
     supabase.from("prospects").select("id").ilike("name", name).limit(1).maybeSingle(),
@@ -142,6 +143,15 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
     .maybeSingle();
   if (!claimed) return; // already started (or started elsewhere) -- don't run it twice
 
+  await executeChannelSearch(supabase, runId, channel);
+}
+
+// Shared by the user-triggered flow above and the overnight
+// auto-search cron route -- takes whatever client the caller already
+// resolved (cookie-based for a real user, admin/service-role for the
+// cron route, which has no user session at all) rather than touching
+// auth itself.
+async function executeChannelSearch(supabase: SupabaseClient, runId: string, channel: Channel) {
   try {
     const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
 
@@ -338,4 +348,44 @@ ${findings || "(no findings)"}`,
 
 export async function retryDiscoverySearch(channel: Channel): Promise<string> {
   return startDiscoverySearch(channel);
+}
+
+// Called by the overnight auto-search cron route (app/api/cron/...),
+// once per channel, with an admin client (no user session to read --
+// created_by is whichever team member last saved the auto-search
+// settings, since that's the closest thing to a real "who turned this
+// on" attribution available). Creates and claims its own run row
+// directly rather than going through startDiscoverySearch, since
+// there's no browser session invoking this at all. Returns how many
+// candidates this channel actually inserted, so the caller can stop
+// once it's found enough for the night.
+export async function runAutoDiscoverySearchForChannel(
+  supabase: SupabaseClient,
+  channel: Channel,
+  userId: string
+): Promise<number> {
+  const { data: run, error } = await supabase
+    .from("discovery_search_runs")
+    .insert({
+      channel,
+      status: "searching",
+      status_message: `Searching the web for ${channelLabel(channel)} candidates... (overnight auto-search)`,
+      created_by: userId,
+      started_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error || !run) {
+    console.error(`[auto-discovery-search] failed to create run for channel=${channel}:`, error?.message);
+    return 0;
+  }
+
+  await executeChannelSearch(supabase, run.id, channel);
+
+  const { data: finished } = await supabase
+    .from("discovery_search_runs")
+    .select("found_count")
+    .eq("id", run.id)
+    .maybeSingle();
+  return finished?.found_count ?? 0;
 }
