@@ -5,37 +5,46 @@ import Link from "next/link";
 
 type StageCount = { value: string; label: string; count: number };
 
-// The chevron toggles the stage sublist open/closed; the "Pipeline"
-// label itself is a separate link to the unfiltered board, so
-// clicking it doesn't fight with expanding the list.
+// "Pipeline" itself is the disclosure trigger (clicking the word
+// toggles the stage list) -- "All Stages" is the first entry inside
+// the revealed list, since the word no longer navigates directly.
 export default function PipelineNavItem({ stageCounts }: { stageCounts: StageCount[] }) {
   const [open, setOpen] = useState(false);
 
   return (
     <li>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Link href="/pipeline" prefetch={false} style={{ color: "#cbd5e1", textDecoration: "none" }}>
-          Pipeline
-        </Link>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-label={open ? "Collapse pipeline stages" : "Expand pipeline stages"}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#94a3b8",
-            cursor: "pointer",
-            padding: 4,
-            fontSize: 11,
-          }}
-        >
-          {open ? "▾" : "▸"}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          background: "none",
+          border: "none",
+          color: "#cbd5e1",
+          cursor: "pointer",
+          padding: 0,
+          font: "inherit",
+          textAlign: "left",
+        }}
+      >
+        Pipeline
+        <span style={{ color: "#94a3b8", fontSize: 11 }}>{open ? "▾" : "▸"}</span>
+      </button>
       {open && (
         <ul style={{ listStyle: "none", padding: 0, marginTop: 4, marginLeft: 12, display: "grid", gap: 4 }}>
+          <li>
+            <Link
+              href="/pipeline"
+              prefetch={false}
+              style={{ display: "block", color: "#e2e8f0", textDecoration: "none", fontSize: 13 }}
+            >
+              All Stages
+            </Link>
+          </li>
           {stageCounts.map((s) => (
             <li key={s.value}>
               <Link

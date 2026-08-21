@@ -66,7 +66,7 @@ export default async function DashboardPage() {
           sub="awaiting review"
         />
         <StatCard href="/pipeline" label="Pipeline" value={totalInPipeline} sub="active prospects" />
-        <StatCard href="/people" label="People" value={undefined} sub="see full directory" />
+        <StatCard href="/contacts" label="Contacts" value={undefined} sub="see full directory" />
       </div>
 
       <div style={{ ...sectionStyle, marginTop: spacing.xl }}>

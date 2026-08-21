@@ -147,30 +147,47 @@ function BoardView({
   daysInStage: (p: Prospect) => number;
 }) {
   return (
-    <div style={{ display: "flex", gap: 10, marginTop: spacing.lg, overflowX: "auto", paddingBottom: 16 }}>
-      {STAGES.map((s) => (
-        <div key={s.value} style={{ minWidth: 170, flex: 1, flexShrink: 0 }}>
-          <Link
-            href={`/pipeline?stage=${s.value}`}
-            style={{ fontSize: 13, fontWeight: 600, color: colors.text, textDecoration: "none" }}
-          >
-            {s.label} ({byStage.get(s.value)?.length ?? 0})
-          </Link>
-          <div style={{ display: "grid", gap: 6, marginTop: spacing.sm }}>
-            {byStage.get(s.value)?.map((p) => (
-              <ProspectCard
-                key={p.id}
-                prospect={p}
-                tier={latestTierByProspect.get(p.id)}
-                daysInStage={daysInStage(p)}
-              />
-            ))}
-            {byStage.get(s.value)?.length === 0 && (
-              <p style={{ fontSize: 12, color: colors.textFaint }}>No prospects</p>
-            )}
+    <div style={{ overflowX: "auto", marginTop: spacing.lg, paddingBottom: 16 }}>
+      <div
+        style={{
+          display: "grid",
+          // The 140px floor (not "auto") is load-bearing: a grid
+          // track's default min size is its content's intrinsic
+          // width, so without an explicit fixed floor here, one long
+          // unwrapped prospect name blows a column -- and the
+          // ellipsis truncation meant to prevent that -- out past its
+          // fair 1/6 share. 140px keeps columns readable on narrow
+          // viewports (scrolling instead) without ever letting
+          // content dictate width on normal ones.
+          gridTemplateColumns: "repeat(6, minmax(140px, 1fr))",
+          gap: 10,
+          minWidth: 900,
+        }}
+      >
+        {STAGES.map((s) => (
+          <div key={s.value} style={{ minWidth: 0 }}>
+            <Link
+              href={`/pipeline?stage=${s.value}`}
+              style={{ fontSize: 13, fontWeight: 600, color: colors.text, textDecoration: "none" }}
+            >
+              {s.label} ({byStage.get(s.value)?.length ?? 0})
+            </Link>
+            <div style={{ display: "grid", gap: 6, marginTop: spacing.sm }}>
+              {byStage.get(s.value)?.map((p) => (
+                <ProspectCard
+                  key={p.id}
+                  prospect={p}
+                  tier={latestTierByProspect.get(p.id)}
+                  daysInStage={daysInStage(p)}
+                />
+              ))}
+              {byStage.get(s.value)?.length === 0 && (
+                <p style={{ fontSize: 12, color: colors.textFaint }}>No prospects</p>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

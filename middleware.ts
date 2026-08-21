@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
       "/evidence",
       "/revisit",
       "/organization",
-      "/people",
+      "/contacts",
     ].some((p) => request.nextUrl.pathname.startsWith(p));
 
   if (isDashboard && !user && process.env.DISABLE_AUTH === "true") {

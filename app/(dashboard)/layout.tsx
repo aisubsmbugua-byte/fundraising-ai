@@ -43,7 +43,7 @@ export default async function DashboardLayout({
     { href: "/prospects/review", label: "Strategy Staging", badge: readyForReviewCount },
   ];
   const AFTER_PIPELINE: { href: string; label: string; badge: number }[] = [
-    { href: "/people", label: "People", badge: 0 },
+    { href: "/contacts", label: "Contacts", badge: 0 },
     { href: "/evidence", label: "Evidence", badge: 0 },
     { href: "/revisit", label: "Revisit", badge: 0 },
     { href: "/settings", label: "Settings", badge: 0 },

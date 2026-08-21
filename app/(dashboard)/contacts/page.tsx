@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Contact } from "@/lib/contacts";
 import { spacing, colors, cardStyle } from "@/lib/ui";
 
-export default async function PeoplePage() {
+export default async function ContactsPage() {
   const supabase = createClient();
   const { data: contacts, error } = await supabase
     .from("contacts")
@@ -17,7 +17,7 @@ export default async function PeoplePage() {
 
   return (
     <div>
-      <h1>People</h1>
+      <h1>Contacts</h1>
       <p style={{ color: colors.textMuted, marginTop: spacing.xs, maxWidth: 640 }}>
         Every individual contact captured across Donor Finder and Pipeline, deduplicated by email. Saved
         automatically whenever a contact name or email is entered elsewhere — nothing to maintain here.
