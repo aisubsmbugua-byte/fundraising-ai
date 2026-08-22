@@ -39,7 +39,7 @@ export default function AutoSearchForm({ settings }: { settings: AutoSearchSetti
             style={{
               position: "absolute",
               top: "calc(100% + 8px)",
-              right: 0,
+              left: 0,
               width: 320,
               background: "#fff",
               border: `1px solid ${colors.border}`,

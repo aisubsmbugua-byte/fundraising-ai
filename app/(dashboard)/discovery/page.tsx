@@ -43,7 +43,7 @@ export default async function DiscoveryPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: spacing.xl }}>
+      <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: spacing.xl }}>
         <AutoSearchForm settings={autoSearchSettings} />
       </div>
 
