@@ -1,4 +1,4 @@
-export const CANDIDATE_STATUSES = ["pending", "accepted", "dismissed"] as const;
+export const CANDIDATE_STATUSES = ["pending", "accepted", "dismissed", "saved"] as const;
 export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
 
 export type Candidate = {

@@ -1,22 +1,37 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import CandidateCard from "./candidate-card";
 import { getAutoSearchSettings } from "./auto-search-actions";
 import AutoSearchForm from "./auto-search-form";
+import OpportunityWorkspace, { type CandidateWithScore } from "./opportunity-workspace";
+import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { spacing, colors, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import type { Candidate } from "@/lib/candidates";
 
 export default async function DiscoveryPage() {
   const supabase = createClient();
-  const [{ data: candidates, error }, autoSearchSettings] = await Promise.all([
+  const [{ data: candidates, error }, autoSearchSettings, { data: rulesData }] = await Promise.all([
+    // Accepted candidates are already prospects -- this workspace only
+    // ever needs the three still-in-Discovery states (pending/saved/
+    // dismissed), not a full-table fetch.
     supabase
       .from("candidates")
       .select("*")
-      .eq("status", "pending")
+      .neq("status", "accepted")
       .order("created_at", { ascending: false })
       .returns<Candidate[]>(),
     getAutoSearchSettings(),
+    supabase.from("screening_rules").select("*").eq("active", true),
   ]);
+
+  const rules = (rulesData ?? []) as ScreeningRule[];
+  // Recomputed at render time rather than reading a stored score --
+  // screening rules can change after a candidate was found, and this
+  // way the fit shown always reflects the rules active right now
+  // (same reasoning as health_status being derived, not stored).
+  const candidatesWithScore: CandidateWithScore[] = (candidates ?? []).map((c) => ({
+    ...c,
+    fitPercentage: screenProspect(c, rules).breakdown.percentage,
+  }));
 
   return (
     <div>
@@ -43,18 +58,13 @@ export default async function DiscoveryPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: spacing.xl }}>
+      <div style={{ display: "flex", justifyContent: "flex-start" }}>
         <AutoSearchForm settings={autoSearchSettings} />
       </div>
 
       {error && <p style={{ color: "crimson" }}>Error loading candidates: {error.message}</p>}
 
-      <div style={{ display: "grid", gap: spacing.sm }}>
-        {candidates?.map((c) => (
-          <CandidateCard key={c.id} candidate={c} />
-        ))}
-        {candidates?.length === 0 && <p style={{ color: colors.textFaint }}>No pending candidates.</p>}
-      </div>
+      <OpportunityWorkspace candidates={candidatesWithScore} />
     </div>
   );
 }

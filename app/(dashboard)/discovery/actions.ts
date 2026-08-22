@@ -238,3 +238,39 @@ export async function dismissCandidate(candidateId: string) {
 
   revalidatePath("/discovery");
 }
+
+// "Not now, but don't lose it" -- distinct from dismiss (not
+// interested) and pending (still needs a first look).
+export async function saveCandidateForLater(candidateId: string) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { error } = await supabase
+    .from("candidates")
+    .update({ status: "saved", reviewed_by: user.id, updated_at: new Date().toISOString() })
+    .eq("id", candidateId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/discovery");
+}
+
+// Moves a saved (or dismissed) candidate back to pending -- e.g. "I
+// changed my mind" from the Saved or Dismissed tab.
+export async function restoreCandidateToPending(candidateId: string) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { error } = await supabase
+    .from("candidates")
+    .update({ status: "pending", reviewed_by: user.id, updated_at: new Date().toISOString() })
+    .eq("id", candidateId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/discovery");
+}
