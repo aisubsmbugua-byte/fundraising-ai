@@ -35,7 +35,7 @@ export default async function ReviewStrategiesPage() {
 
   return (
     <div>
-      <h1>Strategies to Review</h1>
+      <h1>Strategy review</h1>
       <p style={{ color: colors.textMuted, fontSize: 14 }}>
         Prospects whose AI deep-dive is done and waiting on your review. Click into each one to
         approve or edit the strategy -- nothing here has been approved yet.

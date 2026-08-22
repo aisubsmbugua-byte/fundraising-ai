@@ -172,7 +172,7 @@ export function tierLabel(tier: number) {
 }
 
 export function tierColor(tier: number) {
-  if (tier === 1) return "#16a34a";
-  if (tier === 2) return "#d97706";
-  return "#dc2626";
+  if (tier === 1) return "#087a67";
+  if (tier === 2) return "#b96805";
+  return "#d9363e";
 }

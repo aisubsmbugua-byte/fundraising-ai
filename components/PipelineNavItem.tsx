@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { radiusSm } from "@/lib/ui";
 
 type StageCount = { value: string; label: string; count: number };
 
@@ -26,8 +27,10 @@ export default function PipelineNavItem({ stageCounts }: { stageCounts: StageCou
           border: "none",
           color: "#cbd5e1",
           cursor: "pointer",
-          padding: 0,
+          padding: "7px 10px",
+          borderRadius: radiusSm,
           font: "inherit",
+          fontSize: 14,
           textAlign: "left",
         }}
       >

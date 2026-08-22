@@ -53,7 +53,7 @@ export default function AutoSearchForm({ settings }: { settings: AutoSearchSetti
             <p style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs }}>
               When on, searches all channels once a night to keep this queue topped up -- stopping
               once it finds about 10 new candidates, or skipping the night entirely if your
-              Strategies to Review queue is already at or above the threshold below. Nothing is
+              Strategy review queue is already at or above the threshold below. Nothing is
               ever accepted automatically.
             </p>
 
@@ -63,7 +63,7 @@ export default function AutoSearchForm({ settings }: { settings: AutoSearchSetti
             </label>
 
             <label style={{ ...labelStyle, display: "block", marginTop: spacing.md }}>
-              Skip the night's run if Strategies to Review already has at least
+              Skip the night's run if Strategy review already has at least
               <input
                 type="number"
                 min={1}

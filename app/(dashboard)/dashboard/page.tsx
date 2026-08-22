@@ -45,7 +45,7 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <h1>Dashboard</h1>
+      <h1>Home</h1>
       <p style={{ color: colors.textMuted, marginTop: spacing.xs }}>
         A snapshot of what's moving and what needs attention, in one place.
       </p>
@@ -61,12 +61,12 @@ export default async function DashboardPage() {
         <StatCard href="/discovery" label="Donor Finder" value={pendingCandidateCount ?? 0} sub="awaiting review" />
         <StatCard
           href="/prospects/review"
-          label="Strategy Staging"
+          label="Strategy review"
           value={readyForReviewCount}
           sub="awaiting review"
         />
         <StatCard href="/pipeline" label="Pipeline" value={totalInPipeline} sub="active prospects" />
-        <StatCard href="/contacts" label="Contacts" value={undefined} sub="see full directory" />
+        <StatCard href="/contacts" label="Relationships" value={undefined} sub="see full directory" />
       </div>
 
       <div style={{ ...sectionStyle, marginTop: spacing.xl }}>

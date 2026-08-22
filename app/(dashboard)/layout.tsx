@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import { STAGES, type Prospect } from "@/lib/prospects";
-import { colors } from "@/lib/ui";
+import { colors, radiusSm, radiusPill } from "@/lib/ui";
 import PipelineNavItem from "@/components/PipelineNavItem";
 
 export default async function DashboardLayout({
@@ -35,17 +35,18 @@ export default async function DashboardLayout({
   // Order follows the actual workflow: overview, then setup, then the
   // funnel itself (source -> stage strategy -> active pursuit), then
   // supporting/reference items last. Prospects is no longer its own
-  // entry -- it's Pipeline's List view now.
+  // entry -- it's Pipeline's List view now. Labels per the design
+  // handoff, decided case-by-case against what was already live.
   const BEFORE_PIPELINE: { href: string; label: string; badge: number }[] = [
-    { href: "/dashboard", label: "Dashboard", badge: 0 },
+    { href: "/dashboard", label: "Home", badge: 0 },
     { href: "/organization", label: "Org Profile", badge: 0 },
     { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0 },
-    { href: "/prospects/review", label: "Strategy Staging", badge: readyForReviewCount },
+    { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount },
   ];
   const AFTER_PIPELINE: { href: string; label: string; badge: number }[] = [
-    { href: "/contacts", label: "Contacts", badge: 0 },
+    { href: "/contacts", label: "Relationships", badge: 0 },
     { href: "/evidence", label: "Evidence", badge: 0 },
-    { href: "/revisit", label: "Revisit", badge: 0 },
+    { href: "/revisit", label: "Follow-up", badge: 0 },
     { href: "/settings", label: "Settings", badge: 0 },
   ];
 
@@ -54,7 +55,7 @@ export default async function DashboardLayout({
       {process.env.DISABLE_AUTH === "true" && (
         <div
           style={{
-            background: colors.warning,
+            background: colors.amber700,
             color: "#fff",
             fontSize: 13,
             textAlign: "center",
@@ -64,10 +65,10 @@ export default async function DashboardLayout({
           Sign-in disabled for the build phase — re-enable before Beta
         </div>
       )}
-      <div style={{ display: "flex", minHeight: "100vh" }}>
-        <nav style={{ width: 200, background: "#0f172a", color: "#fff", padding: 20 }}>
-          <div style={{ fontWeight: 700, marginBottom: 24 }}>Fundraising AI</div>
-          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
+      <div style={{ display: "flex", minHeight: "100vh", background: colors.canvas }}>
+        <nav style={{ width: 232, flexShrink: 0, background: colors.navy950, color: "#fff", padding: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 24, fontSize: 15 }}>Fundraising AI</div>
+          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 4 }}>
             {BEFORE_PIPELINE.map((n) => (
               <NavLink key={n.href} {...n} />
             ))}
@@ -93,19 +94,23 @@ function NavLink({ href, label, badge }: { href: string; label: string; badge: n
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          padding: "7px 10px",
+          borderRadius: radiusSm,
           color: "#cbd5e1",
           textDecoration: "none",
+          fontSize: 14,
         }}
       >
         {label}
         {badge > 0 && (
           <span
             style={{
-              background: colors.danger,
+              background: colors.amber700,
               color: "#fff",
-              borderRadius: 10,
+              borderRadius: radiusPill,
               padding: "1px 8px",
               fontSize: 12,
+              fontWeight: 600,
             }}
           >
             {badge}

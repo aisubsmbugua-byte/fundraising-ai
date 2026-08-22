@@ -39,9 +39,9 @@ export async function GET(request: Request) {
     return Response.json({ skipped: "no attributable user" });
   }
 
-  // Gated on Strategies to Review, not raw Discovery candidates --
+  // Gated on Strategy review, not raw Discovery candidates --
   // Discovery candidates are quick to Accept/Dismiss in bulk, but
-  // Strategies to Review is the real backlog (each one takes actually
+  // Strategy review is the real backlog (each one takes actually
   // reading a full AI-researched strategy and deciding on it), and
   // it's also the queue auto-search indirectly feeds: every candidate
   // accepted triggers a deep-dive that lands there. Searching for more
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
   const readyForReviewCount = await countStrategiesReadyForReview(supabase);
   if (readyForReviewCount >= settings.queue_threshold) {
     console.log(
-      `[auto-discovery-search] skipped: Strategies to Review already at ${readyForReviewCount}/${settings.queue_threshold}`
+      `[auto-discovery-search] skipped: Strategy review already at ${readyForReviewCount}/${settings.queue_threshold}`
     );
     return Response.json({ skipped: "queue full", readyForReviewCount });
   }

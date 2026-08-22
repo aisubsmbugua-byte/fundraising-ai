@@ -17,7 +17,7 @@ export default async function ContactsPage() {
 
   return (
     <div>
-      <h1>Contacts</h1>
+      <h1>Relationships</h1>
       <p style={{ color: colors.textMuted, marginTop: spacing.xs, maxWidth: 640 }}>
         Every individual contact captured across Donor Finder and Pipeline, deduplicated by email. Saved
         automatically whenever a contact name or email is entered elsewhere — nothing to maintain here.
