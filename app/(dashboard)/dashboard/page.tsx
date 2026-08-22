@@ -153,11 +153,11 @@ export default async function DashboardPage() {
           </h1>
           <p style={{ color: colors.textMuted, marginTop: spacing.xs }}>Here&apos;s what needs your attention today.</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
           <Link
             href="/discovery"
             prefetch={false}
-            style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}
+            style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none", flexShrink: 0 }}
           >
             <Search size={16} /> Find opportunities
           </Link>
@@ -169,9 +169,12 @@ export default async function DashboardPage() {
                 alignItems: "center",
                 gap: 8,
                 cursor: "default",
+                minWidth: 0,
+                maxWidth: "100%",
               }}
             >
-              <Building2 size={16} /> {org.name}
+              <Building2 size={16} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{org.name}</span>
             </span>
           )}
         </div>
