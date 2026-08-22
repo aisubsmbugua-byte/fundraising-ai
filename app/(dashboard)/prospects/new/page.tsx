@@ -46,6 +46,22 @@ export default function NewProspectPage() {
         </label>
 
         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
+          Pipeline tracking (optional)
+        </div>
+        <label style={labelStyle}>
+          Ask amount
+          <input name="ask_amount" type="number" min={0} step={1} placeholder="e.g. 25000" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          Next action
+          <input name="next_action" placeholder="e.g. Send intro email" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          Next action due
+          <input name="next_action_due" type="date" style={fieldStyle} />
+        </label>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
           Funder intelligence (optional — fill in what you already know)
         </div>
         <label style={labelStyle}>

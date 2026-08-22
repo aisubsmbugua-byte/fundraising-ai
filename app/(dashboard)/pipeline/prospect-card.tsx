@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { STAGES, channelColor, type Prospect } from "@/lib/prospects";
+import { STAGES, channelColor, computeHealthStatus, formatAmountCompact, type Prospect } from "@/lib/prospects";
 import { colors } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
+import HealthChip from "@/components/HealthChip";
 
 // Deliberately light -- no inline stage control here anymore (that
 // moved to the prospect detail page, see MoveStageControl there).
@@ -18,6 +19,7 @@ export default function ProspectCard({
   daysInStage: number;
 }) {
   const stageIndex = STAGES.findIndex((s) => s.value === prospect.stage);
+  const health = computeHealthStatus(prospect.next_action_due);
 
   return (
     <Link
@@ -26,7 +28,7 @@ export default function ProspectCard({
         display: "block",
         minWidth: 0,
         boxSizing: "border-box",
-        background: "#fff",
+        background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderLeft: `3px solid ${channelColor(prospect.channel)}`,
         borderRadius: 6,
@@ -46,6 +48,11 @@ export default function ProspectCard({
       >
         {prospect.name}
       </div>
+      {prospect.ask_amount != null && (
+        <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginTop: 2 }}>
+          {formatAmountCompact(prospect.ask_amount)}
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -69,6 +76,11 @@ export default function ProspectCard({
         </div>
         {tier != null && <TierBadge tier={tier} />}
       </div>
+      {health && (
+        <div style={{ marginTop: 6 }}>
+          <HealthChip status={health} />
+        </div>
+      )}
     </Link>
   );
 }

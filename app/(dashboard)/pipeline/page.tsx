@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { STAGES, CHANNELS, channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
+import {
+  STAGES,
+  CHANNELS,
+  channelLabel,
+  stageLabel,
+  formatAmountCompact,
+  type Prospect,
+  type StageChange,
+} from "@/lib/prospects";
 import type { ScreeningResult } from "@/lib/screening";
 import { spacing, colors, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import ProspectRow from "./prospect-row";
@@ -65,8 +73,10 @@ export default async function PipelinePage({
   const stageStats = STAGES.map((s) => {
     const items = byStage.get(s.value) ?? [];
     const avgDays = items.length ? items.reduce((sum, p) => sum + daysInStage(p), 0) / items.length : 0;
-    return { ...s, count: items.length, avgDays };
+    const potential = items.reduce((sum, p) => sum + (p.ask_amount ?? 0), 0);
+    return { ...s, count: items.length, avgDays, potential };
   });
+  const totalPotential = all.reduce((sum, p) => sum + (p.ask_amount ?? 0), 0);
 
   const stuckLongest = all
     .map((p) => ({ p, days: daysInStage(p) }))
@@ -102,6 +112,11 @@ export default async function PipelinePage({
       </div>
 
       <div style={{ ...sectionStyle, marginTop: spacing.lg }}>
+        {totalPotential > 0 && (
+          <div style={{ fontSize: 13, color: colors.textMuted }}>
+            Total potential: <strong style={{ color: colors.text }}>{formatAmountCompact(totalPotential)}</strong>
+          </div>
+        )}
         <div style={{ display: "flex", gap: spacing.xl, flexWrap: "wrap" }}>
           {stageStats.map((s) => (
             <Link
@@ -112,7 +127,10 @@ export default async function PipelinePage({
               <div style={{ fontSize: 22, fontWeight: 700 }}>{s.count}</div>
               <div style={{ fontSize: 12, color: colors.textMuted }}>{s.label}</div>
               {s.count > 0 && (
-                <div style={{ fontSize: 11, color: colors.textFaint }}>{s.avgDays.toFixed(0)}d avg</div>
+                <div style={{ fontSize: 11, color: colors.textFaint }}>
+                  {s.avgDays.toFixed(0)}d avg
+                  {s.potential > 0 ? ` · ${formatAmountCompact(s.potential)}` : ""}
+                </div>
               )}
             </Link>
           ))}
@@ -231,6 +249,8 @@ function ListView({
             <th style={{ padding: spacing.sm }}>Channel</th>
             <th style={{ padding: spacing.sm }}>Organization</th>
             <th style={{ padding: spacing.sm }}>Contact</th>
+            <th style={{ padding: spacing.sm }}>Ask</th>
+            <th style={{ padding: spacing.sm }}>Next action</th>
             <th style={{ padding: spacing.sm }}>Actions</th>
           </tr>
         </thead>
@@ -244,6 +264,8 @@ function ListView({
               <td style={{ padding: spacing.sm }}>{channelLabel(p.channel)}</td>
               <td style={{ padding: spacing.sm }}>{p.organization ?? "—"}</td>
               <td style={{ padding: spacing.sm }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
+              <td style={{ padding: spacing.sm }}>{p.ask_amount != null ? formatAmountCompact(p.ask_amount) : "—"}</td>
+              <td style={{ padding: spacing.sm }}>{p.next_action ?? "—"}</td>
               <td style={{ padding: spacing.sm }}>
                 <Link href={`/prospects/${p.id}?edit=1`}>Edit</Link>
               </td>

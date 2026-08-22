@@ -47,6 +47,15 @@ export function stageLabel(stage: string) {
   return STAGES.find((s) => s.value === stage)?.label ?? stage;
 }
 
+// "$25K" / "$1.2M" for tight spaces (compact cards, stat tiles);
+// spelled out in full ($25,000) wherever there's room, e.g. the
+// prospect detail page.
+export function formatAmountCompact(amount: number): string {
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(amount % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(amount % 1_000 === 0 ? 0 : 1)}K`;
+  return `$${amount.toLocaleString("en-US")}`;
+}
+
 export type Prospect = {
   id: string;
   name: string;
@@ -65,9 +74,38 @@ export type Prospect = {
   geographic_focus: string | null;
   typical_grant_size: string | null;
   focus_areas: string[] | null;
+  ask_amount: number | null;
+  next_action: string | null;
+  next_action_due: string | null;
   created_at: string;
   updated_at: string;
 };
+
+export const HEALTH_STATUSES = ["on_track", "due_soon", "stalled"] as const;
+export type HealthStatus = (typeof HEALTH_STATUSES)[number];
+
+export function healthStatusLabel(status: HealthStatus) {
+  if (status === "on_track") return "On track";
+  if (status === "due_soon") return "Due soon";
+  return "Stalled";
+}
+
+const DUE_SOON_WINDOW_DAYS = 3;
+
+// Derived from next_action_due rather than stored -- a health label
+// that isn't recomputed against "today" every render would silently
+// go stale the moment a day passes. No next action set at all means
+// no status to show, not a false "on track".
+export function computeHealthStatus(nextActionDue: string | null): HealthStatus | null {
+  if (!nextActionDue) return null;
+  const due = new Date(nextActionDue + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysUntilDue = (due.getTime() - today.getTime()) / 86400000;
+  if (daysUntilDue < 0) return "stalled";
+  if (daysUntilDue <= DUE_SOON_WINDOW_DAYS) return "due_soon";
+  return "on_track";
+}
 
 export type StageChange = {
   id: string;

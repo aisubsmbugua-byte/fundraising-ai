@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { STAGES, channelLabel, type Prospect } from "@/lib/prospects";
+import { STAGES, channelLabel, formatAmountCompact, type Prospect } from "@/lib/prospects";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import type { DiscoverySearchRun } from "@/lib/discovery-search";
 import type { Candidate } from "@/lib/candidates";
@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
     countStrategiesReadyForReview(supabase),
-    supabase.from("prospects").select("stage").returns<Pick<Prospect, "stage">[]>(),
+    supabase.from("prospects").select("stage, ask_amount").returns<Pick<Prospect, "stage" | "ask_amount">[]>(),
     supabase
       .from("discovery_search_runs")
       .select("*")
@@ -37,11 +37,17 @@ export default async function DashboardPage() {
   ]);
 
   const byStage = new Map<string, number>();
-  for (const s of STAGES) byStage.set(s.value, 0);
+  const potentialByStage = new Map<string, number>();
+  for (const s of STAGES) {
+    byStage.set(s.value, 0);
+    potentialByStage.set(s.value, 0);
+  }
   for (const p of prospects ?? []) {
     byStage.set(p.stage, (byStage.get(p.stage) ?? 0) + 1);
+    potentialByStage.set(p.stage, (potentialByStage.get(p.stage) ?? 0) + (p.ask_amount ?? 0));
   }
   const totalInPipeline = prospects?.length ?? 0;
+  const totalPotential = (prospects ?? []).reduce((sum, p) => sum + (p.ask_amount ?? 0), 0);
 
   return (
     <div>
@@ -70,12 +76,24 @@ export default async function DashboardPage() {
       </div>
 
       <div style={{ ...sectionStyle, marginTop: spacing.xl }}>
-        <h2 style={{ fontSize: 16 }}>Pipeline by stage</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <h2 style={{ fontSize: 16 }}>Pipeline by stage</h2>
+          {totalPotential > 0 && (
+            <span style={{ fontSize: 13, color: colors.textMuted }}>
+              Total potential: <strong style={{ color: colors.text }}>{formatAmountCompact(totalPotential)}</strong>
+            </span>
+          )}
+        </div>
         <div style={{ display: "flex", gap: spacing.md, flexWrap: "wrap" }}>
           {STAGES.map((s) => (
             <div key={s.value} style={{ minWidth: 100 }}>
               <div style={{ fontSize: 22, fontWeight: 700 }}>{byStage.get(s.value) ?? 0}</div>
               <div style={{ fontSize: 13, color: colors.textMuted }}>{s.label}</div>
+              {(potentialByStage.get(s.value) ?? 0) > 0 && (
+                <div style={{ fontSize: 11, color: colors.textFaint }}>
+                  {formatAmountCompact(potentialByStage.get(s.value) ?? 0)}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -26,6 +26,12 @@ function fieldsFromForm(formData: FormData) {
           .map((s) => s.trim())
           .filter(Boolean)
       : null,
+    ask_amount: (() => {
+      const raw = formData.get("ask_amount") as string;
+      return raw ? Number(raw) : null;
+    })(),
+    next_action: (formData.get("next_action") as string) || null,
+    next_action_due: (formData.get("next_action_due") as string) || null,
   };
 }
 

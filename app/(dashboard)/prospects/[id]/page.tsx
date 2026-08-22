@@ -2,11 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { updateProspect } from "../actions";
-import { CHANNELS, channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
+import {
+  CHANNELS,
+  channelLabel,
+  stageLabel,
+  computeHealthStatus,
+  healthStatusLabel,
+  type Prospect,
+  type StageChange,
+} from "@/lib/prospects";
 import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import DeleteProspectButton from "./delete-button";
 import ScreenButton from "./screen-button";
 import TierBadge from "@/components/TierBadge";
+import HealthChip from "@/components/HealthChip";
 import MoveStageControl from "@/app/(dashboard)/pipeline/move-stage-control";
 import DeepDivePanel from "./deep-dive-panel";
 import DraftPanel from "./draft-panel";
@@ -143,6 +152,34 @@ export default async function ProspectDetailPage({
           </label>
 
           <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
+            Pipeline tracking
+          </div>
+          <label style={labelStyle}>
+            Ask amount
+            <input
+              name="ask_amount"
+              type="number"
+              min={0}
+              step={1}
+              defaultValue={prospect.ask_amount ?? ""}
+              style={fieldStyle}
+            />
+          </label>
+          <label style={labelStyle}>
+            Next action
+            <input name="next_action" defaultValue={prospect.next_action ?? ""} style={fieldStyle} />
+          </label>
+          <label style={labelStyle}>
+            Next action due
+            <input
+              name="next_action_due"
+              type="date"
+              defaultValue={prospect.next_action_due ?? ""}
+              style={fieldStyle}
+            />
+          </label>
+
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
             Funder intelligence
           </div>
           <label style={labelStyle}>
@@ -205,6 +242,28 @@ export default async function ProspectDetailPage({
           <div>
             <dt style={fieldLabelStyle}>Notes</dt>
             <dd style={{ whiteSpace: "pre-wrap" }}>{prospect.notes ?? "—"}</dd>
+          </div>
+          <div>
+            <dt style={fieldLabelStyle}>Ask amount</dt>
+            <dd>{prospect.ask_amount != null ? `$${prospect.ask_amount.toLocaleString("en-US")}` : "—"}</dd>
+          </div>
+          <div>
+            <dt style={fieldLabelStyle}>Next action</dt>
+            <dd style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
+              {prospect.next_action ?? "—"}
+              {prospect.next_action_due && (
+                <span style={{ color: colors.textMuted, fontSize: 13 }}>
+                  ({new Date(prospect.next_action_due + "T00:00:00").toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })})
+                </span>
+              )}
+              {(() => {
+                const health = computeHealthStatus(prospect.next_action_due);
+                return health && <HealthChip status={health} />;
+              })()}
+            </dd>
           </div>
           <div>
             <dt style={fieldLabelStyle}>Location</dt>
