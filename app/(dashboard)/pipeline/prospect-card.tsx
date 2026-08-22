@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CalendarClock } from "lucide-react";
 import { STAGES, channelColor, computeHealthStatus, formatAmountCompact, type Prospect } from "@/lib/prospects";
 import { colors } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
@@ -79,6 +80,29 @@ export default function ProspectCard({
       {health && (
         <div style={{ marginTop: 6 }}>
           <HealthChip status={health} />
+        </div>
+      )}
+      {prospect.next_action && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            marginTop: 6,
+            fontSize: 11,
+            color: colors.textMuted,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <CalendarClock size={11} style={{ flexShrink: 0 }} />
+          <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{prospect.next_action}</span>
+          {prospect.next_action_due && (
+            <span style={{ flexShrink: 0 }}>
+              · {new Date(prospect.next_action_due + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </span>
+          )}
         </div>
       )}
     </Link>

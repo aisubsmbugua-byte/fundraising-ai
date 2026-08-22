@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LayoutGrid, List, Plus, DollarSign, Users2, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   STAGES,
@@ -6,11 +7,12 @@ import {
   channelLabel,
   stageLabel,
   formatAmountCompact,
+  computeHealthStatus,
   type Prospect,
   type StageChange,
 } from "@/lib/prospects";
 import type { ScreeningResult } from "@/lib/screening";
-import { spacing, colors, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
+import { spacing, colors, type as typeScale, radiusSm, cardStyle, fieldStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import ProspectRow from "./prospect-row";
 import BoardView from "./board-view";
 
@@ -84,6 +86,12 @@ export default async function PipelinePage({
     .slice(0, 3)
     .filter((x) => x.days >= 1);
 
+  const needsAttentionCount = all.filter((p) => {
+    const h = computeHealthStatus(p.next_action_due);
+    return h === "due_soon" || h === "stalled";
+  }).length;
+  const mostStuck = stuckLongest[0] ?? null;
+
   // BoardView is a Client Component (drag-and-drop needs interactive
   // state), so only plain serializable data can cross that boundary
   // -- not the Map/function versions used above.
@@ -94,58 +102,72 @@ export default async function PipelinePage({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>Pipeline</h1>
-        <div style={{ display: "flex", gap: spacing.sm }}>
-          <Link href="/pipeline" style={view === "board" ? buttonPrimary : buttonSecondary}>
-            Board
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: spacing.md }}>
+        <div>
+          <h1 style={{ fontSize: typeScale.pageTitle }}>Pipeline</h1>
+          <p style={{ color: colors.textMuted, fontSize: 14, marginTop: spacing.xs }}>
+            Move relationships forward from discovery to stewardship.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0 }}>
+          <Link href="/pipeline" style={{ ...(view === "board" ? buttonPrimary : buttonSecondary), display: "flex", alignItems: "center", gap: 8 }}>
+            <LayoutGrid size={15} /> Board
           </Link>
-          <Link href="/pipeline?view=list" style={view === "list" ? buttonPrimary : buttonSecondary}>
-            List
+          <Link href="/pipeline?view=list" style={{ ...(view === "list" ? buttonPrimary : buttonSecondary), display: "flex", alignItems: "center", gap: 8 }}>
+            <List size={15} /> List
           </Link>
-          {view === "list" && (
-            <Link href="/prospects/new" style={buttonPrimary}>
-              + New Prospect
-            </Link>
-          )}
+          <Link href="/prospects/new" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+            <Plus size={15} /> New Prospect
+          </Link>
         </div>
       </div>
 
-      <div style={{ ...sectionStyle, marginTop: spacing.lg }}>
-        {totalPotential > 0 && (
-          <div style={{ fontSize: 13, color: colors.textMuted }}>
-            Total potential: <strong style={{ color: colors.text }}>{formatAmountCompact(totalPotential)}</strong>
-          </div>
-        )}
-        <div style={{ display: "flex", gap: spacing.xl, flexWrap: "wrap" }}>
-          {stageStats.map((s) => (
-            <Link
-              key={s.value}
-              href={`/pipeline?stage=${s.value}`}
-              style={{ textDecoration: "none", color: colors.text, minWidth: 100 }}
-            >
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{s.count}</div>
-              <div style={{ fontSize: 12, color: colors.textMuted }}>{s.label}</div>
-              {s.count > 0 && (
-                <div style={{ fontSize: 11, color: colors.textFaint }}>
-                  {s.avgDays.toFixed(0)}d avg
-                  {s.potential > 0 ? ` · ${formatAmountCompact(s.potential)}` : ""}
-                </div>
-              )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: spacing.md, marginTop: spacing.lg }}>
+        <StatTile icon={DollarSign} value={formatAmountCompact(totalPotential)} label="Total potential" />
+        <StatTile icon={Users2} value={String(all.length)} label="Active prospects" />
+        <StatTile icon={TriangleAlert} value={String(needsAttentionCount)} label="Need attention" tone={needsAttentionCount > 0 ? "amber" : undefined} />
+      </div>
+
+      {mostStuck && (
+        <div
+          style={{
+            ...cardStyle,
+            display: "flex",
+            alignItems: "center",
+            gap: spacing.sm,
+            marginTop: spacing.md,
+            background: colors.amber100,
+            borderColor: colors.amber700,
+          }}
+        >
+          <TriangleAlert size={16} color={colors.amber700} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: colors.text }}>
+            <strong>{mostStuck.p.name}</strong> has been in {stageLabel(mostStuck.p.stage)} for{" "}
+            {Math.round(mostStuck.days)} days —{" "}
+            <Link href={`/prospects/${mostStuck.p.id}`} style={{ color: colors.amber700, fontWeight: 600 }}>
+              Review next action →
             </Link>
-          ))}
+          </span>
         </div>
-        {stuckLongest.length > 0 && (
-          <div style={{ fontSize: 13 }}>
-            <span style={{ color: colors.textMuted }}>Stuck longest: </span>
-            {stuckLongest.map(({ p, days }, i) => (
-              <span key={p.id}>
-                {i > 0 && ", "}
-                <Link href={`/prospects/${p.id}`}>{p.name}</Link> ({Math.round(days)}d in {stageLabel(p.stage)})
-              </span>
-            ))}
-          </div>
-        )}
+      )}
+
+      <div style={{ display: "flex", gap: spacing.xl, flexWrap: "wrap", marginTop: spacing.lg }}>
+        {stageStats.map((s) => (
+          <Link
+            key={s.value}
+            href={`/pipeline?stage=${s.value}`}
+            style={{ textDecoration: "none", color: colors.text, minWidth: 100 }}
+          >
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{s.count}</div>
+            <div style={{ fontSize: 12, color: colors.textMuted }}>{s.label}</div>
+            {s.count > 0 && (
+              <div style={{ fontSize: 11, color: colors.textFaint }}>
+                {s.avgDays.toFixed(0)}d avg
+                {s.potential > 0 ? ` · ${formatAmountCompact(s.potential)}` : ""}
+              </div>
+            )}
+          </Link>
+        ))}
       </div>
 
       {view === "list" ? (
@@ -160,6 +182,39 @@ export default async function PipelinePage({
       ) : (
         <BoardView prospects={all} tierByProspect={tierByProspect} daysInStageByProspect={daysInStageByProspect} />
       )}
+    </div>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  value,
+  label,
+  tone,
+}: {
+  icon: typeof DollarSign;
+  value: string;
+  label: string;
+  tone?: "amber";
+}) {
+  return (
+    <div style={cardStyle}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 28,
+          height: 28,
+          borderRadius: radiusSm,
+          background: tone === "amber" ? colors.amber100 : colors.teal100,
+          color: tone === "amber" ? colors.amber700 : colors.teal700,
+        }}
+      >
+        <Icon size={15} />
+      </span>
+      <div style={{ fontSize: 26, fontWeight: 700, marginTop: spacing.sm }}>{value}</div>
+      <div style={{ fontSize: 13, color: colors.textMuted }}>{label}</div>
     </div>
   );
 }
@@ -216,19 +271,9 @@ function ListView({
           name="q"
           placeholder="Search by name..."
           defaultValue={searchParams.q}
-          style={{
-            padding: spacing.sm,
-            flex: 1,
-            border: `1px solid ${colors.borderStrong}`,
-            borderRadius: 4,
-            boxSizing: "border-box",
-          }}
+          style={{ ...fieldStyle, marginTop: 0, flex: 1 }}
         />
-        <select
-          name="channel"
-          defaultValue={searchParams.channel ?? ""}
-          style={{ padding: spacing.sm, border: `1px solid ${colors.borderStrong}`, borderRadius: 4 }}
-        >
+        <select name="channel" defaultValue={searchParams.channel ?? ""} style={{ ...fieldStyle, marginTop: 0, width: 200 }}>
           <option value="">All channels</option>
           {CHANNELS.map((c) => (
             <option key={c.value} value={c.value}>

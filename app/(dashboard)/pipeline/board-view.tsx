@@ -13,10 +13,29 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { Compass, Mail, FileText, Scale, Award, Users, type LucideIcon } from "lucide-react";
 import { STAGES, type Prospect, type Stage } from "@/lib/prospects";
-import { spacing, colors } from "@/lib/ui";
+import { spacing, colors, radiusSm } from "@/lib/ui";
 import { moveProspectStage } from "./actions";
 import ProspectCard from "./prospect-card";
+
+const STAGE_ICONS: Record<string, LucideIcon> = {
+  discovery: Compass,
+  outreach: Mail,
+  proposal: FileText,
+  decision: Scale,
+  awarding: Award,
+  stewardship: Users,
+};
+
+const STAGE_ACCENTS: Record<string, string> = {
+  discovery: colors.teal700,
+  outreach: "#7c3aed",
+  proposal: "#3b82f6",
+  decision: colors.navy700,
+  awarding: colors.amber700,
+  stewardship: colors.teal700,
+};
 
 // Props are plain, serializable data (no Map, no functions) since
 // this crosses the server/client boundary from the page's data
@@ -130,6 +149,7 @@ function Column({
   daysInStageByProspect: Record<string, number>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
+  const Icon = STAGE_ICONS[stage] ?? Compass;
 
   return (
     <div
@@ -144,11 +164,15 @@ function Column({
         transition: "background 0.15s ease, outline-color 0.15s ease",
       }}
     >
+      <div style={{ height: 3, borderRadius: radiusSm, background: STAGE_ACCENTS[stage] ?? colors.border, marginBottom: spacing.sm }} />
       <Link
         href={`/pipeline?stage=${stage}`}
-        style={{ fontSize: 13, fontWeight: 600, color: colors.text, textDecoration: "none" }}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: colors.text, textDecoration: "none" }}
       >
-        {label} ({prospects.length})
+        <Icon size={13} color={STAGE_ACCENTS[stage] ?? colors.navy500} style={{ flexShrink: 0 }} />
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {label} ({prospects.length})
+        </span>
       </Link>
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6, marginTop: spacing.sm, minWidth: 0 }}>
         {prospects.map((p) => (
