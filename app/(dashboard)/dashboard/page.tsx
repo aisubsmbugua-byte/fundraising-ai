@@ -357,9 +357,9 @@ export default async function DashboardPage() {
           <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>
             {(recentRuns ?? []).map((r) => (
               <div key={r.id} style={cardStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <strong>{channelLabel(r.channel)}</strong>
-                  <span style={{ color: r.status === "error" ? colors.danger : colors.textMuted }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: spacing.sm, fontSize: 13 }}>
+                  <strong style={{ minWidth: 0, overflowWrap: "break-word" }}>{channelLabel(r.channel)}</strong>
+                  <span style={{ color: r.status === "error" ? colors.danger : colors.textMuted, flexShrink: 0 }}>
                     {r.status === "done" ? `${r.found_count ?? 0} found` : r.status}
                   </span>
                 </div>
@@ -375,9 +375,9 @@ export default async function DashboardPage() {
           <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>
             {(recentReviewed ?? []).map((c) => (
               <div key={c.id} style={cardStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <strong>{c.name}</strong>
-                  <span style={{ color: c.status === "accepted" ? colors.success : colors.textMuted }}>{c.status}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: spacing.sm, fontSize: 13 }}>
+                  <strong style={{ minWidth: 0, overflowWrap: "break-word" }}>{c.name}</strong>
+                  <span style={{ color: c.status === "accepted" ? colors.success : colors.textMuted, flexShrink: 0 }}>{c.status}</span>
                 </div>
                 <div style={{ fontSize: 12, color: colors.textFaint, marginTop: 2 }}>{channelLabel(c.channel)}</div>
               </div>
