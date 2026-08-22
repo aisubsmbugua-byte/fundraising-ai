@@ -95,7 +95,7 @@ function ViewPairs({
                 (keyBIsLink ? (
                   <>
                     {" — "}
-                    <a href={item[keyB]} target="_blank" rel="noopener noreferrer">
+                    <a href={item[keyB]} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: "break-word" }}>
                       {item[keyB]}
                     </a>
                   </>
@@ -472,7 +472,7 @@ export default async function OrganizationProfilePage({
                   label="Website"
                   value={
                     profile?.website ? (
-                      <a href={profile.website} target="_blank" rel="noopener noreferrer">
+                      <a href={profile.website} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: "break-word" }}>
                         {profile.website}
                       </a>
                     ) : null
