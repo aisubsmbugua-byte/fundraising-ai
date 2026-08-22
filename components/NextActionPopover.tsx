@@ -35,11 +35,19 @@ export default function NextActionPopover({
     setOpen(true);
   }
 
-  function save() {
+  function save(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
     startTransition(async () => {
       await updateNextAction(prospectId, action, due);
       setOpen(false);
     });
+  }
+
+  function cancel(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(false);
   }
 
   return (
@@ -118,7 +126,7 @@ export default function NextActionPopover({
               <button type="button" disabled={isPending} onClick={save} style={buttonPrimary}>
                 {isPending ? "Saving…" : "Save"}
               </button>
-              <button type="button" onClick={() => setOpen(false)} style={buttonSecondary}>
+              <button type="button" onClick={cancel} style={buttonSecondary}>
                 Cancel
               </button>
             </div>
