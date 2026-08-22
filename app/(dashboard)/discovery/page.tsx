@@ -1,10 +1,11 @@
 import Link from "next/link";
+import { Sparkles, Plus, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAutoSearchSettings } from "./auto-search-actions";
 import AutoSearchForm from "./auto-search-form";
 import OpportunityWorkspace, { type CandidateWithScore } from "./opportunity-workspace";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
-import { spacing, colors, buttonPrimary, buttonSecondary } from "@/lib/ui";
+import { spacing, colors, type as typeScale, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import type { Candidate } from "@/lib/candidates";
 
 export default async function DiscoveryPage() {
@@ -36,30 +37,33 @@ export default async function DiscoveryPage() {
   return (
     <div>
       <div
-        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.xl }}
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.xl, flexWrap: "wrap", gap: spacing.md }}
       >
         <div>
-          <h1>Donor Finder</h1>
-          <p style={{ color: colors.textMuted, fontSize: 14 }}>
+          <h1 style={{ fontSize: typeScale.pageTitle }}>Donor Finder</h1>
+          <p style={{ color: colors.textMuted, fontSize: 14, marginTop: spacing.xs }}>
             Candidates from AI search, CSV import, or manual entry. Nothing here reaches the pipeline
             until a human accepts it.
           </p>
         </div>
-        <div style={{ display: "flex", gap: spacing.sm }}>
-          <Link href="/discovery/search" style={buttonPrimary}>
-            AI Search
+        <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0 }}>
+          <Link href="/discovery/search" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+            <Sparkles size={15} /> AI Search
           </Link>
-          <Link href="/discovery/new" style={buttonSecondary}>
-            + Add Candidate
+          <Link href="/discovery/new" style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8 }}>
+            <Plus size={15} /> Add Candidate
           </Link>
-          <Link href="/discovery/import" style={buttonSecondary}>
-            Import CSV
+          <Link href="/discovery/import" style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8 }}>
+            <Upload size={15} /> Import CSV
           </Link>
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-start" }}>
+      <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", gap: spacing.sm }}>
         <AutoSearchForm settings={autoSearchSettings} />
+        {autoSearchSettings?.enabled && (
+          <span style={{ fontSize: 12, color: colors.textFaint }}>Runs nightly at 10:00 UTC</span>
+        )}
       </div>
 
       {error && <p style={{ color: "crimson" }}>Error loading candidates: {error.message}</p>}

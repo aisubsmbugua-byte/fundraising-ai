@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import { CHANNELS, channelLabel } from "@/lib/prospects";
 import { spacing, colors, fieldStyle, radiusSm } from "@/lib/ui";
@@ -8,6 +9,18 @@ import type { Candidate } from "@/lib/candidates";
 import OpportunityDetail from "./opportunity-detail";
 
 export type CandidateWithScore = Candidate & { fitPercentage: number | null };
+
+const DAY_MS = 86400000;
+
+// "Added 2 days ago" instead of a raw timestamp -- this is when the
+// candidate was actually found (AI search, CSV import, or manual
+// entry), not a fabricated "verified" claim.
+function formatRelativeDate(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS);
+  if (days <= 0) return "Added today";
+  if (days === 1) return "Added yesterday";
+  return `Added ${days} days ago`;
+}
 
 type Tab = "pending" | "saved" | "dismissed";
 const TABS: { value: Tab; label: string }[] = [
@@ -52,13 +65,16 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
     <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 42%) 1fr", gap: spacing.lg, marginTop: spacing.lg }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", gap: spacing.sm }}>
-          <input
-            type="text"
-            placeholder="Search opportunities..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ ...fieldStyle, marginTop: 0, flex: 1 }}
-          />
+          <div style={{ position: "relative", flex: 1 }}>
+            <Search size={15} color={colors.textFaint} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+            <input
+              type="text"
+              placeholder="Search opportunities..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ ...fieldStyle, marginTop: 0, paddingLeft: 32 }}
+            />
+          </div>
           <select
             value={channelFilter}
             onChange={(e) => setChannelFilter(e.target.value)}
@@ -109,15 +125,15 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
                 alignItems: "center",
                 gap: spacing.sm,
                 textAlign: "left",
-                background: colors.surface,
-                border: `1px solid ${selected?.id === c.id ? colors.primary : colors.border}`,
+                background: selected?.id === c.id ? colors.teal100 : colors.surface,
+                border: `1px solid ${selected?.id === c.id ? colors.teal700 : colors.border}`,
                 borderRadius: radiusSm,
                 padding: spacing.sm,
                 cursor: "pointer",
               }}
             >
               {c.fitPercentage != null && <FitScoreCircle percentage={c.fitPercentage} size={40} />}
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div
                   style={{
                     fontSize: 13,
@@ -132,6 +148,9 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
                 <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
                   {channelLabel(c.channel)}
                   {c.typical_grant_size ? ` · ${c.typical_grant_size}` : ""}
+                </div>
+                <div style={{ fontSize: 11, color: colors.textFaint, marginTop: 1 }}>
+                  {formatRelativeDate(c.created_at)}
                 </div>
               </div>
             </button>

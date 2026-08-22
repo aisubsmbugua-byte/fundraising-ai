@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { Globe, MapPin, Coins, Building2, Database, Bookmark, RotateCcw, X, CircleCheck } from "lucide-react";
 import { acceptCandidate, dismissCandidate, saveCandidateForLater, restoreCandidateToPending } from "./actions";
 import { runDeepDive } from "../prospects/[id]/deep-dive-actions";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
 import FitScoreCircle from "@/components/FitScoreCircle";
+import InitialsAvatar from "@/components/InitialsAvatar";
 import { channelLabel } from "@/lib/prospects";
-import { spacing, colors, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
+import { spacing, colors, radiusSm, chipStyle, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import type { CandidateWithScore } from "./opportunity-workspace";
 
 type PanelStatus = "idle" | "accepting" | "justAccepted" | "dismissing" | "saving" | "restoring";
@@ -42,6 +44,10 @@ export default function OpportunityDetail({
   }, [pendingDeepDive]);
 
   const disabled = status !== "idle";
+  const confidenceTone =
+    candidate.fitPercentage == null ? null : candidate.fitPercentage >= 0.7 ? "teal" : candidate.fitPercentage >= 0.4 ? "amber" : "red";
+  const confidenceLabel =
+    candidate.fitPercentage == null ? null : candidate.fitPercentage >= 0.7 ? "High confidence" : candidate.fitPercentage >= 0.4 ? "Medium confidence" : "Low confidence";
   const rationale = typeof candidate.raw?.rationale === "string" ? candidate.raw.rationale : null;
   // Light re-presentation of the same rationale text as separate
   // points instead of one paragraph -- not new content, just
@@ -57,18 +63,32 @@ export default function OpportunityDetail({
   return (
     <div style={sectionStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md }}>
-        <div style={{ minWidth: 0 }}>
-          <h2 style={{ fontSize: 19 }}>{candidate.name}</h2>
-          <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
-            {candidate.website && (
-              <a href={candidate.website} target="_blank" rel="noreferrer" style={{ color: colors.textMuted }}>
-                {candidate.website.replace(/^https?:\/\//, "")}
-              </a>
-            )}
-            {candidate.location ? (candidate.website ? ` · ${candidate.location}` : candidate.location) : ""}
+        <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
+          <InitialsAvatar name={candidate.name} size={48} />
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ fontSize: 19 }}>{candidate.name}</h2>
+            <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
+              {candidate.website && (
+                <a href={candidate.website} target="_blank" rel="noreferrer" style={{ color: colors.textMuted, display: "flex", alignItems: "center", gap: 4 }}>
+                  <Globe size={13} /> {candidate.website.replace(/^https?:\/\//, "")}
+                </a>
+              )}
+              {candidate.location && (
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <MapPin size={13} /> {candidate.location}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        {candidate.fitPercentage != null && <FitScoreCircle percentage={candidate.fitPercentage} size={56} />}
+        {candidate.fitPercentage != null && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <FitScoreCircle percentage={candidate.fitPercentage} size={56} />
+            {confidenceTone && confidenceLabel && (
+              <span style={{ ...chipStyle(confidenceTone), whiteSpace: "nowrap" }}>{confidenceLabel}</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div
@@ -79,10 +99,10 @@ export default function OpportunityDetail({
           marginTop: spacing.md,
         }}
       >
-        <Stat label="Channel" value={channelLabel(candidate.channel)} />
-        <Stat label="Typical grant" value={candidate.typical_grant_size ?? "—"} />
-        <Stat label="Funder type" value={candidate.funder_type ?? "—"} />
-        <Stat label="Source" value={candidate.source ?? "unknown"} />
+        <Stat icon={Building2} label="Channel" value={channelLabel(candidate.channel)} />
+        <Stat icon={Coins} label="Typical grant" value={candidate.typical_grant_size ?? "—"} />
+        <Stat icon={Building2} label="Funder type" value={candidate.funder_type ?? "—"} />
+        <Stat icon={Database} label="Source" value={candidate.source ?? "unknown"} />
       </div>
 
       {rationalePoints.length > 0 && (
@@ -123,9 +143,9 @@ export default function OpportunityDetail({
                   onStatusChange(candidate.id, "saved");
                 });
               }}
-              style={buttonSecondary}
+              style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8 }}
             >
-              {status === "saving" ? "Saving…" : "Save for later"}
+              <Bookmark size={15} /> {status === "saving" ? "Saving…" : "Save for later"}
             </button>
           )}
           {candidate.status !== "pending" && (
@@ -139,9 +159,9 @@ export default function OpportunityDetail({
                   onStatusChange(candidate.id, "pending");
                 });
               }}
-              style={buttonSecondary}
+              style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8 }}
             >
-              {status === "restoring" ? "Restoring…" : "Move back to review"}
+              <RotateCcw size={15} /> {status === "restoring" ? "Restoring…" : "Move back to review"}
             </button>
           )}
           {candidate.status !== "dismissed" && (
@@ -155,13 +175,18 @@ export default function OpportunityDetail({
                   onStatusChange(candidate.id, "dismissed");
                 });
               }}
-              style={buttonSecondary}
+              style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8 }}
             >
-              {status === "dismissing" ? "Dismissing…" : "Dismiss"}
+              <X size={15} /> {status === "dismissing" ? "Dismissing…" : "Dismiss"}
             </button>
           )}
-          <button type="button" disabled={disabled} onClick={() => setConfirmOpen(true)} style={buttonPrimary}>
-            Accept &amp; start research
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setConfirmOpen(true)}
+            style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <CircleCheck size={15} /> Accept &amp; start research
           </button>
         </div>
       )}
@@ -194,11 +219,29 @@ export default function OpportunityDetail({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ icon: Icon, label, value }: { icon: typeof Building2; label: string; value: string }) {
   return (
-    <div>
-      <div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div>
-      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>{value}</div>
+    <div style={{ display: "flex", alignItems: "flex-start", gap: spacing.sm }}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 24,
+          height: 24,
+          borderRadius: radiusSm,
+          background: colors.surfaceSubtle,
+          color: colors.navy500,
+          flexShrink: 0,
+          marginTop: 1,
+        }}
+      >
+        <Icon size={13} />
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>{value}</div>
+      </div>
     </div>
   );
 }
