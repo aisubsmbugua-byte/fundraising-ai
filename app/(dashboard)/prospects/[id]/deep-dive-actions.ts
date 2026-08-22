@@ -222,17 +222,40 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
         : [],
     };
 
-    await supabase
-      .from("deep_dive_runs")
-      .update({
-        status: "ready_for_review",
-        status_message: "Strategy ready for review",
-        findings,
-        strategy: safeStrategy,
-        organization_intel: mergedIntel,
-        model: DRAFT_MODEL,
-      })
-      .eq("id", runId);
+    // The || "" fallbacks above stop a missing field from crashing the
+    // review UI, but they'll just as happily let a strategy with
+    // NOTHING in it through -- e.g. web search turned up too little
+    // for the AI to responsibly propose anything (it's told not to
+    // invent facts). That's a failure to surface and retry, not a
+    // "ready for review" strategy a human is expected to approve.
+    const hasSubstance =
+      safeStrategy.outreach_approach.trim() ||
+      safeStrategy.ask_positioning.trim() ||
+      safeStrategy.rationale.trim();
+
+    if (!hasSubstance) {
+      await supabase
+        .from("deep_dive_runs")
+        .update({
+          status: "error",
+          status_message: "Research didn't turn up enough to propose a strategy",
+          error_message: `Web search found too little on "${prospect.name}" for the AI to responsibly propose an approach. Try again, or add what you know manually.`,
+          findings,
+        })
+        .eq("id", runId);
+    } else {
+      await supabase
+        .from("deep_dive_runs")
+        .update({
+          status: "ready_for_review",
+          status_message: "Strategy ready for review",
+          findings,
+          strategy: safeStrategy,
+          organization_intel: mergedIntel,
+          model: DRAFT_MODEL,
+        })
+        .eq("id", runId);
+    }
   } catch (err) {
     await supabase
       .from("deep_dive_runs")
