@@ -152,13 +152,10 @@
   }
 
   .responsive-table td {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
     padding: 6px 0;
     border-bottom: 1px solid #f5f7fa !important;
-    text-align: right;
+    text-align: left;
+    overflow-wrap: break-word;
   }
 
   .responsive-table tr td:last-child {
@@ -167,11 +164,11 @@
 
   .responsive-table td::before {
     content: attr(data-label);
+    display: block;
     font-weight: 600;
     color: #66758b;
     font-size: 12.5px;
-    text-align: left;
-    flex-shrink: 0;
+    margin-bottom: 2px;
   }
 }
 
