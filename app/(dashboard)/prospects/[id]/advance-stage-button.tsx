@@ -13,10 +13,12 @@ export default function AdvanceStageButton({
   prospectId,
   currentStage,
   nextStage,
+  onMoved,
 }: {
   prospectId: string;
   currentStage: string;
   nextStage: string;
+  onMoved?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -24,7 +26,12 @@ export default function AdvanceStageButton({
     <button
       type="button"
       disabled={isPending}
-      onClick={() => startTransition(() => moveProspectStage(prospectId, currentStage, nextStage))}
+      onClick={() =>
+        startTransition(async () => {
+          await moveProspectStage(prospectId, currentStage, nextStage);
+          onMoved?.();
+        })
+      }
       style={buttonPrimary}
     >
       {isPending ? "Moving…" : `Move to ${stageLabel(nextStage)}`}

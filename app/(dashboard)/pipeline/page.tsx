@@ -14,8 +14,8 @@ import {
 import type { ScreeningResult } from "@/lib/screening";
 import { spacing, colors, type as typeScale, radiusSm, cardStyle, fieldStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import NextActionPopover from "@/components/NextActionPopover";
-import ProspectRow from "./prospect-row";
 import BoardView from "./board-view";
+import StageViewWorkspace from "./stage-view-workspace";
 
 const MS_PER_DAY = 86400000;
 
@@ -174,11 +174,11 @@ export default async function PipelinePage({
       {view === "list" ? (
         <ListView prospects={all} searchParams={searchParams} />
       ) : stageFilter ? (
-        <FilteredStageView
+        <StageViewWorkspace
           stage={stageFilter}
           prospects={byStage.get(stageFilter) ?? []}
-          latestTierByProspect={latestTierByProspect}
-          daysInStage={daysInStage}
+          tierByProspect={tierByProspect}
+          daysInStageByProspect={daysInStageByProspect}
         />
       ) : (
         <BoardView prospects={all} tierByProspect={tierByProspect} daysInStageByProspect={daysInStageByProspect} />
@@ -216,35 +216,6 @@ function StatTile({
       </span>
       <div style={{ fontSize: 26, fontWeight: 700, marginTop: spacing.sm }}>{value}</div>
       <div style={{ fontSize: 13, color: colors.textMuted }}>{label}</div>
-    </div>
-  );
-}
-
-function FilteredStageView({
-  stage,
-  prospects,
-  latestTierByProspect,
-  daysInStage,
-}: {
-  stage: string;
-  prospects: Prospect[];
-  latestTierByProspect: Map<string, number>;
-  daysInStage: (p: Prospect) => number;
-}) {
-  return (
-    <div style={{ marginTop: spacing.lg }}>
-      <Link href="/pipeline" style={{ fontSize: 13, color: colors.textMuted, textDecoration: "none" }}>
-        ← All stages
-      </Link>
-      <h2 style={{ fontSize: 16, marginTop: spacing.sm }}>
-        {stageLabel(stage)} ({prospects.length})
-      </h2>
-      <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>
-        {prospects.map((p) => (
-          <ProspectRow key={p.id} prospect={p} tier={latestTierByProspect.get(p.id)} daysInStage={daysInStage(p)} />
-        ))}
-        {prospects.length === 0 && <p style={{ fontSize: 13, color: colors.textMuted }}>No prospects in this stage.</p>}
-      </div>
     </div>
   );
 }
