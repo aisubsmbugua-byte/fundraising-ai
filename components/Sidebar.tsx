@@ -3,12 +3,35 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, type LucideIcon } from "lucide-react";
+import {
+  Menu,
+  X,
+  Home as HomeIcon,
+  Building2,
+  Search,
+  ClipboardCheck,
+  Users,
+  FileText,
+  CalendarClock,
+  Settings as SettingsIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { colors, radiusSm, radiusPill } from "@/lib/ui";
 import PipelineNavItem from "@/components/PipelineNavItem";
 import InitialsAvatar from "@/components/InitialsAvatar";
 
-type NavItem = { href: string; label: string; badge: number; icon: LucideIcon };
+const ICON_MAP: Record<string, LucideIcon> = {
+  home: HomeIcon,
+  building2: Building2,
+  search: Search,
+  "clipboard-check": ClipboardCheck,
+  users: Users,
+  "file-text": FileText,
+  "calendar-clock": CalendarClock,
+  settings: SettingsIcon,
+};
+
+type NavItem = { href: string; label: string; badge: number; icon: string };
 type StageCount = { value: string; label: string; count: number };
 
 export default function Sidebar({
@@ -110,7 +133,8 @@ export default function Sidebar({
   );
 }
 
-function NavLink({ href, label, badge, icon: Icon }: NavItem) {
+function NavLink({ href, label, badge, icon }: NavItem) {
+  const Icon = ICON_MAP[icon] ?? HomeIcon;
   return (
     <li>
       <Link

@@ -1,15 +1,4 @@
 import { redirect } from "next/navigation";
-import {
-  Home as HomeIcon,
-  Building2,
-  Search,
-  ClipboardCheck,
-  Users,
-  FileText,
-  CalendarClock,
-  Settings as SettingsIcon,
-  type LucideIcon,
-} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
@@ -54,17 +43,22 @@ export default async function DashboardLayout({
   // supporting/reference items last. Prospects is no longer its own
   // entry -- it's Pipeline's List view now. Labels per the design
   // handoff, decided case-by-case against what was already live.
-  const BEFORE_PIPELINE: { href: string; label: string; badge: number; icon: LucideIcon }[] = [
-    { href: "/dashboard", label: "Home", badge: 0, icon: HomeIcon },
-    { href: "/organization", label: "Org Profile", badge: 0, icon: Building2 },
-    { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0, icon: Search },
-    { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount, icon: ClipboardCheck },
+  // icon is a lookup key into Sidebar's own ICON_MAP, not a component
+  // reference -- Sidebar is a Client Component, and passing a React
+  // component/function as a prop from a Server Component doesn't
+  // serialize across that boundary (crashed the whole app in prod the
+  // first time this file did that; see git history).
+  const BEFORE_PIPELINE: { href: string; label: string; badge: number; icon: string }[] = [
+    { href: "/dashboard", label: "Home", badge: 0, icon: "home" },
+    { href: "/organization", label: "Org Profile", badge: 0, icon: "building2" },
+    { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0, icon: "search" },
+    { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount, icon: "clipboard-check" },
   ];
-  const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: LucideIcon }[] = [
-    { href: "/contacts", label: "Relationships", badge: 0, icon: Users },
-    { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: FileText },
-    { href: "/revisit", label: "Follow-up", badge: dueNowCount, icon: CalendarClock },
-    { href: "/settings", label: "Settings", badge: 0, icon: SettingsIcon },
+  const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: string }[] = [
+    { href: "/contacts", label: "Relationships", badge: 0, icon: "users" },
+    { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: "file-text" },
+    { href: "/revisit", label: "Follow-up", badge: dueNowCount, icon: "calendar-clock" },
+    { href: "/settings", label: "Settings", badge: 0, icon: "settings" },
   ];
 
   return (
