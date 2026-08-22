@@ -223,7 +223,7 @@ export default function DeepDivePanel({
               <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.md }}>
                 Funder intelligence
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.sm, marginTop: spacing.xs }}>
+              <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.sm, marginTop: spacing.xs }}>
                 <label style={labelStyle}>
                   Location
                   <input

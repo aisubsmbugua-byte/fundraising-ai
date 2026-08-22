@@ -455,7 +455,7 @@ export default async function OrganizationProfilePage({
           </div>
         </form>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
+        <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
           <div style={{ display: "grid", gap: spacing.lg, minWidth: 0 }}>
             <div style={sectionStyle}>
               <IconTitle icon={Building2} title="Organization snapshot" />

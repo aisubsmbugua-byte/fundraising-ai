@@ -264,16 +264,16 @@ function ListView({
 
   return (
     <div style={{ marginTop: spacing.lg }}>
-      <form style={{ display: "flex", gap: spacing.sm, marginBottom: spacing.lg }}>
+      <form style={{ display: "flex", gap: spacing.sm, marginBottom: spacing.lg, flexWrap: "wrap" }}>
         <input type="hidden" name="view" value="list" />
         <input
           type="text"
           name="q"
           placeholder="Search by name..."
           defaultValue={searchParams.q}
-          style={{ ...fieldStyle, marginTop: 0, flex: 1 }}
+          style={{ ...fieldStyle, marginTop: 0, flex: 1, minWidth: 160 }}
         />
-        <select name="channel" defaultValue={searchParams.channel ?? ""} style={{ ...fieldStyle, marginTop: 0, width: 200 }}>
+        <select name="channel" defaultValue={searchParams.channel ?? ""} style={{ ...fieldStyle, marginTop: 0, width: 200, flex: "1 1 160px" }}>
           <option value="">All channels</option>
           {CHANNELS.map((c) => (
             <option key={c.value} value={c.value}>
@@ -286,7 +286,7 @@ function ListView({
         </button>
       </form>
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ textAlign: "left", borderBottom: `1px solid ${colors.border}` }}>
             <th style={{ padding: spacing.sm }}>Name</th>
@@ -302,16 +302,16 @@ function ListView({
         <tbody>
           {filtered.map((p) => (
             <tr key={p.id} style={{ borderBottom: `1px solid ${colors.bgSubtle}` }}>
-              <td style={{ padding: spacing.sm }}>
+              <td data-label="Name" style={{ padding: spacing.sm }}>
                 <Link href={`/prospects/${p.id}`}>{p.name}</Link>
               </td>
-              <td style={{ padding: spacing.sm }}>{stageLabel(p.stage)}</td>
-              <td style={{ padding: spacing.sm }}>{channelLabel(p.channel)}</td>
-              <td style={{ padding: spacing.sm }}>{p.organization ?? "—"}</td>
-              <td style={{ padding: spacing.sm }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
-              <td style={{ padding: spacing.sm }}>{p.ask_amount != null ? formatAmountCompact(p.ask_amount) : "—"}</td>
-              <td style={{ padding: spacing.sm }}>{p.next_action ?? "—"}</td>
-              <td style={{ padding: spacing.sm }}>
+              <td data-label="Stage" style={{ padding: spacing.sm }}>{stageLabel(p.stage)}</td>
+              <td data-label="Channel" style={{ padding: spacing.sm }}>{channelLabel(p.channel)}</td>
+              <td data-label="Organization" style={{ padding: spacing.sm }}>{p.organization ?? "—"}</td>
+              <td data-label="Contact" style={{ padding: spacing.sm }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
+              <td data-label="Ask" style={{ padding: spacing.sm }}>{p.ask_amount != null ? formatAmountCompact(p.ask_amount) : "—"}</td>
+              <td data-label="Next action" style={{ padding: spacing.sm }}>{p.next_action ?? "—"}</td>
+              <td data-label="Actions" style={{ padding: spacing.sm }}>
                 <Link href={`/prospects/${p.id}?edit=1`}>Edit</Link>
               </td>
             </tr>

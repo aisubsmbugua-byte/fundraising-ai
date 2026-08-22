@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, ArrowLeft } from "lucide-react";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import { CHANNELS, channelLabel } from "@/lib/prospects";
 import { spacing, colors, fieldStyle, radiusSm } from "@/lib/ui";
@@ -35,6 +35,9 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Desktop always shows both panes; mobile shows one at a time --
+  // this tracks whether the user has drilled into a detail on mobile.
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const counts = useMemo(
     () => ({
@@ -59,11 +62,15 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
   function handleStatusChange(id: string, newStatus: "dismissed" | "saved" | "pending" | "accepted") {
     setItems((prev) => prev.map((c) => (c.id === id ? { ...c, status: newStatus } : c)));
     setSelectedId(null); // fall through to whatever's now first in the filtered list
+    setMobileDetailOpen(false);
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 42%) 1fr", gap: spacing.lg, marginTop: spacing.lg }}>
-      <div style={{ minWidth: 0 }}>
+    <div
+      className="split-pane"
+      style={{ display: "grid", gridTemplateColumns: "minmax(320px, 42%) 1fr", gap: spacing.lg, marginTop: spacing.lg }}
+    >
+      <div className={`split-pane-list${mobileDetailOpen ? " detail-active" : ""}`} style={{ minWidth: 0 }}>
         <div style={{ display: "flex", gap: spacing.sm }}>
           <div style={{ position: "relative", flex: 1 }}>
             <Search size={15} color={colors.textFaint} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
@@ -97,6 +104,7 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
               onClick={() => {
                 setTab(t.value);
                 setSelectedId(null);
+                setMobileDetailOpen(false);
               }}
               style={{
                 background: "none",
@@ -119,7 +127,10 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
             <button
               key={c.id}
               type="button"
-              onClick={() => setSelectedId(c.id)}
+              onClick={() => {
+                setSelectedId(c.id);
+                setMobileDetailOpen(true);
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -163,7 +174,25 @@ export default function OpportunityWorkspace({ candidates }: { candidates: Candi
         </div>
       </div>
 
-      <div>
+      <div className={`split-pane-detail${mobileDetailOpen ? " detail-active" : ""}`}>
+        <button
+          type="button"
+          onClick={() => setMobileDetailOpen(false)}
+          className="split-pane-back-button"
+          style={{
+            alignItems: "center",
+            gap: 6,
+            background: "none",
+            border: "none",
+            color: colors.textMuted,
+            fontSize: 13,
+            cursor: "pointer",
+            padding: 0,
+            marginBottom: spacing.sm,
+          }}
+        >
+          <ArrowLeft size={14} /> Back to list
+        </button>
         {selected ? (
           <OpportunityDetail candidate={selected} onStatusChange={handleStatusChange} />
         ) : (

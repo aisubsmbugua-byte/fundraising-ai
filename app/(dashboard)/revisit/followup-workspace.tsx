@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Sparkles, ThumbsUp, ThumbsDown, Plus, Mail, PhoneCall, Users, MessageSquare, CalendarClock } from "lucide-react";
+import { Sparkles, ThumbsUp, ThumbsDown, Plus, Mail, PhoneCall, Users, MessageSquare, CalendarClock, ArrowLeft } from "lucide-react";
 import {
   logInteraction,
   suggestNextStep,
@@ -52,6 +52,7 @@ export default function FollowupWorkspace({
 }) {
   const [tab, setTab] = useState<Tab>("due_now");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const rowsByTab: Record<Tab, Row[]> = {
     due_now: dueNow.map((p) => ({ kind: "prospect", data: p })),
@@ -64,8 +65,11 @@ export default function FollowupWorkspace({
   const selected = rows.find((r) => r.data.id === selectedId) ?? rows[0] ?? null;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 42%) 1fr", gap: spacing.lg, marginTop: spacing.lg }}>
-      <div style={{ minWidth: 0 }}>
+    <div
+      className="split-pane"
+      style={{ display: "grid", gridTemplateColumns: "minmax(320px, 42%) 1fr", gap: spacing.lg, marginTop: spacing.lg }}
+    >
+      <div className={`split-pane-list${mobileDetailOpen ? " detail-active" : ""}`} style={{ minWidth: 0 }}>
         <div style={{ display: "flex", gap: spacing.lg, borderBottom: `1px solid ${colors.border}`, flexWrap: "wrap" }}>
           {TABS.map((t) => (
             <button
@@ -74,6 +78,7 @@ export default function FollowupWorkspace({
               onClick={() => {
                 setTab(t.value);
                 setSelectedId(null);
+                setMobileDetailOpen(false);
               }}
               style={{
                 background: "none",
@@ -94,13 +99,29 @@ export default function FollowupWorkspace({
 
         <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md, maxHeight: "70vh", overflowY: "auto" }}>
           {rows.map((row) => (
-            <RowCard key={row.data.id} row={row} selected={selected?.data.id === row.data.id} onClick={() => setSelectedId(row.data.id)} />
+            <RowCard
+              key={row.data.id}
+              row={row}
+              selected={selected?.data.id === row.data.id}
+              onClick={() => {
+                setSelectedId(row.data.id);
+                setMobileDetailOpen(true);
+              }}
+            />
           ))}
           {rows.length === 0 && <p style={{ fontSize: 13, color: colors.textMuted, padding: spacing.sm }}>Nothing here.</p>}
         </div>
       </div>
 
-      <div>
+      <div className={`split-pane-detail${mobileDetailOpen ? " detail-active" : ""}`}>
+        <button
+          type="button"
+          onClick={() => setMobileDetailOpen(false)}
+          className="split-pane-back-button"
+          style={{ alignItems: "center", gap: 6, background: "none", border: "none", color: colors.textMuted, fontSize: 13, cursor: "pointer", padding: 0, marginBottom: spacing.sm }}
+        >
+          <ArrowLeft size={14} /> Back to list
+        </button>
         {selected ? (
           selected.kind === "prospect" ? (
             <ProspectDetail prospect={selected.data} interactions={interactionsByProspect[selected.data.id] ?? []} />

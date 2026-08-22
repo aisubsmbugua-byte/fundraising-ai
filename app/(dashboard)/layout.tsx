@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   Home as HomeIcon,
@@ -14,9 +13,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
-import { colors, radiusSm, radiusPill } from "@/lib/ui";
-import PipelineNavItem from "@/components/PipelineNavItem";
-import InitialsAvatar from "@/components/InitialsAvatar";
+import { colors } from "@/lib/ui";
+import Sidebar from "@/components/Sidebar";
 
 export default async function DashboardLayout({
   children,
@@ -84,104 +82,15 @@ export default async function DashboardLayout({
           Sign-in disabled for the build phase — re-enable before Beta
         </div>
       )}
-      <div style={{ display: "flex", minHeight: "100vh", background: colors.canvas }}>
-        <nav
-          style={{
-            width: 232,
-            flexShrink: 0,
-            background: colors.navy950,
-            color: "#fff",
-            padding: 20,
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 24, fontSize: 15 }}>Fundraising AI</div>
-          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 4, flex: 1, alignContent: "start" }}>
-            {BEFORE_PIPELINE.map((n) => (
-              <NavLink key={n.href} {...n} />
-            ))}
-            <PipelineNavItem stageCounts={stageCounts} />
-            {AFTER_PIPELINE.map((n) => (
-              <NavLink key={n.href} {...n} />
-            ))}
-          </ul>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              marginTop: 16,
-              paddingTop: 16,
-              borderTop: "1px solid rgba(255,255,255,0.1)",
-            }}
-          >
-            <InitialsAvatar name={user.email ?? "?"} size={32} />
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {user.email}
-              </div>
-            </div>
-          </div>
-        </nav>
-        <main style={{ flex: 1, padding: 32 }}>{children}</main>
+      <div className="app-shell" style={{ background: colors.canvas }}>
+        <Sidebar
+          beforePipeline={BEFORE_PIPELINE}
+          afterPipeline={AFTER_PIPELINE}
+          stageCounts={stageCounts}
+          userEmail={user.email ?? "?"}
+        />
+        <main className="main-content">{children}</main>
       </div>
     </div>
-  );
-}
-
-function NavLink({
-  href,
-  label,
-  badge,
-  icon: Icon,
-}: {
-  href: string;
-  label: string;
-  badge: number;
-  icon: LucideIcon;
-}) {
-  return (
-    <li>
-      <Link
-        href={href}
-        prefetch={false}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "7px 10px",
-          borderRadius: radiusSm,
-          color: "#cbd5e1",
-          textDecoration: "none",
-          fontSize: 14,
-        }}
-      >
-        <Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
-        <span style={{ flex: 1 }}>{label}</span>
-        {badge > 0 && (
-          <span
-            style={{
-              background: colors.amber700,
-              color: "#fff",
-              borderRadius: radiusPill,
-              padding: "1px 8px",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {badge}
-          </span>
-        )}
-      </Link>
-    </li>
   );
 }

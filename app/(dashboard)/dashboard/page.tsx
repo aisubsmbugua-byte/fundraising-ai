@@ -177,7 +177,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
+      <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
         <div style={sectionStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
@@ -278,7 +278,7 @@ export default async function DashboardPage() {
         <StatCard href="/prospects/review" icon={ClipboardCheck} label="Strategy to review" value={readyForReviewCount} sub="Awaiting review" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
+      <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
         <div style={sectionStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: typeScale.sectionTitle, margin: 0 }}>Pipeline by stage</h2>
@@ -348,7 +348,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl }}>
+      <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl }}>
         <div>
           <h2 style={{ fontSize: typeScale.sectionTitle }}>Recent search runs</h2>
           <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>

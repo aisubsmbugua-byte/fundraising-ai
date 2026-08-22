@@ -44,7 +44,7 @@ export default async function ScreeningRulesPage() {
           <h2 style={{ fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm }}>
             What it takes to hit each tier, right now
           </h2>
-          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+          <table className="responsive-table" style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ textAlign: "left", color: colors.textMuted }}>
                 <th style={{ padding: "4px 8px" }}>Channel</th>
@@ -57,11 +57,11 @@ export default async function ScreeningRulesPage() {
             <tbody>
               {channelSummaries.map((s) => (
                 <tr key={s.channel}>
-                  <td style={{ padding: "4px 8px" }}>{channelLabel(s.channel)}</td>
-                  <td style={{ padding: "4px 8px" }}>{s.activeRuleCount}</td>
-                  <td style={{ padding: "4px 8px" }}>{s.maxPoints}</td>
-                  <td style={{ padding: "4px 8px" }}>{s.tier1Threshold}+ points</td>
-                  <td style={{ padding: "4px 8px" }}>{s.tier2Threshold}+ points</td>
+                  <td data-label="Channel" style={{ padding: "4px 8px" }}>{channelLabel(s.channel)}</td>
+                  <td data-label="Active rules" style={{ padding: "4px 8px" }}>{s.activeRuleCount}</td>
+                  <td data-label="Max points" style={{ padding: "4px 8px" }}>{s.maxPoints}</td>
+                  <td data-label="Tier 1 needs" style={{ padding: "4px 8px" }}>{s.tier1Threshold}+ points</td>
+                  <td data-label="Tier 2 needs" style={{ padding: "4px 8px" }}>{s.tier2Threshold}+ points</td>
                 </tr>
               ))}
             </tbody>

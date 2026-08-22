@@ -248,7 +248,7 @@ export default async function ProspectDetailPage({
             ))}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: spacing.xl, marginTop: spacing.xl }}>
+          <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: spacing.xl, marginTop: spacing.xl }}>
             <div style={{ minWidth: 0 }}>
               {activeTab === "overview" && (
                 <OverviewTab
