@@ -217,7 +217,7 @@ export default async function OrganizationProfilePage({
             types are a plausible match. The more specific, the better the suggestions.
           </p>
         </div>
-        <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap" }}>
           <DocumentsModal documents={documentsWithUrls} />
           {!isEditing && (
             <Link

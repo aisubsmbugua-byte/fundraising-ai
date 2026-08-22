@@ -124,7 +124,7 @@ export default async function ProspectDetailPage({
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap", alignItems: "center" }}>
           <ScreenButton prospectId={prospect.id} />
           {!isEditing && (
             <Link

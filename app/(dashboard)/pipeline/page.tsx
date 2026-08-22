@@ -109,7 +109,7 @@ export default async function PipelinePage({
             Move relationships forward from discovery to stewardship.
           </p>
         </div>
-        <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap" }}>
           <Link href="/pipeline" style={{ ...(view === "board" ? buttonPrimary : buttonSecondary), display: "flex", alignItems: "center", gap: 8 }}>
             <LayoutGrid size={15} /> Board
           </Link>

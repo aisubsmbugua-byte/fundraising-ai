@@ -46,7 +46,7 @@ export default async function DiscoveryPage() {
             until a human accepts it.
           </p>
         </div>
-        <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap" }}>
           <Link href="/discovery/search" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
             <Sparkles size={15} /> AI Search
           </Link>
