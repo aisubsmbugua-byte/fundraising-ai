@@ -56,11 +56,11 @@ export default function OverviewTab({
         {latestScreening ? (
           <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 6, margin: 0 }}>
             {latestScreening.breakdown.rules.map((r) => (
-              <li key={r.rule_id} style={{ fontSize: 13, display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: r.passed ? colors.success : colors.textFaint }}>
+              <li key={r.rule_id} style={{ fontSize: 13, display: "flex", justifyContent: "space-between", gap: spacing.sm }}>
+                <span style={{ color: r.passed ? colors.success : colors.textFaint, minWidth: 0, overflowWrap: "break-word" }}>
                   {r.passed ? "✓" : "✗"} {r.label}
                 </span>
-                <span style={{ color: colors.textMuted }}>weight {r.weight}</span>
+                <span style={{ color: colors.textMuted, flexShrink: 0 }}>weight {r.weight}</span>
               </li>
             ))}
             {latestScreening.breakdown.rules.length === 0 && (

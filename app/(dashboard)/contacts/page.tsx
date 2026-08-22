@@ -93,13 +93,13 @@ export default async function ContactsPage({
               <Link
                 key={org}
                 href={`/contacts?org=${encodeURIComponent(org)}`}
-                style={{ ...cardStyle, display: "flex", justifyContent: "space-between", alignItems: "center", textDecoration: "none", color: colors.text }}
+                style={{ ...cardStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.sm, textDecoration: "none", color: colors.text }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
-                  <Building2 size={15} color={colors.navy500} />
-                  <strong style={{ fontSize: 14 }}>{org}</strong>
+                <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, minWidth: 0 }}>
+                  <Building2 size={15} color={colors.navy500} style={{ flexShrink: 0 }} />
+                  <strong style={{ fontSize: 14, overflowWrap: "break-word" }}>{org}</strong>
                 </div>
-                <span style={{ fontSize: 13, color: colors.textMuted }}>
+                <span style={{ fontSize: 13, color: colors.textMuted, flexShrink: 0 }}>
                   {count} {count === 1 ? "contact" : "contacts"}
                 </span>
               </Link>

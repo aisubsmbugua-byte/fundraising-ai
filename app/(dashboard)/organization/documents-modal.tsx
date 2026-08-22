@@ -94,9 +94,9 @@ export default function DocumentsModal({ documents }: { documents: OrgDocumentWi
               {documents.map((doc) => (
                 <div
                   key={doc.id}
-                  style={{ ...cardStyle, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  style={{ ...cardStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.sm }}
                 >
-                  <div>
+                  <div style={{ minWidth: 0, overflowWrap: "break-word" }}>
                     {doc.url ? (
                       <a href={doc.url} target="_blank" rel="noopener noreferrer">
                         {doc.file_name}

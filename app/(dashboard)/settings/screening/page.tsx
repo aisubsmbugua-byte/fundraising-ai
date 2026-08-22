@@ -74,10 +74,10 @@ export default async function ScreeningRulesPage() {
           const operatorLabel = OPERATORS.find((o) => o.value === r.criterion.operator)?.label ?? r.criterion.operator;
           return (
             <div key={r.id} style={{ ...cardStyle, borderRadius: radius }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.sm }}>
+                <div style={{ minWidth: 0 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
-                    <strong>{r.label}</strong>
+                    <strong style={{ overflowWrap: "break-word" }}>{r.label}</strong>
                     <span style={chipStyle(r.active ? "teal" : "neutral")}>{r.active ? "Active" : "Inactive"}</span>
                   </span>
                   <div style={{ fontSize: 13, color: colors.text, marginTop: spacing.xs }}>
@@ -88,7 +88,7 @@ export default async function ScreeningRulesPage() {
                     <div style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs }}>{r.description}</div>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: spacing.sm }}>
+                <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0 }}>
                   <Link href={`/settings/screening/${r.id}`} style={{ fontSize: 13 }}>
                     Edit
                   </Link>
