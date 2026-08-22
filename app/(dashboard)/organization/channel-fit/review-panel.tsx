@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { Landmark, Repeat, Briefcase, Globe, Church, Wallet, User } from "lucide-react";
 import { reviewChannelMatch } from "./actions";
-import { channelLabel } from "@/lib/prospects";
+import { channelLabel, type Channel } from "@/lib/prospects";
 import { colors, spacing, radiusSm, buttonPrimary, buttonSecondary, chipStyle, cardStyle } from "@/lib/ui";
 import type { ChannelEvaluation } from "@/lib/channel-match";
-import type { LucideIcon } from "lucide-react";
 
 const CONFIDENCE_TONE: Record<ChannelEvaluation["confidence"], "teal" | "amber" | "neutral"> = {
   high: "teal",
@@ -14,18 +14,26 @@ const CONFIDENCE_TONE: Record<ChannelEvaluation["confidence"], "teal" | "amber" 
   low: "neutral",
 };
 
+const CHANNEL_ICONS: Record<Channel, typeof Landmark> = {
+  foundation: Landmark,
+  regranting: Repeat,
+  christian_business: Briefcase,
+  denomination: Globe,
+  church: Church,
+  daf: Wallet,
+  major_donor: User,
+};
+
 export default function ReviewPanel({
   runId,
   evaluations,
   approvedChannels,
-  icons,
   countByChannel,
 }: {
   runId: string;
   evaluations: ChannelEvaluation[];
   approvedChannels: string[] | null;
-  icons: Record<string, LucideIcon>;
-  countByChannel: Map<string, number>;
+  countByChannel: Record<string, number>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(
     new Set(approvedChannels ?? evaluations.filter((e) => e.recommended).map((e) => e.channel))
@@ -45,8 +53,8 @@ export default function ReviewPanel({
     <div>
       <div style={{ display: "grid", gap: spacing.sm }}>
         {evaluations.map((e) => {
-          const Icon = icons[e.channel];
-          const count = countByChannel.get(e.channel) ?? 0;
+          const Icon = CHANNEL_ICONS[e.channel as Channel];
+          const count = countByChannel[e.channel] ?? 0;
           return (
             <div key={e.channel} style={{ ...cardStyle, display: "flex", alignItems: "flex-start", gap: spacing.sm }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: spacing.sm, flex: 1, minWidth: 0, cursor: isReviewed ? "default" : "pointer" }}>

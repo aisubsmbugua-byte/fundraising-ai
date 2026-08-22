@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Sparkles, Landmark, Repeat, Briefcase, Globe, Church, Wallet, User, type LucideIcon } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { runChannelMatch } from "./actions";
 import ReviewPanel from "./review-panel";
 import SubmitButton from "@/components/SubmitButton";
 import FormLoadingStatus from "@/components/FormLoadingStatus";
-import { CHANNELS, type Channel } from "@/lib/prospects";
+import { CHANNELS } from "@/lib/prospects";
 import { spacing, colors, type as typeScale, radiusSm, sectionStyle, cardStyle } from "@/lib/ui";
 
 const ANALYSIS_MESSAGES = [
@@ -15,16 +15,6 @@ const ANALYSIS_MESSAGES = [
   "Almost done — finalizing the analysis...",
 ];
 import type { ChannelMatchRun } from "@/lib/channel-match";
-
-const CHANNEL_ICONS: Record<Channel, LucideIcon> = {
-  foundation: Landmark,
-  regranting: Repeat,
-  christian_business: Briefcase,
-  denomination: Globe,
-  church: Church,
-  daf: Wallet,
-  major_donor: User,
-};
 
 export default async function ChannelFitPage() {
   const supabase = createClient();
@@ -39,11 +29,12 @@ export default async function ChannelFitPage() {
 
   // Real counts of what's already in the funnel per channel, so
   // "explore opportunities" isn't just a bare link -- it says how
-  // much is actually there.
-  const countByChannel = new Map<string, number>();
-  for (const c of CHANNELS) countByChannel.set(c.value, 0);
+  // much is actually there. Plain object, not a Map -- this crosses
+  // the server/client boundary as a prop, and objects serialize
+  // unambiguously where Map support is less certain.
+  const countByChannel: Record<string, number> = Object.fromEntries(CHANNELS.map((c) => [c.value, 0]));
   for (const row of [...(candidates ?? []), ...(prospects ?? [])]) {
-    countByChannel.set(row.channel, (countByChannel.get(row.channel) ?? 0) + 1);
+    countByChannel[row.channel] = (countByChannel[row.channel] ?? 0) + 1;
   }
 
   const recommendedChannels = (latest?.evaluations ?? [])
@@ -110,7 +101,6 @@ export default async function ChannelFitPage() {
             runId={latest.id}
             evaluations={latest.evaluations}
             approvedChannels={latest.approved_channels}
-            icons={CHANNEL_ICONS}
             countByChannel={countByChannel}
           />
         </div>
