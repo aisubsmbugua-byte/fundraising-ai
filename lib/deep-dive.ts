@@ -12,9 +12,11 @@ export type Strategy = {
   // narrative instead of each draft reinventing it.
   key_talking_points: string[];
   // What kind of outcomes/proof points would resonate with this
-  // specific funder. The Evidence Library doesn't exist yet (Slice
-  // 6), but capturing what to look for now means proposal/deck
-  // generation already knows what to go find once it does.
+  // specific funder -- the AI's freeform wish-list, kept even now that
+  // the Evidence Library (Slice 6) exists as a fallback for when no
+  // real evidence_items match. Prefer evidence_item_ids on the run
+  // itself when it's non-empty -- that's real, citable evidence, not
+  // just a description of what to go find.
   evidence_to_highlight: string[];
 };
 
@@ -42,6 +44,10 @@ export type DeepDiveRun = {
   approved_by: string | null;
   approved_at: string | null;
   approved_strategy: Strategy | null;
+  // Verified + approved evidence_items the AI actually cited when
+  // proposing this strategy. Null on runs from before the Evidence
+  // Library existed.
+  evidence_item_ids: string[] | null;
 };
 
 // Shared by the sidebar "Strategies to Review" badge, the

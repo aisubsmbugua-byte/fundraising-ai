@@ -29,14 +29,17 @@ export default async function DashboardLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Both badges represent items that are, by definition, waiting on a
-  // human -- pending Donor Finder candidates and deep-dive strategies
-  // ready_for_review -- so both get the same "needs a look" treatment.
-  const [readyForReviewCount, { count: pendingCandidateCount }, { data: pipelineProspects }] = await Promise.all([
-    countStrategiesReadyForReview(supabase),
-    supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("prospects").select("stage").returns<Pick<Prospect, "stage">[]>(),
-  ]);
+  // Badges represent items that are, by definition, waiting on a
+  // human -- pending Donor Finder candidates, deep-dive strategies
+  // ready_for_review, unverified evidence -- so they all get the same
+  // "needs a look" treatment.
+  const [readyForReviewCount, { count: pendingCandidateCount }, { data: pipelineProspects }, { count: needsReviewEvidenceCount }] =
+    await Promise.all([
+      countStrategiesReadyForReview(supabase),
+      supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("prospects").select("stage").returns<Pick<Prospect, "stage">[]>(),
+      supabase.from("evidence_items").select("*", { count: "exact", head: true }).is("verified_at", null),
+    ]);
 
   const stageCounts = STAGES.map((s) => ({
     value: s.value,
@@ -57,7 +60,7 @@ export default async function DashboardLayout({
   ];
   const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: LucideIcon }[] = [
     { href: "/contacts", label: "Relationships", badge: 0, icon: Users },
-    { href: "/evidence", label: "Evidence", badge: 0, icon: FileText },
+    { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: FileText },
     { href: "/revisit", label: "Follow-up", badge: 0, icon: CalendarClock },
     { href: "/settings", label: "Settings", badge: 0, icon: SettingsIcon },
   ];

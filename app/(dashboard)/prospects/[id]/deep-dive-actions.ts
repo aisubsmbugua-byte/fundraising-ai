@@ -42,6 +42,16 @@ export async function runDeepDive(runId: string, prospectId: string) {
       .limit(1)
       .maybeSingle<OrgProfile>();
 
+    // Only evidence a human has actually verified and marked approved
+    // is eligible to be cited to a funder -- see verifyEvidenceItem in
+    // app/(dashboard)/evidence/actions.ts.
+    const { data: evidenceRows } = await supabase
+      .from("evidence_items")
+      .select("id, title, description, type")
+      .not("verified_at", "is", null)
+      .eq("permission", "approved");
+    const evidencePool = evidenceRows ?? [];
+
     // max_uses caps how many searches Claude can run in this pass --
     // the main lever on latency. Kept tight on purpose: this is
     // meant to be "fast enough to wait for," not exhaustive research.
@@ -162,6 +172,12 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
                   "evidence_to_highlight",
                 ],
               },
+              evidence_used: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "IDs (from the Available evidence list below) of any evidence items that genuinely fit this strategy and are worth citing. Only include ids from that list -- never invent one. Leave empty if none fit or the list is empty.",
+              },
             },
             required: ["organization_intel", "strategy"],
           },
@@ -177,7 +193,14 @@ Research findings:
 ${findings || "(no findings)"}
 
 Nonprofit profile:
-${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
+${profile ? buildProfileSummary(profile) : "(no profile data)"}
+
+Available evidence (verified, approved for use -- cite by id in evidence_used if relevant):
+${
+  evidencePool.length > 0
+    ? evidencePool.map((e) => `- ${e.id}: [${e.type}] ${e.title} -- ${e.description}`).join("\n")
+    : "(no verified evidence available yet)"
+}`,
         },
       ],
       },
@@ -189,7 +212,15 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
       throw new Error("AI did not return a structured result. Try again.");
     }
 
-    const result = toolUse.input as { organization_intel: OrganizationIntel; strategy: Strategy };
+    const result = toolUse.input as { organization_intel: OrganizationIntel; strategy: Strategy; evidence_used?: unknown };
+
+    // Defensive against the AI citing an id that isn't in the pool it
+    // was given (or hallucinating one) -- same spirit as the
+    // Array.isArray guards below.
+    const evidencePoolIds = new Set(evidencePool.map((e) => e.id));
+    const evidenceItemIds = Array.isArray(result.evidence_used)
+      ? result.evidence_used.filter((id): id is string => typeof id === "string" && evidencePoolIds.has(id))
+      : [];
 
     // The tool schema is a strong hint, not a server-enforced
     // contract -- guard against the AI omitting a field or returning
@@ -253,6 +284,7 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
           strategy: safeStrategy,
           organization_intel: mergedIntel,
           model: DRAFT_MODEL,
+          evidence_item_ids: evidenceItemIds,
         })
         .eq("id", runId);
     }
