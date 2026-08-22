@@ -90,7 +90,7 @@ export default async function DashboardLayout({
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 24, fontSize: 15 }}>Fundraising AI</div>
-          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 4, flex: 1 }}>
+          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 4, flex: 1, alignContent: "start" }}>
             {BEFORE_PIPELINE.map((n) => (
               <NavLink key={n.href} {...n} />
             ))}
