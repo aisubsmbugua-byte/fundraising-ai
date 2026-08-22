@@ -154,7 +154,11 @@ export default async function DashboardPage() {
           <p style={{ color: colors.textMuted, marginTop: spacing.xs }}>Here&apos;s what needs your attention today.</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexShrink: 0 }}>
-          <Link href="/discovery" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+          <Link
+            href="/discovery"
+            prefetch={false}
+            style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}
+          >
             <Search size={16} /> Find opportunities
           </Link>
           {org?.name && (
@@ -221,7 +225,7 @@ export default async function DashboardPage() {
               <IconBadge icon={BarChart3} tone="teal" />
               <h2 style={{ fontSize: typeScale.sectionTitle, margin: 0 }}>Pipeline forecast</h2>
             </div>
-            <Link href="/pipeline" style={{ fontSize: 13, color: colors.primary, textDecoration: "none" }}>
+            <Link href="/pipeline" prefetch={false} style={{ fontSize: 13, color: colors.primary, textDecoration: "none" }}>
               View full pipeline
             </Link>
           </div>
@@ -278,7 +282,7 @@ export default async function DashboardPage() {
         <div style={sectionStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: typeScale.sectionTitle, margin: 0 }}>Pipeline by stage</h2>
-            <Link href="/pipeline" style={{ fontSize: 13, color: colors.primary, textDecoration: "none" }}>
+            <Link href="/pipeline" prefetch={false} style={{ fontSize: 13, color: colors.primary, textDecoration: "none" }}>
               View pipeline
             </Link>
           </div>
@@ -289,6 +293,7 @@ export default async function DashboardPage() {
                 <Link
                   key={s.value}
                   href={`/pipeline?stage=${s.value}`}
+                  prefetch={false}
                   style={{ ...cardStyle, minWidth: 100, textDecoration: "none", color: colors.text, display: "grid", gap: 4 }}
                 >
                   <Icon size={15} color={colors.navy500} />
@@ -312,7 +317,7 @@ export default async function DashboardPage() {
               <IconBadge icon={Sparkles} tone="teal" />
               <h2 style={{ fontSize: typeScale.sectionTitle, margin: 0 }}>Recommended opportunities</h2>
             </div>
-            <Link href="/discovery" style={{ fontSize: 13, color: colors.primary, textDecoration: "none" }}>
+            <Link href="/discovery" prefetch={false} style={{ fontSize: 13, color: colors.primary, textDecoration: "none" }}>
               View all opportunities
             </Link>
           </div>
@@ -329,7 +334,11 @@ export default async function DashboardPage() {
                     {c.typical_grant_size ? ` · ${c.typical_grant_size}` : ""}
                   </div>
                 </div>
-                <Link href="/discovery" style={{ ...buttonSecondary, padding: "6px 12px", fontSize: 13, flexShrink: 0 }}>
+                <Link
+                  href="/discovery"
+                  prefetch={false}
+                  style={{ ...buttonSecondary, padding: "6px 12px", fontSize: 13, flexShrink: 0 }}
+                >
                   Review
                 </Link>
               </div>
@@ -452,7 +461,7 @@ function PriorityRow({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexShrink: 0 }}>
         {health && <HealthChip status={health} />}
-        <Link href={actionHref} style={buttonSecondary}>
+        <Link href={actionHref} prefetch={false} style={buttonSecondary}>
           {actionLabel}
         </Link>
       </div>
@@ -476,7 +485,7 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <Link href={href} style={{ ...cardStyle, textDecoration: "none", color: colors.text, display: "block" }}>
+    <Link href={href} prefetch={false} style={{ ...cardStyle, textDecoration: "none", color: colors.text, display: "block" }}>
       <IconBadge icon={Icon} tone="teal" />
       <div style={{ fontSize: 26, fontWeight: 700, marginTop: spacing.sm }}>{value}</div>
       <div style={{ fontSize: 13, color: colors.textMuted }}>{label}</div>
