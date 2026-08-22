@@ -1,10 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  Home as HomeIcon,
+  Building2,
+  Search,
+  ClipboardCheck,
+  Users,
+  FileText,
+  CalendarClock,
+  Settings as SettingsIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import { STAGES, type Prospect } from "@/lib/prospects";
 import { colors, radiusSm, radiusPill } from "@/lib/ui";
 import PipelineNavItem from "@/components/PipelineNavItem";
+import InitialsAvatar from "@/components/InitialsAvatar";
 
 export default async function DashboardLayout({
   children,
@@ -37,17 +49,17 @@ export default async function DashboardLayout({
   // supporting/reference items last. Prospects is no longer its own
   // entry -- it's Pipeline's List view now. Labels per the design
   // handoff, decided case-by-case against what was already live.
-  const BEFORE_PIPELINE: { href: string; label: string; badge: number }[] = [
-    { href: "/dashboard", label: "Home", badge: 0 },
-    { href: "/organization", label: "Org Profile", badge: 0 },
-    { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0 },
-    { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount },
+  const BEFORE_PIPELINE: { href: string; label: string; badge: number; icon: LucideIcon }[] = [
+    { href: "/dashboard", label: "Home", badge: 0, icon: HomeIcon },
+    { href: "/organization", label: "Org Profile", badge: 0, icon: Building2 },
+    { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0, icon: Search },
+    { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount, icon: ClipboardCheck },
   ];
-  const AFTER_PIPELINE: { href: string; label: string; badge: number }[] = [
-    { href: "/contacts", label: "Relationships", badge: 0 },
-    { href: "/evidence", label: "Evidence", badge: 0 },
-    { href: "/revisit", label: "Follow-up", badge: 0 },
-    { href: "/settings", label: "Settings", badge: 0 },
+  const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: LucideIcon }[] = [
+    { href: "/contacts", label: "Relationships", badge: 0, icon: Users },
+    { href: "/evidence", label: "Evidence", badge: 0, icon: FileText },
+    { href: "/revisit", label: "Follow-up", badge: 0, icon: CalendarClock },
+    { href: "/settings", label: "Settings", badge: 0, icon: SettingsIcon },
   ];
 
   return (
@@ -66,9 +78,19 @@ export default async function DashboardLayout({
         </div>
       )}
       <div style={{ display: "flex", minHeight: "100vh", background: colors.canvas }}>
-        <nav style={{ width: 232, flexShrink: 0, background: colors.navy950, color: "#fff", padding: 20 }}>
+        <nav
+          style={{
+            width: 232,
+            flexShrink: 0,
+            background: colors.navy950,
+            color: "#fff",
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
           <div style={{ fontWeight: 700, marginBottom: 24, fontSize: 15 }}>Fundraising AI</div>
-          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 4 }}>
+          <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 4, flex: 1 }}>
             {BEFORE_PIPELINE.map((n) => (
               <NavLink key={n.href} {...n} />
             ))}
@@ -77,6 +99,31 @@ export default async function DashboardLayout({
               <NavLink key={n.href} {...n} />
             ))}
           </ul>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginTop: 16,
+              paddingTop: 16,
+              borderTop: "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            <InitialsAvatar name={user.email ?? "?"} size={32} />
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {user.email}
+              </div>
+            </div>
+          </div>
         </nav>
         <main style={{ flex: 1, padding: 32 }}>{children}</main>
       </div>
@@ -84,7 +131,17 @@ export default async function DashboardLayout({
   );
 }
 
-function NavLink({ href, label, badge }: { href: string; label: string; badge: number }) {
+function NavLink({
+  href,
+  label,
+  badge,
+  icon: Icon,
+}: {
+  href: string;
+  label: string;
+  badge: number;
+  icon: LucideIcon;
+}) {
   return (
     <li>
       <Link
@@ -93,7 +150,7 @@ function NavLink({ href, label, badge }: { href: string; label: string; badge: n
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          gap: 10,
           padding: "7px 10px",
           borderRadius: radiusSm,
           color: "#cbd5e1",
@@ -101,7 +158,8 @@ function NavLink({ href, label, badge }: { href: string; label: string; badge: n
           fontSize: 14,
         }}
       >
-        {label}
+        <Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1 }}>{label}</span>
         {badge > 0 && (
           <span
             style={{
