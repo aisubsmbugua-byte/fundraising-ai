@@ -19,6 +19,10 @@ export type Candidate = {
   suggested_tier: number | null;
   status: CandidateStatus;
   reviewed_by: string | null;
+  // "No" is data, not a dead end -- set from the Follow-up page, not
+  // part of the one-click dismiss flow itself.
+  dismissed_reason: string | null;
+  revisit_date: string | null;
   created_at: string;
   updated_at: string;
 };

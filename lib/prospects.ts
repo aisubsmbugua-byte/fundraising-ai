@@ -77,6 +77,13 @@ export type Prospect = {
   ask_amount: number | null;
   next_action: string | null;
   next_action_due: string | null;
+  // AI-suggested next step -- a proposal, never applied automatically.
+  // See suggestNextStep/useSuggestedNextStep in
+  // app/(dashboard)/revisit/actions.ts.
+  suggested_next_action: string | null;
+  suggested_next_action_due: string | null;
+  suggested_reasoning: string | null;
+  suggested_at: string | null;
   created_at: string;
   updated_at: string;
 };

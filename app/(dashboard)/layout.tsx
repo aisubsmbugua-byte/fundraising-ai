@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
-import { STAGES, type Prospect } from "@/lib/prospects";
+import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import { colors, radiusSm, radiusPill } from "@/lib/ui";
 import PipelineNavItem from "@/components/PipelineNavItem";
 import InitialsAvatar from "@/components/InitialsAvatar";
@@ -37,7 +37,7 @@ export default async function DashboardLayout({
     await Promise.all([
       countStrategiesReadyForReview(supabase),
       supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
-      supabase.from("prospects").select("stage").returns<Pick<Prospect, "stage">[]>(),
+      supabase.from("prospects").select("stage, next_action_due").returns<Pick<Prospect, "stage" | "next_action_due">[]>(),
       supabase.from("evidence_items").select("*", { count: "exact", head: true }).is("verified_at", null),
     ]);
 
@@ -46,6 +46,10 @@ export default async function DashboardLayout({
     label: s.label,
     count: (pipelineProspects ?? []).filter((p) => p.stage === s.value).length,
   }));
+  const dueNowCount = (pipelineProspects ?? []).filter((p) => {
+    const h = computeHealthStatus(p.next_action_due);
+    return h === "due_soon" || h === "stalled";
+  }).length;
 
   // Order follows the actual workflow: overview, then setup, then the
   // funnel itself (source -> stage strategy -> active pursuit), then
@@ -61,7 +65,7 @@ export default async function DashboardLayout({
   const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: LucideIcon }[] = [
     { href: "/contacts", label: "Relationships", badge: 0, icon: Users },
     { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: FileText },
-    { href: "/revisit", label: "Follow-up", badge: 0, icon: CalendarClock },
+    { href: "/revisit", label: "Follow-up", badge: dueNowCount, icon: CalendarClock },
     { href: "/settings", label: "Settings", badge: 0, icon: SettingsIcon },
   ];
 
