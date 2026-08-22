@@ -1,9 +1,10 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { channelLabel, CHANNELS } from "@/lib/prospects";
 import { OPERATORS, importanceLabel, summarizeByChannel, type ScreeningRule } from "@/lib/screening";
 import DeleteRuleButton from "./delete-rule-button";
-import { spacing, colors, radius, buttonPrimary, cardStyle } from "@/lib/ui";
+import { spacing, colors, type as typeScale, radius, buttonPrimary, cardStyle, chipStyle } from "@/lib/ui";
 
 export default async function ScreeningRulesPage() {
   const supabase = createClient();
@@ -22,14 +23,14 @@ export default async function ScreeningRulesPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.xl }}>
         <div>
-          <h1>Screening Rules</h1>
-          <p style={{ color: colors.textMuted, fontSize: 14 }}>
+          <h1 style={{ fontSize: typeScale.pageTitle }}>Screening Rules</h1>
+          <p style={{ color: colors.textMuted, fontSize: 14, marginTop: spacing.xs }}>
             These rules drive the tier a prospect gets when someone clicks "Screen." Screening only
             classifies — it never moves a prospect's stage.
           </p>
         </div>
-        <Link href="/settings/screening/new" style={buttonPrimary}>
-          + New Rule
+        <Link href="/settings/screening/new" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+          <Plus size={15} /> New Rule
         </Link>
       </div>
 
@@ -72,9 +73,9 @@ export default async function ScreeningRulesPage() {
             <div key={r.id} style={{ ...cardStyle, borderRadius: radius }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <strong>{r.label}</strong>{" "}
-                  <span style={{ fontSize: 12, color: r.active ? colors.success : colors.textFaint }}>
-                    {r.active ? "Active" : "Inactive"}
+                  <span style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
+                    <strong>{r.label}</strong>
+                    <span style={chipStyle(r.active ? "teal" : "neutral")}>{r.active ? "Active" : "Inactive"}</span>
                   </span>
                   <div style={{ fontSize: 13, color: colors.text, marginTop: spacing.xs }}>
                     {r.criterion.field} {operatorLabel} {r.criterion.value ?? ""} — {importanceLabel(r.weight)} —{" "}
