@@ -29,7 +29,10 @@ export default async function ScreeningRulesPage() {
             classifies — it never moves a prospect's stage.
           </p>
         </div>
-        <Link href="/settings/screening/new" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+        <Link
+          href="/settings/screening/new"
+          style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}
+        >
           <Plus size={15} /> New Rule
         </Link>
       </div>
