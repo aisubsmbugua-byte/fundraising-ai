@@ -86,3 +86,53 @@ export type OrgProfile = {
   updated_by: string | null;
   updated_at: string;
 };
+
+export type ProfileHealthSection = { key: string; label: string; complete: boolean };
+
+// What actually feeds the AI (buildProfileSummary in lib/channel-match.ts
+// and the discovery-search prompts) -- a section counts as complete only
+// when the fields those prompts actually read are filled in, not just
+// "something in this general area."
+export function computeProfileHealth(profile: OrgProfile | null): ProfileHealthSection[] {
+  return [
+    { key: "mission", label: "Mission and focus", complete: !!(profile?.mission && profile?.problem_statement) },
+    { key: "financial", label: "Financial information", complete: !!(profile?.annual_budget && profile?.funding_need) },
+    { key: "people", label: "Key people", complete: !!profile?.key_people?.length },
+    { key: "geography", label: "Geographic coverage", complete: !!profile?.geographic_areas?.length },
+    { key: "track_record", label: "Track record", complete: !!profile?.outcomes?.length },
+  ];
+}
+
+const COMPLETENESS_SCALAR_FIELDS = [
+  "name",
+  "org_type",
+  "year_founded",
+  "website",
+  "annual_budget",
+  "funding_need",
+  "problem_statement",
+  "mission",
+  "programs",
+  "who_we_serve",
+  "hq_location",
+] as const satisfies readonly (keyof OrgProfile)[];
+
+const COMPLETENESS_LIST_FIELDS = [
+  "key_people",
+  "geographic_areas",
+  "cause_areas",
+  "org_values",
+  "outcomes",
+  "notable_funders",
+] as const satisfies readonly (keyof OrgProfile)[];
+
+// A simple filled/not-filled count across the fields that matter for
+// AI matching -- not weighted by importance, just an honest signal of
+// how much of the profile is there for the AI (and a human) to use.
+export function computeProfileCompleteness(profile: OrgProfile | null): number {
+  if (!profile) return 0;
+  let filled = 0;
+  for (const field of COMPLETENESS_SCALAR_FIELDS) if (profile[field]) filled++;
+  for (const field of COMPLETENESS_LIST_FIELDS) if ((profile[field] as unknown[] | null)?.length) filled++;
+  return filled / (COMPLETENESS_SCALAR_FIELDS.length + COMPLETENESS_LIST_FIELDS.length);
+}
