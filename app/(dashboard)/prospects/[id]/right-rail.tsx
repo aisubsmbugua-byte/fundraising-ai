@@ -1,7 +1,31 @@
 import Link from "next/link";
+import { CalendarClock, UserRound } from "lucide-react";
 import { computeHealthStatus, type Prospect } from "@/lib/prospects";
-import { spacing, colors, sectionStyle, buttonSecondary } from "@/lib/ui";
+import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
 import HealthChip from "@/components/HealthChip";
+
+function SectionTitle({ icon: Icon, title }: { icon: typeof CalendarClock; title: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: spacing.sm }}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 26,
+          height: 26,
+          borderRadius: radiusSm,
+          background: colors.teal100,
+          color: colors.teal700,
+          flexShrink: 0,
+        }}
+      >
+        <Icon size={14} />
+      </span>
+      <h3 style={{ fontSize: 14, margin: 0 }}>{title}</h3>
+    </div>
+  );
+}
 
 export default function RightRail({ prospect }: { prospect: Prospect }) {
   const health = computeHealthStatus(prospect.next_action_due);
@@ -9,7 +33,7 @@ export default function RightRail({ prospect }: { prospect: Prospect }) {
   return (
     <div style={{ display: "grid", gap: spacing.lg, alignContent: "start" }}>
       <div style={sectionStyle}>
-        <h3 style={{ fontSize: 14 }}>Next action</h3>
+        <SectionTitle icon={CalendarClock} title="Next action" />
         {prospect.next_action ? (
           <div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{prospect.next_action}</div>
@@ -35,7 +59,7 @@ export default function RightRail({ prospect }: { prospect: Prospect }) {
       </div>
 
       <div style={sectionStyle}>
-        <h3 style={{ fontSize: 14 }}>Key contact</h3>
+        <SectionTitle icon={UserRound} title="Key contact" />
         {prospect.contact_name || prospect.contact_email ? (
           <div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{prospect.contact_name ?? "—"}</div>

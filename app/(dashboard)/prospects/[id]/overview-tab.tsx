@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { DollarSign, Layers, Clock, CalendarDays, type LucideIcon } from "lucide-react";
 import { channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
 import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import type { DeepDiveRun } from "@/lib/deep-dive";
-import { spacing, colors, sectionStyle, buttonSecondary } from "@/lib/ui";
+import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 
 const MS_PER_DAY = 86400000;
@@ -33,15 +34,17 @@ export default function OverviewTab({
           }}
         >
           <SummaryTile
+            icon={DollarSign}
             label="Potential"
             value={prospect.ask_amount != null ? `$${prospect.ask_amount.toLocaleString("en-US")}` : "—"}
           />
-          <SummaryTile label="Channel" value={channelLabel(prospect.channel)} />
+          <SummaryTile icon={Layers} label="Channel" value={channelLabel(prospect.channel)} />
           <SummaryTile
+            icon={CalendarDays}
             label="Last updated"
             value={new Date(prospect.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           />
-          <SummaryTile label="In stage" value={`${Math.round(daysInStage)}d`} />
+          <SummaryTile icon={Clock} label="In stage" value={`${Math.round(daysInStage)}d`} />
         </div>
       </div>
 
@@ -140,9 +143,23 @@ const chipRow: React.CSSProperties = {
   fontWeight: 600,
 };
 
-function SummaryTile({ label, value }: { label: string; value: string }) {
+function SummaryTile({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
     <div style={sectionStyle}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 26,
+          height: 26,
+          borderRadius: radiusSm,
+          background: colors.teal100,
+          color: colors.teal700,
+        }}
+      >
+        <Icon size={14} />
+      </span>
       <div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{value}</div>
     </div>

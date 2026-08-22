@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Pencil } from "lucide-react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { updateProspect } from "../actions";
@@ -16,6 +17,7 @@ import ContactsTab from "./contacts-tab";
 import DeepDivePanel from "./deep-dive-panel";
 import DraftPanel from "./draft-panel";
 import FitScoreCircle from "@/components/FitScoreCircle";
+import InitialsAvatar from "@/components/InitialsAvatar";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle } from "@/lib/ui";
 import type { DeepDiveRun } from "@/lib/deep-dive";
 import type { Draft } from "@/lib/drafts";
@@ -125,8 +127,11 @@ export default async function ProspectDetailPage({
         <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0, alignItems: "center" }}>
           <ScreenButton prospectId={prospect.id} />
           {!isEditing && (
-            <Link href={`/prospects/${prospect.id}?edit=1`} style={buttonSecondary}>
-              Edit
+            <Link
+              href={`/prospects/${prospect.id}?edit=1`}
+              style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <Pencil size={14} /> Edit
             </Link>
           )}
           <DeleteProspectButton id={prospect.id} name={prospect.name} />
@@ -273,34 +278,6 @@ export default async function ProspectDetailPage({
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function InitialsAvatar({ name }: { name: string }) {
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase())
-    .join("");
-  return (
-    <div
-      style={{
-        width: 48,
-        height: 48,
-        borderRadius: "50%",
-        background: colors.navy900,
-        color: "#fff",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontWeight: 700,
-        fontSize: 15,
-        flexShrink: 0,
-      }}
-    >
-      {initials || "?"}
     </div>
   );
 }
