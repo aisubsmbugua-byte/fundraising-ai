@@ -105,7 +105,7 @@ export default async function ProspectDetailPage({
         Pipeline / {stageLabel(prospect.stage)}
       </Link>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: spacing.sm, gap: spacing.lg }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: spacing.sm, gap: spacing.lg, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
           <InitialsAvatar name={prospect.name} />
           <div style={{ minWidth: 0 }}>
