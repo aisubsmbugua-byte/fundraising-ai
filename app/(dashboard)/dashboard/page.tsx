@@ -1,10 +1,18 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { STAGES, channelLabel, formatAmountCompact, type Prospect } from "@/lib/prospects";
+import {
+  STAGES,
+  channelLabel,
+  formatAmountCompact,
+  computeHealthStatus,
+  type Prospect,
+  type HealthStatus,
+} from "@/lib/prospects";
 import { countStrategiesReadyForReview } from "@/lib/deep-dive";
 import type { DiscoverySearchRun } from "@/lib/discovery-search";
 import type { Candidate } from "@/lib/candidates";
-import { spacing, colors, cardStyle, sectionStyle } from "@/lib/ui";
+import { spacing, colors, cardStyle, sectionStyle, buttonSecondary } from "@/lib/ui";
+import HealthChip from "@/components/HealthChip";
 
 const RECENT_LIMIT = 8;
 
@@ -17,6 +25,7 @@ export default async function DashboardPage() {
     { data: prospects },
     { data: recentRuns },
     { data: recentReviewed },
+    { data: dueProspects },
   ] = await Promise.all([
     supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
     countStrategiesReadyForReview(supabase),
@@ -34,7 +43,21 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(RECENT_LIMIT)
       .returns<Candidate[]>(),
+    supabase
+      .from("prospects")
+      .select("id, name, next_action, next_action_due")
+      .not("next_action_due", "is", null)
+      .order("next_action_due", { ascending: true })
+      .limit(10)
+      .returns<Pick<Prospect, "id" | "name" | "next_action" | "next_action_due">[]>(),
   ]);
+
+  // Lead with due work, not metrics -- an on-track item isn't a
+  // priority yet, only what's due soon or already overdue is.
+  const priorityProspects = (dueProspects ?? [])
+    .map((p) => ({ ...p, health: computeHealthStatus(p.next_action_due) }))
+    .filter((p) => p.health === "due_soon" || p.health === "stalled")
+    .slice(0, 4);
 
   const byStage = new Map<string, number>();
   const potentialByStage = new Map<string, number>();
@@ -55,6 +78,32 @@ export default async function DashboardPage() {
       <p style={{ color: colors.textMuted, marginTop: spacing.xs }}>
         A snapshot of what's moving and what needs attention, in one place.
       </p>
+
+      {(readyForReviewCount > 0 || priorityProspects.length > 0) && (
+        <div style={{ ...sectionStyle, marginTop: spacing.xl }}>
+          <h2 style={{ fontSize: 16 }}>Today&apos;s priorities</h2>
+          <div style={{ display: "grid", gap: spacing.sm }}>
+            {readyForReviewCount > 0 && (
+              <PriorityRow
+                title={`Review ${readyForReviewCount} completed ${readyForReviewCount === 1 ? "strategy" : "strategies"}`}
+                detail="Ready for your approval"
+                actionHref="/prospects/review"
+                actionLabel="Review"
+              />
+            )}
+            {priorityProspects.map((p) => (
+              <PriorityRow
+                key={p.id}
+                title={`Follow up with ${p.name}`}
+                detail={p.next_action ?? "Next action not set"}
+                health={p.health ?? undefined}
+                actionHref={`/prospects/${p.id}`}
+                actionLabel="View"
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div
         style={{
@@ -150,6 +199,43 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PriorityRow({
+  title,
+  detail,
+  health,
+  actionHref,
+  actionLabel,
+}: {
+  title: string;
+  detail: string;
+  health?: HealthStatus;
+  actionHref: string;
+  actionLabel: string;
+}) {
+  return (
+    <div
+      style={{
+        ...cardStyle,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: spacing.md,
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+        <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>{detail}</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, flexShrink: 0 }}>
+        {health && <HealthChip status={health} />}
+        <Link href={actionHref} style={buttonSecondary}>
+          {actionLabel}
+        </Link>
       </div>
     </div>
   );
