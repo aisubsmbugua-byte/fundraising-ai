@@ -21,9 +21,15 @@ const emptyIntel: OrganizationIntel = {
 export default function DeepDivePanel({
   prospectId,
   initialRun,
+  onApproved,
 }: {
   prospectId: string;
   initialRun: DeepDiveRun | null;
+  // Optional -- lets a caller like Strategy Review's split-pane
+  // workspace know a strategy was just approved (so it can drop the
+  // item out of its "waiting on review" list) without this panel
+  // needing to know anything about where it's embedded.
+  onApproved?: () => void;
 }) {
   const [run, setRun] = useState<DeepDiveRun | null>(initialRun);
   const [isPending, startTransition] = useTransition();
@@ -321,6 +327,7 @@ export default function DeepDivePanel({
                     await approveStrategy(run.id, prospectId, approvedStrategy, approvedIntel);
                     const latest = await fetchRun();
                     setRun(latest);
+                    onApproved?.();
                   })
                 }
                 style={{ ...buttonPrimary, marginTop: spacing.md }}

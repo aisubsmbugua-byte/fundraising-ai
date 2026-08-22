@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { CalendarClock } from "lucide-react";
 import { STAGES, channelColor, computeHealthStatus, formatAmountCompact, type Prospect } from "@/lib/prospects";
-import { colors } from "@/lib/ui";
+import { colors, spacing } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 import HealthChip from "@/components/HealthChip";
+import NextActionPopover from "@/components/NextActionPopover";
 
 // Deliberately light -- no inline stage control here anymore (that
 // moved to the prospect detail page, see MoveStageControl there).
@@ -75,7 +76,15 @@ export default function ProspectCard({
             />
           ))}
         </div>
-        {tier != null && <TierBadge tier={tier} />}
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexShrink: 0 }}>
+          {tier != null && <TierBadge tier={tier} />}
+          <NextActionPopover
+            prospectId={prospect.id}
+            currentAction={prospect.next_action}
+            currentDue={prospect.next_action_due}
+            variant="icon"
+          />
+        </div>
       </div>
       {health && (
         <div style={{ marginTop: 6 }}>

@@ -1,8 +1,9 @@
-import Link from "next/link";
 import { CalendarClock, UserRound } from "lucide-react";
 import { computeHealthStatus, type Prospect } from "@/lib/prospects";
-import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
+import { spacing, colors, radiusSm, sectionStyle } from "@/lib/ui";
 import HealthChip from "@/components/HealthChip";
+import NextActionPopover from "@/components/NextActionPopover";
+import ContactPopover from "@/components/ContactPopover";
 
 function SectionTitle({ icon: Icon, title }: { icon: typeof CalendarClock; title: string }) {
   return (
@@ -53,9 +54,13 @@ export default function RightRail({ prospect }: { prospect: Prospect }) {
         ) : (
           <p style={{ fontSize: 13, color: colors.textFaint }}>No next action set.</p>
         )}
-        <Link href={`/prospects/${prospect.id}?edit=1`} style={{ ...buttonSecondary, marginTop: spacing.sm, textAlign: "center" }}>
-          {prospect.next_action ? "Update" : "Set next action"}
-        </Link>
+        <div style={{ marginTop: spacing.sm }}>
+          <NextActionPopover
+            prospectId={prospect.id}
+            currentAction={prospect.next_action}
+            currentDue={prospect.next_action_due}
+          />
+        </div>
       </div>
 
       <div style={sectionStyle}>
@@ -70,9 +75,13 @@ export default function RightRail({ prospect }: { prospect: Prospect }) {
         ) : (
           <p style={{ fontSize: 13, color: colors.textFaint }}>No contact identified yet.</p>
         )}
-        <Link href={`/prospects/${prospect.id}?edit=1`} style={{ ...buttonSecondary, marginTop: spacing.sm, textAlign: "center" }}>
-          {prospect.contact_name || prospect.contact_email ? "Edit contact" : "Add a contact"}
-        </Link>
+        <div style={{ marginTop: spacing.sm }}>
+          <ContactPopover
+            prospectId={prospect.id}
+            currentName={prospect.contact_name}
+            currentEmail={prospect.contact_email}
+          />
+        </div>
       </div>
     </div>
   );

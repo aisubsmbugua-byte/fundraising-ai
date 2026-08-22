@@ -13,6 +13,7 @@ import {
 } from "@/lib/prospects";
 import type { ScreeningResult } from "@/lib/screening";
 import { spacing, colors, type as typeScale, radiusSm, cardStyle, fieldStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
+import NextActionPopover from "@/components/NextActionPopover";
 import ProspectRow from "./prospect-row";
 import BoardView from "./board-view";
 
@@ -310,7 +311,12 @@ function ListView({
               <td data-label="Organization" style={{ padding: spacing.sm }}>{p.organization ?? "—"}</td>
               <td data-label="Contact" style={{ padding: spacing.sm }}>{p.contact_name ?? p.contact_email ?? "—"}</td>
               <td data-label="Ask" style={{ padding: spacing.sm }}>{p.ask_amount != null ? formatAmountCompact(p.ask_amount) : "—"}</td>
-              <td data-label="Next action" style={{ padding: spacing.sm }}>{p.next_action ?? "—"}</td>
+              <td data-label="Next action" style={{ padding: spacing.sm }}>
+                <div style={{ display: "flex", alignItems: "center", gap: spacing.xs }}>
+                  <span>{p.next_action ?? "—"}</span>
+                  <NextActionPopover prospectId={p.id} currentAction={p.next_action} currentDue={p.next_action_due} variant="icon" />
+                </div>
+              </td>
               <td data-label="Actions" style={{ padding: spacing.sm }}>
                 <Link href={`/prospects/${p.id}?edit=1`}>Edit</Link>
               </td>

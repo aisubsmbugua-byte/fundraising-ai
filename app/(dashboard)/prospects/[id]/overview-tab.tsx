@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { DollarSign, Layers, Clock, CalendarDays, type LucideIcon } from "lucide-react";
+import { Layers, Clock, CalendarDays, type LucideIcon } from "lucide-react";
 import { channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
 import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import type { DeepDiveRun } from "@/lib/deep-dive";
 import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
+import EditableAskAmount from "@/components/EditableAskAmount";
 
 const MS_PER_DAY = 86400000;
 
@@ -33,11 +34,7 @@ export default function OverviewTab({
             marginTop: spacing.sm,
           }}
         >
-          <SummaryTile
-            icon={DollarSign}
-            label="Potential"
-            value={prospect.ask_amount != null ? `$${prospect.ask_amount.toLocaleString("en-US")}` : "—"}
-          />
+          <EditableAskAmount prospectId={prospect.id} askAmount={prospect.ask_amount} />
           <SummaryTile icon={Layers} label="Channel" value={channelLabel(prospect.channel)} />
           <SummaryTile
             icon={CalendarDays}

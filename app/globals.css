@@ -87,6 +87,16 @@
     z-index: 40;
   }
 
+  /* The Pipeline stage flyout defaults to appearing right of the
+     sidebar (desktop) -- on mobile the sidebar itself is the same
+     232px width, so a right-flyout would run off the edge of a
+     narrow viewport. Drop it below instead, same as before this
+     became a flyout. */
+  .pipeline-flyout {
+    left: 0 !important;
+    top: calc(100% + 4px) !important;
+  }
+
   .main-content {
     padding: 20px 16px;
   }

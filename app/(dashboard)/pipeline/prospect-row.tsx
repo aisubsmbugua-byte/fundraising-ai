@@ -3,6 +3,7 @@ import { STAGES, channelColor, channelLabel, computeHealthStatus, formatAmountCo
 import { colors, cardStyle } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 import HealthChip from "@/components/HealthChip";
+import NextActionPopover from "@/components/NextActionPopover";
 
 // The fuller counterpart to ProspectCard -- used on the single-stage
 // drill-down (/pipeline?stage=X), where there's only one column of
@@ -71,6 +72,12 @@ export default function ProspectRow({ prospect, tier, daysInStage }: { prospect:
         <span style={{ fontSize: 12, color: colors.textFaint, whiteSpace: "nowrap" }}>
           {Math.round(daysInStage)}d in stage
         </span>
+        <NextActionPopover
+          prospectId={prospect.id}
+          currentAction={prospect.next_action}
+          currentDue={prospect.next_action_due}
+          variant="icon"
+        />
       </div>
     </Link>
   );

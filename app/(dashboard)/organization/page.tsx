@@ -208,7 +208,7 @@ export default async function OrganizationProfilePage({
   const recentDocuments = documentsWithUrls.slice(0, 3);
 
   return (
-    <div style={{ maxWidth: isEditing ? 640 : 1000 }}>
+    <div style={{ maxWidth: isEditing ? 640 : undefined }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md }}>
         <div>
           <h1 style={{ fontSize: typeScale.pageTitle }}>Organization Profile</h1>

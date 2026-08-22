@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { channelLabel, type Prospect } from "@/lib/prospects";
+import { colors } from "@/lib/ui";
+import type { Prospect } from "@/lib/prospects";
 import type { DeepDiveRun } from "@/lib/deep-dive";
-import { spacing, colors, cardStyle, buttonPrimary } from "@/lib/ui";
+import StrategyReviewWorkspace from "./strategy-review-workspace";
 
 export default async function ReviewStrategiesPage() {
   const supabase = createClient();
@@ -33,47 +33,22 @@ export default async function ReviewStrategiesPage() {
     : { data: [] as Prospect[] };
   const prospectById = new Map((prospects ?? []).map((p) => [p.id, p]));
 
+  const items = readyRuns
+    .map((run) => {
+      const prospect = prospectById.get(run.prospect_id);
+      return prospect ? { prospect, run } : null;
+    })
+    .filter((item): item is { prospect: Prospect; run: DeepDiveRun } => item !== null);
+
   return (
     <div>
       <h1>Strategy review</h1>
       <p style={{ color: colors.textMuted, fontSize: 14 }}>
-        Prospects whose AI deep-dive is done and waiting on your review. Click into each one to
-        approve or edit the strategy -- nothing here has been approved yet.
+        Prospects whose AI deep-dive is done and waiting on your review. Select one to approve or
+        edit the strategy -- nothing here has been approved yet.
       </p>
 
-      <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.lg }}>
-        {readyRuns.map((run) => {
-          const prospect = prospectById.get(run.prospect_id);
-          if (!prospect) return null;
-          return (
-            <Link
-              key={run.id}
-              href={`/prospects/${prospect.id}`}
-              style={{ ...cardStyle, display: "block", textDecoration: "none", color: "inherit" }}
-            >
-              <strong>{prospect.name}</strong>
-              <div style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
-                {channelLabel(prospect.channel)}
-                {prospect.organization ? ` · ${prospect.organization}` : ""}
-              </div>
-              {run.strategy?.rationale && (
-                <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, maxWidth: 640 }}>
-                  {run.strategy.rationale}
-                </p>
-              )}
-            </Link>
-          );
-        })}
-        {readyRuns.length === 0 && (
-          <p style={{ color: colors.textFaint }}>Nothing waiting on review right now.</p>
-        )}
-      </div>
-
-      <div style={{ marginTop: spacing.xl }}>
-        <Link href="/pipeline?view=list" style={buttonPrimary}>
-          ← All Prospects
-        </Link>
-      </div>
+      <StrategyReviewWorkspace items={items} />
     </div>
   );
 }
