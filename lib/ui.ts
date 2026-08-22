@@ -137,6 +137,13 @@ export const sectionStyle: React.CSSProperties = {
   borderRadius: radius,
   padding: spacing.lg,
   display: "grid",
+  // A bare "grid" with no gridTemplateColumns creates a single
+  // implicit column sized by the *widest* child's min-content across
+  // every row -- one row with unshrinkable content (a flexShrink:0
+  // button, say) silently stretches every sibling row past the
+  // container's own width. minmax(0, 1fr) pins the column to the
+  // container instead.
+  gridTemplateColumns: "minmax(0, 1fr)",
   gap: spacing.md,
   boxSizing: "border-box",
   background: colors.surface,

@@ -8,6 +8,21 @@
   }
 }
 
+/* Safety net for the recurring flex/grid overflow bug: a flex or grid
+   item's default min-width is "auto" (its content's min-content
+   size), not 0 -- so one row with unshrinkable content (a
+   flexShrink:0 button, say) silently stretches its own box, and for
+   an implicit-column grid, every sibling row's track along with it,
+   past the container's actual width. This app fixes it locally at
+   each call site too (minWidth: 0 in the inline styles), but with
+   ~50 grid/flex containers across the app, a global floor is far
+   more reliable than remembering it every time. Doesn't touch
+   anything with an explicit width -- an explicit width always wins
+   over min-width: 0. */
+.main-content * {
+  min-width: 0;
+}
+
 /* Sidebar: fixed column on desktop, off-canvas drawer on mobile.
    Inline styles can't express a media query, so this one piece of the
    layout lives in real CSS -- everything else in the app stays on the
