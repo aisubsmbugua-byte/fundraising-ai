@@ -99,10 +99,13 @@ export async function deleteOrganization(
   }
 
   for (const table of ORG_SCOPED_TABLES) {
-    const { count, error } = await admin
-      .from(table)
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", organizationId);
+    // Deliberately not { head: true } -- a HEAD request has no HTTP
+    // response body by spec, and PostgREST's JSON error body (e.g. for
+    // a not-yet-existing organization_id column, pre-0033) can get
+    // stripped somewhere in that chain, leaving supabase-js with
+    // nothing parseable and a near-empty error object. A normal
+    // limit(1) always gets a real body either way, error or not.
+    const { data, error } = await admin.from(table).select("id").eq("organization_id", organizationId).limit(1);
     if (error) {
       // 42703 = undefined_column. Before 0033_multi_tenant_rls.sql
       // adds organization_id to every CRM table, none of them can
@@ -113,7 +116,7 @@ export async function deleteOrganization(
       console.error(`[deleteOrganization] check failed for ${table}:`, error);
       return { error: `Failed to check ${table}: [${error.code}] ${error.message || error.details || error.hint || "no detail"}` };
     }
-    if (count && count > 0) {
+    if (data && data.length > 0) {
       return { error: `Can't delete: this organization still has data in "${table}". Only empty test organizations can be deleted.` };
     }
   }
