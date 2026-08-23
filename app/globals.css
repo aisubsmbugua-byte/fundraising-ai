@@ -115,8 +115,13 @@
     display: block !important;
   }
 
+  /* !important on these two: several workspaces (Follow-up, Strategy
+     Review, Pipeline's stage view) set an inline display:grid on the
+     same element that carries split-pane-list, to lay out its rows --
+     an inline style always beats a plain class rule, so without
+     !important the list silently never hides on mobile drill-in. */
   .split-pane-list.detail-active {
-    display: none;
+    display: none !important;
   }
 
   .split-pane-detail {
@@ -124,7 +129,7 @@
   }
 
   .split-pane-detail.detail-active {
-    display: block;
+    display: block !important;
   }
 
   .split-pane-back-button {
