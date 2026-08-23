@@ -190,11 +190,11 @@ function ProspectDetail({ prospect, interactions }: { prospect: Prospect; intera
   return (
     <div style={{ display: "grid", gap: spacing.lg }}>
       <div style={sectionStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md }}>
           <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
             <InitialsAvatar name={prospect.name} size={44} />
             <div style={{ minWidth: 0 }}>
-              <h2 style={{ fontSize: 17 }}>{prospect.name}</h2>
+              <h2 style={{ fontSize: 17, overflowWrap: "break-word" }}>{prospect.name}</h2>
               <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
                 {prospect.contact_name ?? "No contact identified"}
                 {prospect.contact_email ? ` · ${prospect.contact_email}` : ""}
@@ -202,7 +202,7 @@ function ProspectDetail({ prospect, interactions }: { prospect: Prospect; intera
               <span style={{ ...chipStyle("neutral"), marginTop: spacing.xs, display: "inline-block" }}>{stageLabel(prospect.stage)}</span>
             </div>
           </div>
-          <Link href={`/prospects/${prospect.id}`} style={buttonSecondary}>
+          <Link href={`/prospects/${prospect.id}`} style={{ ...buttonSecondary, flexShrink: 0 }}>
             Open prospect →
           </Link>
         </div>

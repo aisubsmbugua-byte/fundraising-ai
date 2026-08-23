@@ -145,7 +145,7 @@ export default function StageViewWorkspace({
           {selected ? (
             <div style={{ display: "grid", gap: spacing.lg }}>
               <div style={sectionStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md }}>
                   <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
                     <InitialsAvatar name={selected.name} size={44} />
                     <div style={{ minWidth: 0 }}>

@@ -62,11 +62,11 @@ export default function OpportunityDetail({
 
   return (
     <div style={sectionStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md }}>
         <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
           <InitialsAvatar name={candidate.name} size={48} />
           <div style={{ minWidth: 0 }}>
-            <h2 style={{ fontSize: 19 }}>{candidate.name}</h2>
+            <h2 style={{ fontSize: 19, overflowWrap: "break-word" }}>{candidate.name}</h2>
             <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" }}>
               {candidate.website && (
                 <a href={candidate.website} target="_blank" rel="noreferrer" style={{ color: colors.textMuted, display: "flex", alignItems: "center", gap: 4 }}>
