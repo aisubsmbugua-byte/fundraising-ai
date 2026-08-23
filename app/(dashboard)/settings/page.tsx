@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SlidersHorizontal, Building2, Users } from "lucide-react";
+import { SlidersHorizontal, Building2, Users, ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { computeProfileCompleteness, type OrgProfile } from "@/lib/organization";
 import type { ScreeningRule } from "@/lib/screening";
@@ -8,9 +8,13 @@ import { spacing, colors, type as typeScale, radiusSm, sectionStyle } from "@/li
 
 export default async function SettingsPage() {
   const supabase = createClient();
-  const [{ data: profile }, { count: activeRuleCount }] = await Promise.all([
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const [{ data: profile }, { count: activeRuleCount }, { data: caller }] = await Promise.all([
     supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>(),
     supabase.from("screening_rules").select("*", { count: "exact", head: true }).eq("active", true),
+    user ? supabase.from("profiles").select("is_superadmin").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
 
   const completeness = computeProfileCompleteness(profile ?? null);
@@ -115,6 +119,37 @@ export default async function SettingsPage() {
             </div>
           </div>
         </Link>
+
+        {caller?.is_superadmin && (
+          <Link
+            href="/admin/organizations"
+            style={{ ...sectionStyle, display: "flex", alignItems: "center", justifyContent: "space-between", textDecoration: "none", color: colors.text }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: spacing.md }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 36,
+                  height: 36,
+                  borderRadius: radiusSm,
+                  background: colors.amber100,
+                  color: colors.amber700,
+                  flexShrink: 0,
+                }}
+              >
+                <ShieldCheck size={18} />
+              </span>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>Organizations (superadmin)</div>
+                <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+                  Create and manage organizations across the whole platform.
+                </div>
+              </div>
+            </div>
+          </Link>
+        )}
       </div>
     </div>
   );

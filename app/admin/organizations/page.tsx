@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createOrgAndInviteFirstUser } from "./actions";
+import DeleteOrgButton from "./delete-org-button";
 import { spacing, colors, fieldStyle, labelStyle, sectionStyle, cardStyle, buttonPrimary, type as typeScale } from "@/lib/ui";
 
 // createAdminClient() has no cookies() dependency to implicitly force
@@ -56,12 +57,15 @@ export default async function AdminOrganizationsPage() {
         {(organizations ?? []).map((org) => {
           const members = membersByOrg.get(org.id) ?? [];
           return (
-            <div key={org.id} style={cardStyle}>
-              <strong>{org.name}</strong>
-              <div style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
-                {members.length} member{members.length === 1 ? "" : "s"}
-                {members.length > 0 && ` · ${members.map((m) => m.email).join(", ")}`}
+            <div key={org.id} style={{ ...cardStyle, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md }}>
+              <div style={{ minWidth: 0 }}>
+                <strong>{org.name}</strong>
+                <div style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
+                  {members.length} member{members.length === 1 ? "" : "s"}
+                  {members.length > 0 && ` · ${members.map((m) => m.email).join(", ")}`}
+                </div>
               </div>
+              <DeleteOrgButton organizationId={org.id} name={org.name} />
             </div>
           );
         })}

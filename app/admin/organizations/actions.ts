@@ -49,3 +49,67 @@ export async function createOrgAndInviteFirstUser(formData: FormData) {
 
   revalidatePath("/admin/organizations");
 }
+
+// Every table org-scoped by 0033_multi_tenant_rls.sql -- kept in sync
+// with that migration by hand, since there's no single source of
+// truth to derive it from at runtime.
+const ORG_SCOPED_TABLES = [
+  "prospects",
+  "screening_rules",
+  "screening_results",
+  "stage_changes",
+  "org_profile",
+  "channel_match_runs",
+  "candidates",
+  "deep_dive_runs",
+  "org_documents",
+  "drafts",
+  "discovery_search_runs",
+  "auto_search_settings",
+  "contacts",
+  "evidence_items",
+  "interactions",
+] as const;
+
+// Deliberately narrow: only ever deletes an organization that has zero
+// rows in every CRM table (a throwaway test org someone just created)
+// and never one containing a superadmin (structurally protects the
+// bootstrap org and guarantees at least one superadmin always exists).
+// Real orgs with real data are never deletable through this -- that's
+// intentional, not a limitation to work around.
+export async function deleteOrganization(organizationId: string) {
+  await requireSuperadmin();
+  const admin = createAdminClient();
+
+  const { data: members } = await admin
+    .from("profiles")
+    .select("id, is_superadmin")
+    .eq("organization_id", organizationId);
+  if ((members ?? []).some((m) => m.is_superadmin)) {
+    throw new Error("Can't delete an organization that has a superadmin in it.");
+  }
+
+  for (const table of ORG_SCOPED_TABLES) {
+    const { count, error } = await admin
+      .from(table)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId);
+    if (error) throw new Error(`Failed to check ${table}: ${error.message}`);
+    if (count && count > 0) {
+      throw new Error(`Can't delete: this organization still has data in "${table}". Only empty test organizations can be deleted.`);
+    }
+  }
+
+  // profiles.id references auth.users(id) on delete cascade, so
+  // removing the auth user also removes their profile row -- and
+  // frees up the email to be invited again later.
+  for (const member of members ?? []) {
+    const { error } = await admin.auth.admin.deleteUser(member.id);
+    if (error) throw new Error(`Failed to remove member ${member.id}: ${error.message}`);
+  }
+
+  const { error: deleteError } = await admin.from("organizations").delete().eq("id", organizationId);
+  if (deleteError) throw new Error(deleteError.message);
+
+  revalidatePath("/admin/organizations");
+}
