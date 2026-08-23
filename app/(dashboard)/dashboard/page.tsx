@@ -33,6 +33,7 @@ import type { OrgProfile } from "@/lib/organization";
 import { spacing, colors, type as typeScale, radiusSm, cardStyle, sectionStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import HealthChip from "@/components/HealthChip";
 import FitScoreCircle from "@/components/FitScoreCircle";
+import Greeting from "@/components/Greeting";
 
 const RECENT_LIMIT = 8;
 const MS_PER_DAY = 86400000;
@@ -112,8 +113,6 @@ export default async function DashboardPage() {
 
   const firstName = (user?.email ?? "there").split("@")[0].replace(/[._]+/g, " ").trim();
   const greetingName = firstName ? firstName[0].toUpperCase() + firstName.slice(1) : "there";
-  const hour = now.getHours();
-  const timeGreeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   // Lead with due work, not metrics -- an on-track item isn't a
   // priority yet, only what's due soon or already overdue is.
@@ -149,7 +148,7 @@ export default async function DashboardPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.lg, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: typeScale.pageTitle }}>
-            {timeGreeting}, {greetingName}
+            <Greeting name={greetingName} />
           </h1>
           <p style={{ color: colors.textMuted, marginTop: spacing.xs }}>Here&apos;s what needs your attention today.</p>
         </div>
