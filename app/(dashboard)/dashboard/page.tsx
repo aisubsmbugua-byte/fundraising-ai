@@ -34,6 +34,7 @@ import { spacing, colors, type as typeScale, radiusSm, cardStyle, sectionStyle, 
 import HealthChip from "@/components/HealthChip";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import Greeting from "@/components/Greeting";
+import LocalTime from "@/components/LocalTime";
 
 const RECENT_LIMIT = 8;
 const MS_PER_DAY = 86400000;
@@ -257,7 +258,9 @@ export default async function DashboardPage() {
             })}
           </div>
 
-          <div style={{ fontSize: 12, color: colors.textFaint }}>As of {now.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: colors.textFaint }}>
+            As of <LocalTime iso={now.toISOString()} />
+          </div>
         </div>
       </div>
 
@@ -309,7 +312,8 @@ export default async function DashboardPage() {
             })}
           </div>
           <div style={{ fontSize: 12, color: colors.textFaint }}>
-            Total opportunities: {totalInPipeline} · Total potential: {formatAmountCompact(totalPotential)} · As of {now.toLocaleDateString()}
+            Total opportunities: {totalInPipeline} · Total potential: {formatAmountCompact(totalPotential)} · As of{" "}
+            <LocalTime iso={now.toISOString()} mode="date" />
           </div>
         </div>
 
@@ -401,7 +405,9 @@ export default async function DashboardPage() {
         }}
       >
         <span>Evidence sources: AI web search · ProPublica Nonprofit Explorer (IRS Form 990 filings)</span>
-        <span>Last updated {now.toLocaleString()}</span>
+        <span>
+          Last updated <LocalTime iso={now.toISOString()} />
+        </span>
       </div>
     </div>
   );
