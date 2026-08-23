@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createOrgAndInviteFirstUser } from "./actions";
 import DeleteOrgButton from "./delete-org-button";
-import { spacing, colors, fieldStyle, labelStyle, sectionStyle, cardStyle, buttonPrimary, type as typeScale } from "@/lib/ui";
+import CreateOrgForm from "./create-org-form";
+import { spacing, colors, cardStyle, type as typeScale } from "@/lib/ui";
 
 // createAdminClient() has no cookies() dependency to implicitly force
 // dynamic rendering the way the normal session client does elsewhere
@@ -39,19 +39,7 @@ export default async function AdminOrganizationsPage() {
         own teammates from Settings once they're signed in.
       </p>
 
-      <form action={createOrgAndInviteFirstUser} style={{ display: "grid", gap: spacing.md, marginTop: spacing.lg, ...sectionStyle }}>
-        <label style={labelStyle}>
-          Organization name
-          <input name="name" required placeholder="e.g. Riverside Community Church" style={fieldStyle} />
-        </label>
-        <label style={labelStyle}>
-          First user's email
-          <input name="email" type="email" required placeholder="you@org.com" style={fieldStyle} />
-        </label>
-        <button type="submit" style={{ ...buttonPrimary, justifySelf: "start" }}>
-          Create organization &amp; send invite
-        </button>
-      </form>
+      <CreateOrgForm />
 
       <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.xl }}>
         {(organizations ?? []).map((org) => {

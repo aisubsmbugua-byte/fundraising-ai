@@ -26,28 +26,49 @@ async function requireSuperadmin() {
 // updateUser -- app_metadata is not, so organization_id has to be set
 // in a second call for it to be trustworthy in the RLS policy that
 // creates the profile row on first login.
-export async function createOrgAndInviteFirstUser(formData: FormData) {
+//
+// Returns a result object instead of throwing, same reasoning as
+// deleteOrganization below: a thrown Error's message gets redacted to
+// a generic string on the client in production, and worse, a plain
+// <form action={...}> with no client-side handler turns any thrown
+// error here into a full page crash instead of a visible message.
+export async function createOrgAndInviteFirstUser(
+  formData: FormData
+): Promise<{ error: string } | { success: true }> {
   await requireSuperadmin();
   const name = (formData.get("name") as string)?.trim();
   const email = (formData.get("email") as string)?.trim();
-  if (!name || !email) throw new Error("Organization name and email are required");
+  if (!name || !email) return { error: "Organization name and email are required" };
 
   const admin = createAdminClient();
 
   const { data: org, error: orgError } = await admin.from("organizations").insert({ name }).select("id").single();
-  if (orgError) throw new Error(orgError.message);
+  if (orgError) {
+    console.error("[createOrgAndInviteFirstUser] org insert failed:", orgError);
+    return { error: `Failed to create organization: ${orgError.message}` };
+  }
 
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/pipeline`,
   });
-  if (inviteError) throw new Error(inviteError.message);
+  if (inviteError) {
+    console.error("[createOrgAndInviteFirstUser] invite failed:", inviteError);
+    // Roll back the org row so a failed invite doesn't leave an
+    // orphaned, memberless organization behind.
+    await admin.from("organizations").delete().eq("id", org.id);
+    return { error: `Failed to send invite: [${inviteError.status ?? "?"}] ${inviteError.message || inviteError.code || "no detail"}` };
+  }
 
   const { error: metadataError } = await admin.auth.admin.updateUserById(invited.user.id, {
     app_metadata: { organization_id: org.id },
   });
-  if (metadataError) throw new Error(metadataError.message);
+  if (metadataError) {
+    console.error("[createOrgAndInviteFirstUser] metadata update failed:", metadataError);
+    return { error: `Invite sent but failed to link it to the organization: ${metadataError.message}` };
+  }
 
   revalidatePath("/admin/organizations");
+  return { success: true };
 }
 
 // Every table org-scoped by 0033_multi_tenant_rls.sql -- kept in sync
