@@ -19,11 +19,8 @@ export default function DeleteOrgButton({ organizationId, name }: { organization
           setError(null);
           if (!confirm(`Delete "${name}"? This can't be undone -- only works if the organization has no data in it yet.`)) return;
           startTransition(async () => {
-            try {
-              await deleteOrganization(organizationId);
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Failed to delete");
-            }
+            const result = await deleteOrganization(organizationId);
+            if ("error" in result) setError(result.error);
           });
         }}
         style={{ ...buttonSecondary, padding: "6px 8px", color: colors.red600 }}

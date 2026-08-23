@@ -77,7 +77,16 @@ const ORG_SCOPED_TABLES = [
 // bootstrap org and guarantees at least one superadmin always exists).
 // Real orgs with real data are never deletable through this -- that's
 // intentional, not a limitation to work around.
-export async function deleteOrganization(organizationId: string) {
+// Returns a result object instead of throwing for expected failures --
+// Next.js redacts a thrown Error's real message down to a generic
+// "Server Components render" string on the client in production
+// builds, which would make every one of the deliberately-descriptive
+// refusal messages below unreadable. requireSuperadmin() above still
+// throws on purpose: an unauthorized call is a genuine exceptional
+// case, not feedback the UI needs to display verbatim.
+export async function deleteOrganization(
+  organizationId: string
+): Promise<{ error: string } | { success: true }> {
   await requireSuperadmin();
   const admin = createAdminClient();
 
@@ -86,7 +95,7 @@ export async function deleteOrganization(organizationId: string) {
     .select("id, is_superadmin")
     .eq("organization_id", organizationId);
   if ((members ?? []).some((m) => m.is_superadmin)) {
-    throw new Error("Can't delete an organization that has a superadmin in it.");
+    return { error: "Can't delete an organization that has a superadmin in it." };
   }
 
   for (const table of ORG_SCOPED_TABLES) {
@@ -94,9 +103,17 @@ export async function deleteOrganization(organizationId: string) {
       .from(table)
       .select("id", { count: "exact", head: true })
       .eq("organization_id", organizationId);
-    if (error) throw new Error(`Failed to check ${table}: ${error.message}`);
+    if (error) {
+      // 42703 = undefined_column. Before 0033_multi_tenant_rls.sql
+      // adds organization_id to every CRM table, none of them can
+      // possibly hold data for any org yet -- so a missing column
+      // here means "trivially zero rows for this org", not a real
+      // failure. Any other error is a genuine problem and still returned.
+      if (error.code === "42703") continue;
+      return { error: `Failed to check ${table}: ${error.message}` };
+    }
     if (count && count > 0) {
-      throw new Error(`Can't delete: this organization still has data in "${table}". Only empty test organizations can be deleted.`);
+      return { error: `Can't delete: this organization still has data in "${table}". Only empty test organizations can be deleted.` };
     }
   }
 
@@ -105,11 +122,12 @@ export async function deleteOrganization(organizationId: string) {
   // frees up the email to be invited again later.
   for (const member of members ?? []) {
     const { error } = await admin.auth.admin.deleteUser(member.id);
-    if (error) throw new Error(`Failed to remove member ${member.id}: ${error.message}`);
+    if (error) return { error: `Failed to remove member ${member.id}: ${error.message}` };
   }
 
   const { error: deleteError } = await admin.from("organizations").delete().eq("id", organizationId);
-  if (deleteError) throw new Error(deleteError.message);
+  if (deleteError) return { error: deleteError.message };
 
   revalidatePath("/admin/organizations");
+  return { success: true };
 }
