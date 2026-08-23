@@ -55,12 +55,17 @@ export type DeepDiveRun = {
 // check -- one prospect can have multiple deep_dive_runs (e.g. via
 // "Run New Deep Dive"), and only the latest one per prospect counts.
 // No "latest per prospect" query built into deep_dive_runs, so
-// dedupe newest-first in JS; cheap at this app's scale.
-export async function countStrategiesReadyForReview(supabase: SupabaseClient): Promise<number> {
-  const { data: runs } = await supabase
+// dedupe newest-first in JS; cheap at this app's scale. organizationId
+// is only needed when called with the admin client (the overnight
+// cron route, which has no auth.uid() for RLS to filter by) -- the
+// normal session-client callers leave it unset and rely on RLS.
+export async function countStrategiesReadyForReview(supabase: SupabaseClient, organizationId?: string): Promise<number> {
+  let query = supabase
     .from("deep_dive_runs")
     .select("prospect_id, status, approved_strategy, created_at")
     .order("created_at", { ascending: false });
+  if (organizationId) query = query.eq("organization_id", organizationId);
+  const { data: runs } = await query;
 
   const seenProspects = new Set<string>();
   let count = 0;

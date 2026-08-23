@@ -172,10 +172,16 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
 // auto-search cron route -- takes whatever client the caller already
 // resolved (cookie-based for a real user, admin/service-role for the
 // cron route, which has no user session at all) rather than touching
-// auth itself.
-async function executeChannelSearch(supabase: SupabaseClient, runId: string, channel: Channel) {
+// auth itself. organizationId is only passed on the admin-client path:
+// RLS has no auth.uid() to filter by there, so every query below that
+// would otherwise span every org's data gets an explicit .eq() instead.
+// The session-client path leaves it undefined and relies on RLS, same
+// as everywhere else in the app.
+async function executeChannelSearch(supabase: SupabaseClient, runId: string, channel: Channel, organizationId?: string) {
   try {
-    const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
+    let profileQuery = supabase.from("org_profile").select("*").limit(1);
+    if (organizationId) profileQuery = profileQuery.eq("organization_id", organizationId);
+    const { data: profile } = await profileQuery.maybeSingle<OrgProfile>();
 
     const churchTactic =
       channel === "church"
@@ -295,7 +301,9 @@ ${findings || "(no findings)"}`,
       })
       .eq("id", runId);
 
-    const { data: rulesData } = await supabase.from("screening_rules").select("*").eq("active", true);
+    let rulesQuery = supabase.from("screening_rules").select("*").eq("active", true);
+    if (organizationId) rulesQuery = rulesQuery.eq("organization_id", organizationId);
+    const { data: rulesData } = await rulesQuery;
     const rules = (rulesData ?? []) as ScreeningRule[];
 
     // Fetched once and appended to as candidates get inserted below,
@@ -303,9 +311,15 @@ ${findings || "(no findings)"}`,
     // within-run duplicates (the same funder turning up twice in one
     // search) still get caught since each insert updates this list
     // before the next candidate is checked.
+    let candidatesQuery = supabase.from("candidates").select("name, organization");
+    let prospectsQuery = supabase.from("prospects").select("name, organization");
+    if (organizationId) {
+      candidatesQuery = candidatesQuery.eq("organization_id", organizationId);
+      prospectsQuery = prospectsQuery.eq("organization_id", organizationId);
+    }
     const [{ data: knownCandidates }, { data: knownProspects }] = await Promise.all([
-      supabase.from("candidates").select("name, organization").returns<KnownOrg[]>(),
-      supabase.from("prospects").select("name, organization").returns<KnownOrg[]>(),
+      candidatesQuery.returns<KnownOrg[]>(),
+      prospectsQuery.returns<KnownOrg[]>(),
     ]);
     const known: KnownOrg[] = [...(knownCandidates ?? []), ...(knownProspects ?? [])];
 
@@ -346,7 +360,12 @@ ${findings || "(no findings)"}`,
 
       const { data: insertedRow, error } = await supabase
         .from("candidates")
-        .insert({ ...candidate, suggested_tier: tier, status: "pending" })
+        .insert({
+          ...candidate,
+          suggested_tier: tier,
+          status: "pending",
+          ...(organizationId ? { organization_id: organizationId } : {}),
+        })
         .select("id")
         .single();
       if (error) {
@@ -361,6 +380,7 @@ ${findings || "(no findings)"}`,
           email: candidate.contact_email,
           organization: candidate.organization,
           candidateId: insertedRow.id,
+          organizationId,
         });
         known.push({ name: candidate.name, organization: candidate.organization });
         inserted++;
@@ -410,7 +430,8 @@ export async function retryDiscoverySearch(channel: Channel): Promise<string> {
 export async function runAutoDiscoverySearchForChannel(
   supabase: SupabaseClient,
   channel: Channel,
-  userId: string
+  userId: string,
+  organizationId: string
 ): Promise<number> {
   const { data: run, error } = await supabase
     .from("discovery_search_runs")
@@ -420,6 +441,7 @@ export async function runAutoDiscoverySearchForChannel(
       status_message: `Searching the web for ${channelLabel(channel)} candidates... (overnight auto-search)`,
       created_by: userId,
       started_at: new Date().toISOString(),
+      organization_id: organizationId,
     })
     .select("id")
     .single();
@@ -428,7 +450,7 @@ export async function runAutoDiscoverySearchForChannel(
     return 0;
   }
 
-  await executeChannelSearch(supabase, run.id, channel);
+  await executeChannelSearch(supabase, run.id, channel, organizationId);
 
   const { data: finished } = await supabase
     .from("discovery_search_runs")

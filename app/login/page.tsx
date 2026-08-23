@@ -1,10 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { colors, buttonPrimary } from "@/lib/ui";
 
+const CALLBACK_ERROR_MESSAGE: Record<string, string> = {
+  no_organization:
+    "This email hasn't been invited to an organization yet. Ask your team admin for an invite.",
+  auth: "Something went wrong signing you in. Try requesting a new link.",
+};
+
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const callbackError = searchParams.get("error");
+
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +32,10 @@ export default function LoginPage() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/pipeline` },
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/pipeline`,
+      },
     });
     if (error) setError(error.message);
     else setSent(true);
@@ -46,6 +67,11 @@ export default function LoginPage() {
             Send sign-in link
           </button>
           {error && <p style={{ color: "crimson" }}>{error}</p>}
+          {!error && callbackError && (
+            <p style={{ color: "crimson" }}>
+              {CALLBACK_ERROR_MESSAGE[callbackError] ?? CALLBACK_ERROR_MESSAGE.auth}
+            </p>
+          )}
         </>
       )}
     </main>

@@ -21,7 +21,14 @@ export async function uploadOrgDocument(formData: FormData) {
     throw new Error("File is too large (25MB max)");
   }
 
-  const path = `${crypto.randomUUID()}-${file.name}`;
+  // Prefixed with the org's own id because the org-documents bucket's
+  // storage.objects RLS policy checks that prefix (see
+  // 0034_storage_multi_tenant.sql) -- unlike table columns, storage
+  // keys have no DB-level default to lean on, so this has to be built
+  // explicitly here.
+  const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
+  if (!profile) throw new Error("No organization found for your account");
+  const path = `${profile.organization_id}/${crypto.randomUUID()}-${file.name}`;
 
   const { error: uploadError } = await supabase.storage.from("org-documents").upload(path, file);
   if (uploadError) throw new Error(uploadError.message);

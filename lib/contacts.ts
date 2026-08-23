@@ -29,6 +29,14 @@ export async function upsertContact(
     prospectId?: string;
     candidateId?: string;
     userId?: string;
+    // Only needed when supabase is the service-role admin client (the
+    // overnight auto-search cron path) -- organization_id has no
+    // auth.uid() to default from there, and the existing-contact
+    // lookups below would otherwise match across every org's contacts
+    // instead of just the caller's own. The normal session-client
+    // callers leave this unset and rely on RLS + the column default,
+    // same as everywhere else in the app.
+    organizationId?: string;
   }
 ) {
   const email = input.email?.trim().toLowerCase() || null;
@@ -48,8 +56,13 @@ export async function upsertContact(
         source_candidate_id: input.candidateId ?? null,
         created_by: input.userId ?? null,
         updated_at: new Date().toISOString(),
+        ...(input.organizationId ? { organization_id: input.organizationId } : {}),
       },
-      { onConflict: "email" }
+      // Always the org-scoped constraint -- 0033_multi_tenant_rls.sql
+      // drops the old global "email unique" constraint entirely, so
+      // this is the only one that exists post-migration regardless of
+      // which caller this is.
+      { onConflict: "organization_id,email" }
     );
     if (error) console.error("[upsertContact]", error.message);
     return;
@@ -59,6 +72,7 @@ export async function upsertContact(
   existingQuery = input.organization
     ? existingQuery.eq("organization", input.organization)
     : existingQuery.is("organization", null);
+  if (input.organizationId) existingQuery = existingQuery.eq("organization_id", input.organizationId);
   const { data: existing } = await existingQuery.maybeSingle();
 
   if (existing) {
@@ -81,6 +95,7 @@ export async function upsertContact(
     source_prospect_id: input.prospectId ?? null,
     source_candidate_id: input.candidateId ?? null,
     created_by: input.userId ?? null,
+    ...(input.organizationId ? { organization_id: input.organizationId } : {}),
   });
   // Non-critical side effect of the candidate/prospect save that
   // triggered it -- log and move on rather than failing the caller.

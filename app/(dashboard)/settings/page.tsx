@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SlidersHorizontal, Building2 } from "lucide-react";
+import { SlidersHorizontal, Building2, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { computeProfileCompleteness, type OrgProfile } from "@/lib/organization";
 import type { ScreeningRule } from "@/lib/screening";
@@ -84,6 +84,35 @@ export default async function SettingsPage() {
           </div>
           <div style={{ fontSize: 13, color: colors.textMuted, flexShrink: 0 }}>
             {activeRuleCount ?? 0} active
+          </div>
+        </Link>
+
+        <Link
+          href="/settings/team"
+          style={{ ...sectionStyle, display: "flex", alignItems: "center", justifyContent: "space-between", textDecoration: "none", color: colors.text }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.md }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                height: 36,
+                borderRadius: radiusSm,
+                background: colors.teal100,
+                color: colors.teal700,
+                flexShrink: 0,
+              }}
+            >
+              <Users size={18} />
+            </span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Team</div>
+              <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+                Invite teammates into your organization.
+              </div>
+            </div>
           </div>
         </Link>
       </div>

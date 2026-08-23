@@ -26,48 +26,62 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient();
 
-  const { data: settings } = await supabase.from("auto_search_settings").select("*").limit(1).maybeSingle();
-  if (!settings?.enabled) {
-    console.log("[auto-discovery-search] skipped: disabled in Settings");
+  // Multi-tenant: loop over every org that has auto-search enabled,
+  // independently -- this route uses the admin client (no auth.uid()
+  // for RLS to filter by), so every downstream query has to be scoped
+  // by organization_id explicitly (see executeChannelSearch's
+  // organizationId param).
+  const { data: allSettings } = await supabase.from("auto_search_settings").select("*").eq("enabled", true);
+  if (!allSettings || allSettings.length === 0) {
+    console.log("[auto-discovery-search] skipped: no organizations have auto-search enabled");
     return Response.json({ skipped: "disabled" });
   }
-  if (!settings.updated_by) {
-    // Shouldn't happen in practice -- updated_by is set whenever a
-    // real user saves these settings -- but there's no user session
-    // to fall back on here, and created_by is a required column.
-    console.log("[auto-discovery-search] skipped: no attributable user on settings row");
-    return Response.json({ skipped: "no attributable user" });
+
+  const perOrgResults: Record<string, unknown> = {};
+
+  for (const settings of allSettings) {
+    if (!settings.updated_by) {
+      // Shouldn't happen in practice -- updated_by is set whenever a
+      // real user saves these settings -- but there's no user session
+      // to fall back on here, and created_by is a required column.
+      console.log(`[auto-discovery-search] org=${settings.organization_id} skipped: no attributable user on settings row`);
+      perOrgResults[settings.organization_id] = { skipped: "no attributable user" };
+      continue;
+    }
+
+    // Gated on Strategy review, not raw Discovery candidates --
+    // Discovery candidates are quick to Accept/Dismiss in bulk, but
+    // Strategy review is the real backlog (each one takes actually
+    // reading a full AI-researched strategy and deciding on it), and
+    // it's also the queue auto-search indirectly feeds: every candidate
+    // accepted triggers a deep-dive that lands there. Searching for more
+    // candidates while that queue is already backed up just sets up more
+    // strain downstream instead of helping.
+    const readyForReviewCount = await countStrategiesReadyForReview(supabase, settings.organization_id);
+    if (readyForReviewCount >= settings.queue_threshold) {
+      console.log(
+        `[auto-discovery-search] org=${settings.organization_id} skipped: Strategy review already at ${readyForReviewCount}/${settings.queue_threshold}`
+      );
+      perOrgResults[settings.organization_id] = { skipped: "queue full", readyForReviewCount };
+      continue;
+    }
+
+    // Shuffled so the same 2-3 channels don't always get first crack at
+    // the nightly budget on nights the target is hit before all 7 run.
+    const channels = [...CHANNELS].sort(() => Math.random() - 0.5);
+
+    let totalInserted = 0;
+    const results: Record<string, number> = {};
+    for (const { value: channel } of channels) {
+      if (totalInserted >= TARGET_NEW_CANDIDATES) break;
+      const inserted = await runAutoDiscoverySearchForChannel(supabase, channel, settings.updated_by, settings.organization_id);
+      results[channel] = inserted;
+      totalInserted += inserted;
+    }
+
+    console.log(`[auto-discovery-search] org=${settings.organization_id} complete: totalInserted=${totalInserted}`, results);
+    perOrgResults[settings.organization_id] = { totalInserted, results };
   }
 
-  // Gated on Strategy review, not raw Discovery candidates --
-  // Discovery candidates are quick to Accept/Dismiss in bulk, but
-  // Strategy review is the real backlog (each one takes actually
-  // reading a full AI-researched strategy and deciding on it), and
-  // it's also the queue auto-search indirectly feeds: every candidate
-  // accepted triggers a deep-dive that lands there. Searching for more
-  // candidates while that queue is already backed up just sets up more
-  // strain downstream instead of helping.
-  const readyForReviewCount = await countStrategiesReadyForReview(supabase);
-  if (readyForReviewCount >= settings.queue_threshold) {
-    console.log(
-      `[auto-discovery-search] skipped: Strategy review already at ${readyForReviewCount}/${settings.queue_threshold}`
-    );
-    return Response.json({ skipped: "queue full", readyForReviewCount });
-  }
-
-  // Shuffled so the same 2-3 channels don't always get first crack at
-  // the nightly budget on nights the target is hit before all 7 run.
-  const channels = [...CHANNELS].sort(() => Math.random() - 0.5);
-
-  let totalInserted = 0;
-  const results: Record<string, number> = {};
-  for (const { value: channel } of channels) {
-    if (totalInserted >= TARGET_NEW_CANDIDATES) break;
-    const inserted = await runAutoDiscoverySearchForChannel(supabase, channel, settings.updated_by);
-    results[channel] = inserted;
-    totalInserted += inserted;
-  }
-
-  console.log(`[auto-discovery-search] complete: totalInserted=${totalInserted}`, results);
-  return Response.json({ totalInserted, results });
+  return Response.json({ organizations: perOrgResults });
 }
