@@ -110,7 +110,8 @@ export async function deleteOrganization(
       // here means "trivially zero rows for this org", not a real
       // failure. Any other error is a genuine problem and still returned.
       if (error.code === "42703") continue;
-      return { error: `Failed to check ${table}: ${error.message}` };
+      console.error(`[deleteOrganization] check failed for ${table}:`, error);
+      return { error: `Failed to check ${table}: [${error.code}] ${error.message || error.details || error.hint || "no detail"}` };
     }
     if (count && count > 0) {
       return { error: `Can't delete: this organization still has data in "${table}". Only empty test organizations can be deleted.` };
