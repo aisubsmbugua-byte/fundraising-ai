@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendOrgInvite } from "@/lib/invite";
 
 async function requireSuperadmin() {
   const supabase = createClient();
@@ -18,14 +19,11 @@ async function requireSuperadmin() {
 // Creates a brand-new organization and invites its first user into it.
 // organizations has zero RLS policies for "authenticated" (see
 // 0032_multi_tenant_foundation.sql), so both the insert and the invite
-// have to go through the service-role admin client -- but only after
-// re-verifying superadmin status here, server-side, even though the
-// page itself is already gated by app/admin/layout.tsx. Two separate
-// admin calls are required: inviteUserByEmail's own `data` option
-// writes to user_metadata, which is client-writable later via
-// updateUser -- app_metadata is not, so organization_id has to be set
-// in a second call for it to be trustworthy in the RLS policy that
-// creates the profile row on first login.
+// (see lib/invite.ts's sendOrgInvite, shared with settings/team's
+// member-invite flow) have to go through the service-role admin
+// client -- but only after re-verifying superadmin status here,
+// server-side, even though the page itself is already gated by
+// app/admin/layout.tsx.
 //
 // Returns a result object instead of throwing, same reasoning as
 // deleteOrganization below: a thrown Error's message gets redacted to
@@ -48,23 +46,12 @@ export async function createOrgAndInviteFirstUser(
     return { error: `Failed to create organization: ${orgError.message}` };
   }
 
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/pipeline`,
-  });
-  if (inviteError) {
-    console.error("[createOrgAndInviteFirstUser] invite failed:", inviteError);
+  const result = await sendOrgInvite(admin, email, org.id);
+  if ("error" in result) {
     // Roll back the org row so a failed invite doesn't leave an
     // orphaned, memberless organization behind.
     await admin.from("organizations").delete().eq("id", org.id);
-    return { error: `Failed to send invite: [${inviteError.status ?? "?"}] ${inviteError.message || inviteError.code || "no detail"}` };
-  }
-
-  const { error: metadataError } = await admin.auth.admin.updateUserById(invited.user.id, {
-    app_metadata: { organization_id: org.id },
-  });
-  if (metadataError) {
-    console.error("[createOrgAndInviteFirstUser] metadata update failed:", metadataError);
-    return { error: `Invite sent but failed to link it to the organization: ${metadataError.message}` };
+    return result;
   }
 
   revalidatePath("/admin/organizations");
