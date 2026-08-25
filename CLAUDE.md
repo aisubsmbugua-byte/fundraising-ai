@@ -12,7 +12,8 @@ A web app that helps a small nonprofit team identify, qualify, and steward fundi
 2. **No auto-advance.** A prospect never changes pipeline stage without human approval. Stage transitions always pass through an approval gate.
 3. **AI drafts and suggests; humans decide.** All AI output lands in a review state, never a "done" or "sent" state.
 4. **No external CRM.** The CRM is custom and lives in our own Supabase tables.
-5. **Server-only secrets stay server-only.** Anthropic key, service role key, Resend key are never imported into client components.
+5. **Server-only secrets stay server-only.** Anthropic key, service role key, Postmark key are never imported into client components.
+6. **Every org-scoped table is tenant-isolated.** A new table holding any org's data needs `organization_id uuid references organizations(id) default my_organization_id()` and an RLS policy scoped by it, following the pattern in `supabase/migrations/0033_multi_tenant_rls.sql` — see `docs/decisions/0001-multi-tenancy.md` before touching anything in this area. Nothing currently catches a table that skips this.
 
 ## The AI-driven end state
 
@@ -44,11 +45,12 @@ Since the deep-dive involves real web search and takes several seconds, the UI s
 - **Live from day one.** The app is deployed on Vercel. Keep `main` deployable at all times.
 - **Definition of done.** Every slice doc has one. Don't mark a slice complete until it's met and the app still builds and deploys.
 - **Migrations are additive.** Each slice adds a numbered migration in `supabase/migrations/`. Never rewrite an applied migration.
+- **The app is multi-tenant.** One shared Supabase project serves multiple nonprofit organizations, isolated by RLS — see hard rule 6 and `docs/decisions/0001-multi-tenancy.md` for the full pattern and its known gaps before touching `organizations`, `profiles`, or adding any new org-scoped table.
 - **Basic design principles apply even before a dedicated design pass.** We're not doing visual design work yet, but every page should still be internally consistent: same spacing scale, same colors, inputs actually aligned to their container (this means `box-sizing: border-box` on every field — without it, padding pushes elements past `width: 100%` and breaks the grid). Use the shared tokens in `lib/ui.ts` (`fieldStyle`, `labelStyle`, `buttonPrimary`, `buttonSecondary`, `buttonDanger`, `sectionStyle`, `cardStyle`, `spacing`, `colors`) instead of one-off inline styles, so pages don't visually drift from each other as functionality gets added.
 
 ## Stack
 
-Next.js (App Router) · Supabase (Postgres/auth/storage) · Vercel · Anthropic API · Resend.
+Next.js (App Router) · Supabase (Postgres/auth/storage) · Vercel · Anthropic API · Postmark.
 
 ## Domain glossary
 
