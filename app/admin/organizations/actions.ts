@@ -1,20 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendOrgInvite } from "@/lib/invite";
-
-async function requireSuperadmin() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not signed in");
-
-  const { data: profile } = await supabase.from("profiles").select("is_superadmin").eq("id", user.id).maybeSingle();
-  if (!profile?.is_superadmin) throw new Error("Not authorized");
-}
+import { requireSuperadmin } from "@/lib/auth";
 
 // Creates a brand-new organization and invites its first user into it.
 // organizations has zero RLS policies for "authenticated" (see

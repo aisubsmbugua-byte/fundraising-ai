@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
+import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
-import { channelLabel } from "@/lib/prospects";
 import type { Strategy, OrganizationIntel, DeepDiveRun } from "@/lib/deep-dive";
 import type { OrgProfile } from "@/lib/organization";
 
@@ -52,41 +52,11 @@ export async function runDeepDive(runId: string, prospectId: string) {
       .eq("permission", "approved");
     const evidencePool = evidenceRows ?? [];
 
-    // max_uses caps how many searches Claude can run in this pass --
-    // the main lever on latency. Kept tight on purpose: this is
-    // meant to be "fast enough to wait for," not exhaustive research.
-    // allowed_callers: ["direct"] bypasses the code-execution "dynamic
-    // filtering" caller that _20260209-or-later tool versions default
-    // to (confirmed against current Anthropic docs) -- extra latency-
-    // variance machinery this call doesn't need. Applied here too even
-    // though Deep Dive has been reliable so far, since Discovery
-    // Search's repeated timeouts were traced to this same tool
-    // version's default behavior.
-    const searchResponse = await anthropic.messages.create(
-      {
-        model: DRAFT_MODEL,
-        max_tokens: 2000,
-        tools: [
-          { type: "web_search_20260318", name: "web_search", max_uses: 3, allowed_callers: ["direct"] },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
-
-Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`,
-          },
-        ],
-      },
-      { timeout: 120_000 }
-    );
-
-    console.log(`[deep-dive] search call resolved, stop_reason=${searchResponse.stop_reason}`);
-
-    const findings = searchResponse.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n");
+    // Shared with the (dark, superadmin-only) Research Agent action --
+    // see lib/ai/funder-search.ts. Same prompt/model/tool config as
+    // before this was extracted; behavior-preserving refactor only.
+    const { findings, stopReason } = await searchFunderWeb(prospect);
+    console.log(`[deep-dive] search call resolved, stop_reason=${stopReason}`);
 
     await supabase
       .from("deep_dive_runs")
