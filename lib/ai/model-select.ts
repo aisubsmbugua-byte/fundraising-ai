@@ -17,18 +17,34 @@ export function estimateCostUsd(model: string, inputTokens: number, outputTokens
 
 export type AITask = "research_search" | "research_extract";
 
-// The Research Agent runs on Sonnet 5: same generation as the DRAFT_MODEL
-// used elsewhere, but $2/$10 per MTok against $3/$15 -- a third cheaper for
-// equal-or-better capability.
+// Search and extraction run on different models, chosen from measurement
+// rather than assumption -- see scripts/replay-extraction.ts.
 //
-// Scoped to the research tasks ON PURPOSE rather than changing DRAFT_MODEL.
-// That constant is shared by six live features (deep dive, drafts, discovery
-// search, revisit, channel fit), and the Research Agent is a dark
-// superadmin-only path -- so a model change is proven here first and only
-// then considered for the live workflow. This is exactly the seam this
-// module was created for; it is still not a provider router.
-const RESEARCH_MODEL = "claude-sonnet-5";
+// Extraction stays on Sonnet 4.6. Replaying ONE frozen evidence set three
+// times per model (so search variance could not confound it) put Sonnet 5
+// behind on every quality measure that matters here:
+//
+//   claims                62.3 -> 53.3   (-15%)
+//   high-confidence       51.7 -> 39.0   (-25%)
+//   financial figures      80% -> 52%    carrying a reporting period
+//   cost per extraction  $0.181 -> $0.129
+//
+// A third off extraction is about $0.05 a run, which does not buy back a
+// quarter of the high-confidence claims or a collapse in dated figures.
+//
+// Search runs on Sonnet 5: it is a retrieval task rather than careful
+// structured output, the saving applies to the larger half of the run, and a
+// real screen run on it found every triage key. Search quality cannot be
+// isolated with frozen evidence, so this is the weaker-evidence half of the
+// decision and is worth revisiting if screen coverage drifts.
+//
+// Both are scoped to research tasks rather than changing DRAFT_MODEL, which
+// six live features share.
+const RESEARCH_SEARCH_MODEL = "claude-sonnet-5";
+const RESEARCH_EXTRACT_MODEL = "claude-sonnet-4-6";
 
 export function resolveModel(task: AITask) {
-  return { client: anthropic, model: task === "research_search" || task === "research_extract" ? RESEARCH_MODEL : DRAFT_MODEL };
+  if (task === "research_search") return { client: anthropic, model: RESEARCH_SEARCH_MODEL };
+  if (task === "research_extract") return { client: anthropic, model: RESEARCH_EXTRACT_MODEL };
+  return { client: anthropic, model: DRAFT_MODEL };
 }
