@@ -25,11 +25,26 @@ const COVERAGE_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
 
 // Stage 4 (citation consistency) -- compares against the search step's own
 // citation, not the live webpage. "drifted" is the one that should draw a
-// reviewer's eye; "no_excerpt"/null (legacy pre-Stage-4 rows) render nothing.
+// reviewer's eye; "no_excerpt"/null (legacy pre-Stage-4 rows, or new rows
+// where the evidence-first design makes this superseded) render nothing.
 const CITATION_CONSISTENCY_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   consistent: "teal",
   drifted: "red",
   unverifiable: "neutral",
+};
+
+// Entity-validation trust classification (evidence-first redesign) -- only
+// entity_mismatch/unrelated_excluded sources have their evidence withheld
+// from extraction; the rest stay usable but labeled here for the same
+// reason they're labeled in the extraction prompt.
+const ENTITY_STATUS_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
+  ein_confirmed: "teal",
+  official_domain_confirmed: "teal",
+  legal_name_confirmed: "teal",
+  affiliate_related_entity: "amber",
+  identity_unresolved: "amber",
+  entity_mismatch: "red",
+  unrelated_excluded: "red",
 };
 
 // Stable, safe-to-show text per error_code -- the full error_message
@@ -42,7 +57,8 @@ const SAFE_ERROR_MESSAGES: Record<string, string> = {
   extraction_failed: "The AI extraction step failed or returned an unusable result.",
   claims_insert_failed: "Saving extracted facts failed.",
   sources_insert_failed: "Saving retrieved sources failed.",
-  claim_sources_insert_failed: "Linking claims to their sources failed.",
+  evidence_insert_failed: "Saving captured evidence failed.",
+  claim_sources_insert_failed: "Linking claims to their evidence failed.",
   coverage_insert_failed: "Saving the completeness report failed.",
   unknown_error: "Research failed for an unexpected reason.",
   research_failed: "Research failed for an unexpected reason.",
@@ -82,7 +98,7 @@ export default async function AdminResearchPage() {
 
   const { data: sources } = await supabase
     .from("research_sources")
-    .select("id, research_run_id, url, title, source_type, page_age, retrieved_at")
+    .select("id, research_run_id, url, title, source_type, page_age, entity_validation_status, retrieved_at")
     .in("research_run_id", runIds);
 
   const { data: claimSources } = await supabase
@@ -206,6 +222,11 @@ export default async function AdminResearchPage() {
                           {s.title || s.url}
                         </a>
                         {s.page_age && ` · ${s.page_age}`}
+                        {s.entity_validation_status && (
+                          <span style={{ ...chipStyle(ENTITY_STATUS_TONE[s.entity_validation_status] ?? "neutral"), marginLeft: 4 }}>
+                            {s.entity_validation_status.replace(/_/g, " ")}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>

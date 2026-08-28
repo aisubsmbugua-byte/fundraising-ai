@@ -4,27 +4,32 @@ import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
-import { extractResearchClaims, buildIndexedSources, groupExcerptsByUrl } from "@/lib/ai/research-extract";
+import {
+  extractResearchClaims,
+  buildIndexedSources,
+  buildEvidenceFragments,
+  EXCLUDED_ENTITY_STATUSES,
+  type EvidenceFragment,
+} from "@/lib/ai/research-extract";
 import {
   allocateResearchRunVersion,
-  assessCitationConsistency,
+  classifySourceEntity,
+  deriveEntityNameToken,
+  determineConfirmedEin,
   RESEARCH_CLAIM_KEYS,
+  type ResearchEntityValidationStatus,
   type ResearchKeyCoverageStatus,
   type ResearchSourceType,
 } from "@/lib/research";
 
 // Bump these when the extraction prompt or the tool's input schema shape
 // changes -- they're recorded per-run so evaluation results stay
-// interpretable after either one drifts. v3: real citation-backed sources
-// (source_indices resolved against actually-retrieved pages, no more
-// model-typed URLs), confidence_reason, reporting_period, further atomic
-// key splits. v4: claim_key vocabulary expanded to match the target
-// Prospect Intelligence presentation structure -- legal_name, filing-level
-// totals (assets/revenue/expenses/charitable_disbursements, kept distinct
-// from total_annual_giving), foreign-org/fiscal-sponsorship eligibility,
-// invitation_mechanism, decision_timeframe, prohibited_activities.
-const PROMPT_VERSION = "v4";
-const EXTRACTION_SCHEMA_VERSION = "v4";
+// interpretable after either one drifts. v5: evidence-first redesign --
+// extraction cites evidence_ids into a pre-captured, entity-validated
+// fragment list instead of writing its own source_excerpt; see
+// docs/decisions/0002-research-agent.md.
+const PROMPT_VERSION = "v5";
+const EXTRACTION_SCHEMA_VERSION = "v5";
 
 // Approximate published Claude Sonnet pricing at the time this was written
 // -- not read from a live source. Good enough for comparing runs to each
@@ -114,7 +119,7 @@ export async function runResearch(runId: string, prospectId: string) {
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
     if (!prospect) throw new ResearchError("prospect_not_found", "Prospect not found");
 
-    const { findings, usage: searchUsage, citedSources, searchedSources } = await searchFunderWeb(prospect).catch((err) => {
+    const { findings, usage: searchUsage, citedSources, searchedSources } = await searchFunderWeb(prospect, "research_only").catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
 
@@ -127,17 +132,42 @@ export async function runResearch(runId: string, prospectId: string) {
       .eq("id", runId);
 
     const indexedSources = buildIndexedSources(citedSources, searchedSources);
-    // Every distinct excerpt actually cited for a url -- Stage 4 (citation
-    // consistency) checks an extracted claim's excerpt against these, not
-    // against the live webpage. A url with no entry here (only ever
-    // appeared in searchedSources) correctly yields "unverifiable" below.
-    const excerptsByUrl = groupExcerptsByUrl(citedSources);
 
-    // Written first, before extraction's own writes -- captures what was
-    // actually searched even if extraction fails afterward, and answers
-    // "what sources were checked" for research_key_coverage rows that end
-    // up not_found/not_public regardless of what gets extracted.
-    let sourceIds: string[] = [];
+    // --- Entity validation: classify every source BEFORE any evidence is
+    // built or shown to extraction. Deterministic, code-only -- see
+    // docs/decisions/0002-research-agent.md for the full decision tree.
+    const textsByUrl = new Map<string, string[]>();
+    for (const s of indexedSources) {
+      if (s.title) textsByUrl.set(s.url, [s.title]);
+    }
+    for (const c of citedSources) {
+      if (!c.citedText) continue;
+      const list = textsByUrl.get(c.url) ?? [];
+      list.push(c.citedText);
+      textsByUrl.set(c.url, list);
+    }
+    const confirmedEin = determineConfirmedEin(Array.from(textsByUrl.values()).flat());
+    const nameToken = deriveEntityNameToken(prospect.name);
+    const entityStatusByUrl = new Map<string, ResearchEntityValidationStatus>();
+    for (const s of indexedSources) {
+      entityStatusByUrl.set(
+        s.url,
+        classifySourceEntity({
+          sourceUrl: s.url,
+          sourceTexts: textsByUrl.get(s.url) ?? [],
+          prospectWebsite: prospect.website,
+          nameToken,
+          confirmedEin,
+        })
+      );
+    }
+
+    // Written before extraction's own writes -- captures what was actually
+    // searched (and how it was classified) even if extraction fails
+    // afterward, and answers "what sources were checked" for
+    // research_key_coverage rows that end up not_found/not_public
+    // regardless of what gets extracted.
+    let sourceIdByUrl = new Map<string, string>();
     if (indexedSources.length > 0) {
       const { data: sourceRows, error: sourcesError } = await supabase
         .from("research_sources")
@@ -148,15 +178,48 @@ export async function runResearch(runId: string, prospectId: string) {
             title: s.title,
             source_type: classifySourceType(s.url, prospect.website),
             page_age: s.pageAge,
-            search_time_excerpts: excerptsByUrl.get(s.url) ?? [],
+            entity_validation_status: entityStatusByUrl.get(s.url) ?? null,
           }))
         )
         .select("id");
       if (sourcesError) throw new ResearchError("sources_insert_failed", sourcesError.message);
-      sourceIds = (sourceRows ?? []).map((r) => r.id as string);
+      sourceIdByUrl = new Map(indexedSources.map((s, i) => [s.url, (sourceRows ?? [])[i]?.id as string]));
     }
 
-    const extraction = await extractResearchClaims({ prospectName: prospect.name, findings, sources: indexedSources }).catch((err) => {
+    // --- Evidence ledger: every distinct captured text fragment (a
+    // citation instance or a title), including ones from excluded sources
+    // -- excluded evidence is never shown to extraction (see filtering
+    // below) but IS still persisted, for audit, never silently dropped.
+    const allFragments: EvidenceFragment[] = buildEvidenceFragments(citedSources, searchedSources, entityStatusByUrl);
+    let evidenceIds: string[] = [];
+    if (allFragments.length > 0) {
+      const { data: evidenceRows, error: evidenceError } = await supabase
+        .from("research_evidence")
+        .insert(
+          allFragments.map((f) => ({
+            research_run_id: runId,
+            source_id: sourceIdByUrl.get(f.url),
+            url: f.url,
+            kind: f.kind,
+            exact_text: f.exactText,
+            content_hash: createHash("sha256").update(f.exactText).digest("hex"),
+          }))
+        )
+        .select("id");
+      if (evidenceError) throw new ResearchError("evidence_insert_failed", evidenceError.message);
+      evidenceIds = (evidenceRows ?? []).map((r) => r.id as string);
+    }
+
+    // Only usable-trust fragments (and their real DB ids) are offered to
+    // extraction -- entity_mismatch/unrelated_excluded evidence never
+    // reaches the prompt at all. usableFragments/usableRealIds stay
+    // index-aligned: extraction's evidence_ids index into usableFragments,
+    // resolved back to usableRealIds[i] for storage.
+    const usableIndices = allFragments.map((_, i) => i).filter((i) => !EXCLUDED_ENTITY_STATUSES.has(allFragments[i].entityStatus));
+    const usableFragments = usableIndices.map((i) => allFragments[i]);
+    const usableRealIds = usableIndices.map((i) => evidenceIds[i]);
+
+    const extraction = await extractResearchClaims({ prospectName: prospect.name, findings, evidence: usableFragments }).catch((err) => {
       throw new ResearchError("extraction_failed", err instanceof Error ? err.message : "Extraction call failed");
     });
     const { claims, model } = extraction;
@@ -173,8 +236,7 @@ export async function runResearch(runId: string, prospectId: string) {
         .from("research_claims")
         .insert(
           claims.map((c) => {
-            const firstSourceIdx = c.source_indices[0];
-            const firstSource = firstSourceIdx !== undefined ? indexedSources[firstSourceIdx] : undefined;
+            const primaryFragment = c.evidence_ids.length > 0 ? usableFragments[c.evidence_ids[0]] : undefined;
             return {
               research_run_id: runId,
               prospect_id: prospectId,
@@ -182,11 +244,11 @@ export async function runResearch(runId: string, prospectId: string) {
               claim_key: c.claim_key,
               category: RESEARCH_CLAIM_KEYS.find((k) => k.key === c.claim_key)?.category ?? "Other",
               claim: c.claim,
-              // Legacy single-source display fields, now always populated
-              // from a REAL captured source (never model-typed) -- the
-              // full multi-source list lives in research_claim_sources.
-              source_url: firstSource?.url ?? null,
-              source_excerpt: c.source_excerpt ?? null,
+              // Legacy single-value display fields, now always a copy of a
+              // REAL captured evidence fragment -- never model-typed. The
+              // full multi-evidence list lives in research_claim_sources.
+              source_url: primaryFragment?.url ?? null,
+              source_excerpt: primaryFragment?.exactText ?? null,
               confidence: c.confidence,
               confidence_reason: c.confidence_reason ?? null,
               reporting_period: c.reporting_period ?? null,
@@ -199,44 +261,26 @@ export async function runResearch(runId: string, prospectId: string) {
 
       const claimSourceRows = claims.flatMap((c, i) => {
         const claimId = insertedClaimIds[i];
-        // The extraction schema gives one source_excerpt per CLAIM, not
-        // one per linked source -- it's only ever attributable to whichever
-        // single source it actually came from. Checking it against every
-        // additional corroborating source (index 1+) produced a real bug
-        // on the first real run: multi-source claims like identity.ein
-        // showed "drifted" against sources that legitimately corroborate
-        // the fact but were never quoted for this specific excerpt.
-        // citation_consistency is therefore only assessed for the primary
-        // (first) source_index; additional sources get null (not
-        // applicable), same as they'd render for a pre-Stage-4 run.
-        const primarySourceIndex = c.source_indices[0];
-        return c.source_indices
-          .filter((idx) => !!sourceIds[idx])
-          .map((idx) => ({
-            claim_id: claimId,
-            source_id: sourceIds[idx],
-            research_run_id: runId,
-            cited_text: c.source_excerpt ?? null,
-            supports_directly: c.supports_directly,
-            // Compares against the search step's own citation for this
-            // exact source, not the live webpage -- see
-            // assessCitationConsistency's own doc comment.
-            // The comparison set includes the source's own title alongside
-            // its cited body-text spans -- a title is real, independently-
-            // retrieved API data (WebSearchResultBlock.title), not
-            // model-typed, and short factual excerpts (org name, EIN) are
-            // often quoted directly from it rather than from an inline
-            // citation. Confirmed on a real run: an EIN claim excerpt was
-            // a verbatim quote of a source's title and nothing else.
-            citation_consistency:
-              idx === primarySourceIndex
-                ? assessCitationConsistency(c.source_excerpt, [
-                    ...(indexedSources[idx].title ? [indexedSources[idx].title as string] : []),
-                    ...(excerptsByUrl.get(indexedSources[idx].url) ?? []),
-                  ])
-                : null,
-            content_hash: c.source_excerpt ? createHash("sha256").update(c.source_excerpt).digest("hex") : null,
-          }));
+        return c.evidence_ids
+          .filter((idx) => !!usableRealIds[idx])
+          .map((idx) => {
+            const fragment = usableFragments[idx];
+            return {
+              claim_id: claimId,
+              source_id: sourceIdByUrl.get(fragment.url),
+              evidence_id: usableRealIds[idx],
+              research_run_id: runId,
+              // Copied directly from the evidence record -- never
+              // model-supplied, always exact by construction. Superseded
+              // citation_consistency check (Stage 4) is intentionally left
+              // null for new rows: there's nothing left to probabilistically
+              // verify once the quote IS the evidence record.
+              cited_text: fragment.exactText,
+              supports_directly: c.supports_directly,
+              citation_consistency: null,
+              content_hash: createHash("sha256").update(fragment.exactText).digest("hex"),
+            };
+          });
       });
       if (claimSourceRows.length > 0) {
         const { error: claimSourcesError } = await supabase.from("research_claim_sources").insert(claimSourceRows);
@@ -288,12 +332,13 @@ export async function runResearch(runId: string, prospectId: string) {
     const inputTokens = searchUsage.inputTokens + extraction.usage.inputTokens;
     const outputTokens = searchUsage.outputTokens + extraction.usage.outputTokens;
 
+    const excludedCount = allFragments.length - usableFragments.length;
     const statusMessage = extraction.truncated
       ? `Extraction response was truncated (hit the token limit) -- results below are incomplete. Found ${claims.length} fact${claims.length === 1 ? "" : "s"} before truncation; retry likely to find more.`
-      : !extraction.sourcesAvailable
-        ? "Research completed, but the search step returned no citable sources this run -- claims below have no verifiable source."
+      : !extraction.evidenceAvailable
+        ? "Research completed, but no usable captured evidence this run -- claims below have no verifiable source."
         : claims.length > 0
-          ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"}`
+          ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"}${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
           : "Research completed, but found nothing extractable";
 
     await supabase

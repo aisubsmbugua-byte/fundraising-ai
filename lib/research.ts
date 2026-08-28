@@ -113,6 +113,100 @@ export type ResearchClaim = {
 
 export type ResearchSourceType = "official_website" | "irs_filing" | "annual_report" | "secondary_source" | "other";
 
+// Evidence-first redesign: a trust CLASSIFICATION per source, not a
+// pass/fail filter -- most legitimate corroborating sources never state an
+// EIN, and a source stating a *different* EIN isn't automatically wrong
+// (an affiliated sibling foundation, a fiscal sponsor, a grantee are all
+// real, relevant, differently-EIN'd entities). Only entity_mismatch and
+// unrelated_excluded withhold a source's evidence from extraction; the
+// other five stay usable, labeled with their trust level. Text, not an
+// enum -- this vocabulary, like citation_consistency's, is still being
+// worked out. See docs/decisions/0002-research-agent.md.
+export const RESEARCH_ENTITY_VALIDATION_STATUSES = [
+  "ein_confirmed",
+  "official_domain_confirmed",
+  "legal_name_confirmed",
+  "affiliate_related_entity",
+  "identity_unresolved",
+  "entity_mismatch",
+  "unrelated_excluded",
+] as const;
+export type ResearchEntityValidationStatus = (typeof RESEARCH_ENTITY_VALIDATION_STATUSES)[number];
+
+const GENERIC_NAME_SUFFIXES = /\b(foundation|fund|trust|inc\.?|incorporated|family|charitable|charity|ministries|ministry|organization|corp\.?|llc)\b/gi;
+const EIN_PATTERN = /\b\d{2}-\d{7}\b/g;
+
+// The distinctive core of a funder's name, used as a substring check
+// against a candidate source -- e.g. "Maclellan Foundation" -> "Maclellan".
+// Deliberately a substring check, not fuzzy/edit-distance similarity: a
+// fuzzy score would likely rate "McClellan" close enough to "Maclellan" to
+// pass, which is exactly the false-negative that let a real, unrelated
+// organization (marymcclellanfoundation.org) sit unflagged in a real run.
+export function deriveEntityNameToken(name: string): string {
+  const stripped = name.replace(GENERIC_NAME_SUFFIXES, "").replace(/[^a-zA-Z0-9\s]/g, "").trim();
+  const words = stripped.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return name.trim();
+  return words.reduce((longest, w) => (w.length > longest.length ? w : longest), words[0]);
+}
+
+export function extractEinCandidates(text: string): string[] {
+  return text.match(EIN_PATTERN) ?? [];
+}
+
+// Run once across every piece of captured text for a run (all evidence
+// fragments and titles) to establish the entity's EIN, if any source
+// states one. No EIN found anywhere -> null, and the EIN-based checks
+// below are simply skipped for every source -- absence never blocks.
+export function determineConfirmedEin(allCapturedText: string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const text of allCapturedText) {
+    for (const ein of extractEinCandidates(text)) counts.set(ein, (counts.get(ein) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+// Deterministic, code-only classification for one source -- see the
+// decision tree in docs/decisions/0002-research-agent.md. sourceTexts
+// should be every piece of captured text for this source (its title plus
+// every evidence fragment), so the name/EIN checks see everything actually
+// captured, not just one field.
+export function classifySourceEntity({
+  sourceUrl,
+  sourceTexts,
+  prospectWebsite,
+  nameToken,
+  confirmedEin,
+}: {
+  sourceUrl: string;
+  sourceTexts: string[];
+  prospectWebsite: string | null;
+  nameToken: string;
+  confirmedEin: string | null;
+}): ResearchEntityValidationStatus {
+  if (prospectWebsite) {
+    try {
+      const prospectHost = new URL(prospectWebsite).hostname.replace(/^www\./, "");
+      const sourceHost = new URL(sourceUrl).hostname.replace(/^www\./, "");
+      if (sourceHost === prospectHost) return "official_domain_confirmed";
+    } catch {
+      // malformed prospectWebsite or sourceUrl -- fall through to the other checks
+    }
+  }
+
+  const combinedText = sourceTexts.join(" ");
+  const einsInSource = extractEinCandidates(combinedText);
+  const nameMatches =
+    nameToken.length > 0 &&
+    (combinedText.toLowerCase().includes(nameToken.toLowerCase()) || sourceUrl.toLowerCase().includes(nameToken.toLowerCase()));
+
+  if (confirmedEin) {
+    if (einsInSource.includes(confirmedEin)) return "ein_confirmed";
+    if (einsInSource.length > 0) return nameMatches ? "affiliate_related_entity" : "entity_mismatch";
+  }
+  return nameMatches ? "legal_name_confirmed" : "unrelated_excluded";
+}
+
 export type ResearchSource = {
   id: string;
   research_run_id: string;
@@ -121,6 +215,29 @@ export type ResearchSource = {
   source_type: ResearchSourceType;
   page_age: string | null;
   search_time_excerpts: string[];
+  entity_validation_status: ResearchEntityValidationStatus | null;
+  retrieved_at: string;
+  created_at: string;
+};
+
+// Evidence-first redesign: one row per distinct captured text FRAGMENT,
+// not per source -- a source cited three times plus its title yields four
+// evidence records, each independently referenceable. Extraction cites by
+// evidence_id, never writes its own quote; the exact_text here is always
+// real, API-captured data, never model-typed. "Captured evidence," not a
+// webpage -- this is a fragment (a citation span or a title), never
+// implied to be a full page. See docs/decisions/0002-research-agent.md.
+export type ResearchEvidenceKind = "citation_fragment" | "page_title";
+
+export type ResearchEvidence = {
+  id: string;
+  research_run_id: string;
+  source_id: string;
+  url: string;
+  kind: ResearchEvidenceKind;
+  exact_text: string;
+  provider: string;
+  content_hash: string;
   retrieved_at: string;
   created_at: string;
 };
@@ -168,6 +285,13 @@ export type ResearchClaimSource = {
   id: string;
   claim_id: string;
   source_id: string;
+  // Evidence-first redesign: the real link is to a specific evidence
+  // fragment, not just "a source" -- null on v1-v9 rows (predates the
+  // evidence ledger), always set on new rows. cited_text below is a
+  // denormalized copy of evidence_id's exact_text for new rows (never
+  // model-supplied); on old rows it's whatever the extraction model wrote,
+  // kept as historical record.
+  evidence_id: string | null;
   research_run_id: string;
   cited_text: string | null;
   supports_directly: boolean;

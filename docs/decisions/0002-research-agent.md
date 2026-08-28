@@ -1,7 +1,7 @@
 # 0002 — Research Agent (Build 1)
 
-**Date:** 2026-08-27, revised 2026-08-28 (twice)
-**Status:** Implemented through Revision 4 (source provenance fix). Dark: no UI beyond the superadmin `/admin/research` eval tool, not wired into Strategy. Not yet accepted for the full evaluation set — see "Not yet done."
+**Date:** 2026-08-27, revised 2026-08-28 (three times)
+**Status:** Implemented through the evidence-first redesign (v10). Dark: no UI beyond the superadmin `/admin/research` eval tool, not wired into Strategy. Not yet accepted for the full evaluation set — see "Not yet done."
 
 ## Why this exists
 
@@ -293,6 +293,89 @@ separately-scoped stage. Open questions for whenever it's built: fetch per
 claim or per distinct source (many claims share a handful of sources — the
 latter is far cheaper); every run or only Enhanced-depth/flagged claims;
 where fetched content is stored and for how long.
+
+## Evidence-first redesign (v10, 2026-08-28)
+
+Stage 4's real numbers (v9: 4/33 citation-consistent) plus a confirmed entity-
+contamination finding (`marymcclellanfoundation.org` — a real, unrelated
+organization — sat unflagged in a real source list) showed that patching the
+extraction architecture case-by-case had hit diminishing returns. Root cause:
+one unconstrained extraction call both decided what a source said *and* wrote
+a quote of it, with nothing forcing the two to correspond — Stage 4 could only
+check the symptom after the fact, and couldn't distinguish drift from partial
+support from a genuinely wrong source. This redesign flips the order:
+**evidence is captured and validated by code before extraction runs; extraction
+selects from it, never writes its own quote.**
+
+**Evidence ledger** (`research_evidence`, `0039_evidence_ledger.sql`): one row
+per distinct captured text *fragment* — a citation instance (`kind:
+"citation_fragment"`) or a source's title (`kind: "page_title"`) — not per
+source. A source cited three times plus its title yields four independently
+referenceable fragments, closing the exact v9 failure where one excerpt was
+attached to every corroborating source regardless of which one it actually
+came from. Deliberately named and scoped as *captured evidence*, never implied
+to be a full webpage. `provider` (default `'anthropic_web_search'`) and
+`content_hash` (`sha256(exact_text)`) are recorded per fragment, keeping the
+door open for a second provider later without a schema change (Governing
+Principle 6: Claude-only for now, contract kept separable).
+
+**Entity validation gate** (`lib/research.ts`: `classifySourceEntity`,
+`deriveEntityNameToken`, `determineConfirmedEin`) — a **trust classification**,
+not a binary filter, because most legitimate sources never state an EIN and a
+*different* EIN doesn't automatically mean "wrong entity" (the real Maclellan
+findings themselves describe affiliated sibling foundations — Christian
+Education Charitable Trust, the Robert L. and Kathrina H. Maclellan Foundation
+— with different EINs but real, relevant context). Seven levels:
+`ein_confirmed` · `official_domain_confirmed` · `legal_name_confirmed` ·
+`affiliate_related_entity` · `identity_unresolved` · `entity_mismatch` ·
+`unrelated_excluded`. Only the last two withhold a source's evidence from
+extraction entirely; the other five stay usable, tagged with their trust level
+in the prompt so the model weighs affiliate/unresolved evidence as context, not
+as an equally authoritative statement about the entity itself. The core check —
+a case-insensitive substring match on the funder's distinctive name token, not
+fuzzy/edit-distance similarity — was chosen specifically because a fuzzy score
+would likely have rated "McClellan" close enough to "Maclellan" to pass,
+exactly the false-negative that let the real contamination through undetected.
+Verified against both the real contamination case and the real affiliate case
+before building (`scripts/test-entity-validation.ts`, 7/7).
+
+**Extraction rewrite**: `claims[].source_indices` + `claims[].source_excerpt`
+(model-typed) is replaced by `claims[].evidence_ids` (indices into the
+evidence-fragment list, shown to the model with their actual text and trust
+label). The model still writes `claim` — its own plain-language statement,
+which may synthesize across several fragments — but never writes a quote; the
+stored `cited_text` for a claim is always a direct copy of the referenced
+fragment's `exact_text`. Fixed a real off-by-one-list bug caught during this
+same build: `evidence_ids` must index into whatever array is actually passed
+to `extractResearchClaims`, so filtering out excluded-entity fragments has to
+happen in the caller *before* the call, not inside it.
+
+**Explicit boundary with Stage 5**: this guarantees evidence is real,
+attributable, and entity-checked — it does not guarantee a claim's wording
+accurately and completely reflects that evidence (a claim can still cite a
+perfectly real fragment and still overstate or omit something, e.g. "foreign
+organizations are not directly eligible" stated without the equivalency
+exception). *Evidence exists* / *entity matches* is settled here, structurally.
+*Claim supported* / *partially supported* / *contradicted* remains Stage 5's
+job, and only becomes meaningful once the evidence itself is trustworthy —
+building this first is what makes Stage 5 possible to trust instead of having
+it inherit the same fabrication risk it exists to catch.
+
+**Migration compatibility**: fully additive. `research_sources.
+entity_validation_status` and `research_claim_sources.evidence_id` are `null`
+on all v1–v9 rows ("not evaluated by this stage," not "passed"). Old rows keep
+their historical `cited_text`/`citation_consistency` values exactly as
+written; `citation_consistency` is simply no longer computed for new rows
+(there's nothing left to probabilistically check once the quote *is* the
+evidence record).
+
+**Research-only search prompt**: `searchFunderWeb` (`lib/ai/funder-search.ts`)
+gained a `purpose: "combined" | "research_only"` parameter. `"research_only"`
+(used only by `runResearch`) drops the "how do they prefer to be approached"
+framing that the live combined deep-dive action's prompt legitimately needs
+but that has no place in Research's own findings — Research must stay
+upstream of Strategy. The live action's call is unaffected (defaults to
+`"combined"`, byte-for-byte the original prompt).
 
 ## Evaluation protocol (not yet run)
 

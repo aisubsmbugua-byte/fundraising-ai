@@ -1,7 +1,7 @@
-// Demonstrates tenant isolation on all six Build 1 tables (research_runs,
+// Demonstrates tenant isolation on all seven Build 1 tables (research_runs,
 // research_claims, research_expected_facts, research_eval_reviews,
-// research_sources, research_claim_sources), in both directions, using two
-// REAL authenticated `authenticated`-role
+// research_sources, research_claim_sources, research_evidence), in both
+// directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
 // middleware.ts's DISABLE_AUTH bypass mints kanjii's dev session
@@ -130,14 +130,28 @@ async function main() {
       .single();
     if (sourceAError || !sourceA) throw new Error(`Org A source insert failed: ${sourceAError?.message}`);
 
+    const { data: evidenceA, error: evidenceAError } = await clientA
+      .from("research_evidence")
+      .insert({
+        research_run_id: runA.id,
+        source_id: sourceA.id,
+        url: "https://example.org/org-a-source",
+        kind: "citation_fragment",
+        exact_text: "[test] Org A evidence",
+        content_hash: "test-hash",
+      })
+      .select("id")
+      .single();
+    if (evidenceAError || !evidenceA) throw new Error(`Org A evidence insert failed: ${evidenceAError?.message}`);
+
     const { data: claimSourceA, error: claimSourceAError } = await clientA
       .from("research_claim_sources")
-      .insert({ claim_id: claimA.id, source_id: sourceA.id, research_run_id: runA.id, cited_text: "[test]" })
+      .insert({ claim_id: claimA.id, source_id: sourceA.id, evidence_id: evidenceA.id, research_run_id: runA.id, cited_text: "[test]" })
       .select("id")
       .single();
     if (claimSourceAError || !claimSourceA) throw new Error(`Org A claim_source insert failed: ${claimSourceAError?.message}`);
 
-    console.log("Seeded one row per table (six total) under Org A.\n");
+    console.log("Seeded one row per table (seven total) under Org A.\n");
 
     // --- Org B must not be able to read any of it by direct id ---
     const { data: readRun } = await clientB.from("research_runs").select("id").eq("id", runA.id);
@@ -157,6 +171,9 @@ async function main() {
 
     const { data: readClaimSource } = await clientB.from("research_claim_sources").select("id").eq("id", claimSourceA.id);
     check("Org B cannot SELECT Org A's research_claim_sources row by id", (readClaimSource?.length ?? 0) === 0);
+
+    const { data: readEvidence } = await clientB.from("research_evidence").select("id").eq("id", evidenceA.id);
+    check("Org B cannot SELECT Org A's research_evidence row by id", (readEvidence?.length ?? 0) === 0);
 
     // --- Org B must not be able to insert a child row against Org A's run (the trigger) ---
     const { error: crossClaimError } = await clientB.from("research_claims").insert({
@@ -217,6 +234,19 @@ async function main() {
       !!crossSourceError
     );
 
+    const { error: crossEvidenceSourceRunError } = await clientB.from("research_evidence").insert({
+      research_run_id: runBEarly!.id,
+      source_id: sourceA.id,
+      url: "https://example.org/org-a-source",
+      kind: "citation_fragment",
+      exact_text: "[test] cross-org attempt",
+      content_hash: "test-hash",
+    });
+    check(
+      "Org B cannot INSERT a research_evidence row against its own run pointing at Org A's source (source-run-match trigger)",
+      !!crossEvidenceSourceRunError
+    );
+
     // --- Org B must not be able to update Org A's row ---
     const { data: updateResult } = await clientB.from("research_runs").update({ status: "error" }).eq("id", runA.id).select("id");
     check("Org B's UPDATE on Org A's research_runs row affects 0 rows", (updateResult?.length ?? 0) === 0);
@@ -229,6 +259,16 @@ async function main() {
     // update" should look like, not an org-scoping gap.
     const { data: ownUpdateResult } = await clientA.from("research_sources").update({ title: "edited" }).eq("id", sourceA.id).select("id");
     check("research_sources has no update policy -- even Org A's own UPDATE on its own row affects 0 rows", (ownUpdateResult?.length ?? 0) === 0);
+
+    const { data: ownEvidenceUpdateResult } = await clientA
+      .from("research_evidence")
+      .update({ exact_text: "edited" })
+      .eq("id", evidenceA.id)
+      .select("id");
+    check(
+      "research_evidence has no update policy -- even Org A's own UPDATE on its own row affects 0 rows",
+      (ownEvidenceUpdateResult?.length ?? 0) === 0
+    );
 
     // --- Symmetry: one probe under Org B, unreachable from Org A ---
     const { data: prospectB } = await clientB

@@ -9,12 +9,24 @@ export type SearchedSource = { url: string; title: string | null; pageAge: strin
 // way, extracted here so neither has to duplicate it. This is a pure,
 // behavior-preserving extraction of what deep-dive-actions.ts already did
 // inline: same prompt, same model, same tool config, same timeout.
-export async function searchFunderWeb(prospect: {
-  name: string;
-  organization: string | null;
-  website: string | null;
-  channel: string;
-}): Promise<{
+//
+// purpose distinguishes the two callers' prompts: "combined" (the default,
+// used by deep-dive-actions.ts) keeps the original wording byte-for-byte,
+// including "how they prefer to be approached" -- Strategy-flavored
+// framing that combined deep-dive genuinely needs. "research_only" (used
+// by runResearch) drops that clause entirely -- Research must stay
+// upstream of Strategy (see docs/decisions/0002-research-agent.md's
+// governing principles), and that framing has no place in findings meant
+// to be pure fact-gathering.
+export async function searchFunderWeb(
+  prospect: {
+    name: string;
+    organization: string | null;
+    website: string | null;
+    channel: string;
+  },
+  purpose: "combined" | "research_only" = "combined"
+): Promise<{
   findings: string;
   stopReason: string | null;
   usage: { inputTokens: number; outputTokens: number };
@@ -46,7 +58,12 @@ export async function searchFunderWeb(prospect: {
       messages: [
         {
           role: "user",
-          content: `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+          content:
+            purpose === "research_only"
+              ? `Research this specific funding organization for a nonprofit's fact-finding record: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+
+Find real, current, verifiable facts only -- be efficient, a couple of well-chosen searches, not exhaustive research: identity (legal name, EIN, location), funding priorities and focus areas, eligibility and application requirements, deadlines, financial capacity (grant sizes, totals, assets), and key people. Only report things you actually find -- do not invent facts. Do NOT recommend an approach, suggest positioning, or draft any outreach language -- this is fact-gathering only, not strategy. Keep your written summary concise.`
+              : `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
 
 Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`,
         },
