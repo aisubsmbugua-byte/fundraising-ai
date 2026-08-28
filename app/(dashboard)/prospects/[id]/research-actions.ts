@@ -146,8 +146,11 @@ export async function runResearch(runId: string, prospectId: string) {
       list.push(c.citedText);
       textsByUrl.set(c.url, list);
     }
-    const confirmedEin = determineConfirmedEin(Array.from(textsByUrl.values()).flat());
     const nameToken = deriveEntityNameToken(prospect.name);
+    const confirmedEin = determineConfirmedEin(
+      indexedSources.map((s) => ({ url: s.url, texts: textsByUrl.get(s.url) ?? [] })),
+      nameToken
+    );
     const entityStatusByUrl = new Map<string, ResearchEntityValidationStatus>();
     for (const s of indexedSources) {
       entityStatusByUrl.set(

@@ -153,17 +153,70 @@ export function extractEinCandidates(text: string): string[] {
   return text.match(EIN_PATTERN) ?? [];
 }
 
-// Run once across every piece of captured text for a run (all evidence
-// fragments and titles) to establish the entity's EIN, if any source
-// states one. No EIN found anywhere -> null, and the EIN-based checks
-// below are simply skipped for every source -- absence never blocks.
-export function determineConfirmedEin(allCapturedText: string[]): string | null {
+// URLs routinely encode an EIN with no dash (ProPublica's
+// .../organizations/626041468, CauseIQ's ...,582218044/), which the dashed
+// EIN_PATTERN can't see. Scanning URLs specifically -- not free text --
+// keeps this reasonably safe: a bare 9-digit run in a URL path is very
+// often an EIN, whereas free text is full of unrelated 9-digit numbers.
+export function extractEinCandidatesFromUrl(url: string): string[] {
+  const dashed = url.match(EIN_PATTERN) ?? [];
+  const undashed = (url.match(/(?<!\d)\d{9}(?!\d)/g) ?? []).map((d) => `${d.slice(0, 2)}-${d.slice(2)}`);
+  return [...dashed, ...undashed];
+}
+
+// Whether a source plausibly refers to the prospect at all, by the
+// distinctive core token of its name. Shared by the EIN vote below and by
+// classifySourceEntity, so both agree on what "this source is about the
+// right organization" means.
+export function sourceMatchesName(sourceUrl: string, sourceTexts: string[], nameToken: string): boolean {
+  if (nameToken.length === 0) return false;
+  const token = nameToken.toLowerCase();
+  return sourceTexts.join(" ").toLowerCase().includes(token) || sourceUrl.toLowerCase().includes(token);
+}
+
+// How far ahead the leading EIN must be before it's treated as this
+// entity's confirmed EIN rather than one of several competing candidates.
+const EIN_DOMINANCE_RATIO = 2;
+
+// Establishes the entity's EIN for a run, if one can be established
+// *unambiguously*. Only sources that already match the prospect's name are
+// allowed to vote, so an unrelated organization's EIN never enters the
+// tally at all.
+//
+// The dominance test is the important part. A plain majority vote is not
+// safe here: two genuinely different, similarly-named real organizations
+// (e.g. "Servants Heart Foundation" and "Servants Heart Family Foundation")
+// both attract well-indexed sources, and whichever happens to write its
+// EIN in more places wins -- which is how a real run elevated the WRONG
+// entity's sources to the highest trust tier while the right entity's
+// sources sat one tier lower. So a leader is only confirmed when it clearly
+// dominates the runner-up; otherwise identity is genuinely ambiguous from
+// EIN evidence alone and this returns null, skipping EIN elevation entirely
+// so every name-matching source settles at legal_name_confirmed instead.
+// Returning null is always the safe direction: it withholds trust, never
+// grants it, and never excludes a source on its own.
+//
+// A legitimate cluster of affiliated entities (a family foundation's
+// sibling trusts, each with its own EIN) still resolves cleanly, because
+// the entity actually being researched dominates its siblings by a wide
+// margin rather than running neck-and-neck with them.
+export function determineConfirmedEin(
+  sources: { url: string; texts: string[] }[],
+  nameToken: string
+): string | null {
   const counts = new Map<string, number>();
-  for (const text of allCapturedText) {
-    for (const ein of extractEinCandidates(text)) counts.set(ein, (counts.get(ein) ?? 0) + 1);
+  for (const source of sources) {
+    if (!sourceMatchesName(source.url, source.texts, nameToken)) continue;
+    const candidates = [...source.texts.flatMap((t) => extractEinCandidates(t)), ...extractEinCandidatesFromUrl(source.url)];
+    for (const ein of candidates) counts.set(ein, (counts.get(ein) ?? 0) + 1);
   }
   if (counts.size === 0) return null;
-  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0];
+
+  const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  const [topEin, topCount] = ranked[0];
+  const runnerUpCount = ranked[1]?.[1] ?? 0;
+  if (runnerUpCount > 0 && topCount < runnerUpCount * EIN_DOMINANCE_RATIO) return null;
+  return topEin;
 }
 
 // Deterministic, code-only classification for one source -- see the
@@ -196,9 +249,7 @@ export function classifySourceEntity({
 
   const combinedText = sourceTexts.join(" ");
   const einsInSource = extractEinCandidates(combinedText);
-  const nameMatches =
-    nameToken.length > 0 &&
-    (combinedText.toLowerCase().includes(nameToken.toLowerCase()) || sourceUrl.toLowerCase().includes(nameToken.toLowerCase()));
+  const nameMatches = sourceMatchesName(sourceUrl, sourceTexts, nameToken);
 
   // IRS-filing aggregators (e.g. ProPublica's Nonprofit Explorer) commonly
   // embed the EIN in the URL itself with no dash (.../organizations/626041468),

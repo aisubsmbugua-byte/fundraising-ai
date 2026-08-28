@@ -26,12 +26,20 @@ function check(label: string, actual: ResearchEntityValidationStatus, expected: 
 const nameToken = deriveEntityNameToken("Maclellan Foundation");
 console.log(`Derived name token: "${nameToken}" (expect "Maclellan")\n`);
 
-const confirmedEin = determineConfirmedEin([
-  "THE MACLELLAN FOUNDATION INC (EIN 62-6041468) - Grants, Funding, 990s",
-  "Per 2024 IRS Form 990-PF data, EIN 62-6041468, assets of ~$258M...",
-  "Some other page mentioning 62-6041468 in passing.",
-]);
-console.log(`Determined confirmed EIN: "${confirmedEin}" (expect "62-6041468")\n`);
+// Mirrors the real Maclellan corpus: the researched entity's own EIN
+// dominates, while legitimately affiliated sibling foundations each
+// contribute their own EIN once. The leader must still be confirmed.
+const confirmedEin = determineConfirmedEin(
+  [
+    { url: "https://www.instrumentl.com/990-report/maclellan-foundation-inc", texts: ["THE MACLELLAN FOUNDATION INC (EIN 62-6041468) - Grants, Funding, 990s"] },
+    { url: "https://impala.digital/public/profiles/62-6041468/overview", texts: ["Per 2024 IRS Form 990-PF data, EIN 62-6041468, assets of ~$258M..."] },
+    { url: "https://www.grantmakers.io/profiles/v0/626041468-maclellan-foundation-inc/", texts: ["Maclellan Foundation Inc profile"] },
+    { url: "https://www.guidestar.org/profile/62-6268981", texts: ["Hugh and Charlotte Maclellan Charitable Trust"] },
+    { url: "https://www.grantmakers.io/profiles/v0/237159802-robert-l-and-kathrina-h-maclellan-foundation/", texts: ["Robert L and Kathrina H Maclellan Foundation"] },
+  ],
+  nameToken
+);
+console.log(`Determined confirmed EIN: "${confirmedEin}" (expect "62-6041468" -- dominant leader, siblings don't block it)\n`);
 
 // The real contaminating source: no EIN stated, and "Maclellan" does not
 // appear as a substring of "McClellan" -- this is what should have been
@@ -119,7 +127,10 @@ check(
 
 // No EIN found anywhere in the run -- the EIN step must be skipped
 // entirely, never block on absence, for every source.
-const noEinConfirmed = determineConfirmedEin(["A funder with no publicly listed EIN, e.g. an individual donor-advised fund."]);
+const noEinConfirmed = determineConfirmedEin(
+  [{ url: "https://example.org/maclellan-mention", texts: ["A funder with no publicly listed EIN, e.g. an individual donor-advised fund."] }],
+  nameToken
+);
 console.log(`\nNo-EIN-anywhere case, determined confirmed EIN: ${JSON.stringify(noEinConfirmed)} (expect null)`);
 check(
   "No EIN anywhere in the run, name matches -> legal_name_confirmed (never blocked on EIN absence)",
@@ -148,6 +159,66 @@ check(
     confirmedEin,
   }),
   "ein_confirmed"
+);
+
+// --- The real Servants Heart Foundation case (run v1, no website on file).
+// Two genuinely different, similarly-named real organizations both attract
+// well-indexed sources: the prospect (Newport Beach CA, EIN 58-2218044) and
+// "Servants Heart Family Foundation" (Carlisle PA, EIN 88-2110698). Both
+// pass the name-token check ("Servants"), so name alone cannot separate
+// them, and the Carlisle entity happened to state its EIN in more places.
+// A plain majority vote therefore elevated the WRONG entity's sources to
+// ein_confirmed while the right entity's sat at legal_name_confirmed. The
+// dominance test must refuse to confirm either one.
+console.log("\n--- Servants Heart Foundation: competing similarly-named real entities ---");
+const shNameToken = deriveEntityNameToken("Servants Heart Foundation");
+console.log(`Derived name token: "${shNameToken}" (expect "Servants")`);
+
+const shSources = [
+  // The prospect itself -- EIN only ever appears undashed, inside URLs.
+  { url: "https://projects.propublica.org/nonprofits/organizations/582218044", texts: ["Servants Heart Foundation Inc - Nonprofit Explorer - ProPublica"] },
+  { url: "https://www.causeiq.com/organizations/servants-heart-foundation-inc,582218044/", texts: ["Servant's Heart Foundation | Newport Beach, CA | Cause IQ"] },
+  { url: "https://www.grantable.co/search/funders/profile/servants-heart-foundation-inc-us-foundation-582218044", texts: ["SERVANT'S HEART FOUNDATION INC | Foundation Profile & Grants"] },
+  { url: "https://www.taxexemptworld.com/organization.asp?tn=1319509", texts: ["Servants Heart Foundation Inc - 501C3 Nonprofit - Newport Beach, CA - 582218044"] },
+  // A different real organization -- states its EIN in dashed form repeatedly.
+  { url: "https://impala.digital/public/profiles/88-2110698/programs", texts: ["SERVANTS HEART FAMILY FOUNDATION (EIN 88-2110698) - Programs & Services"] },
+  { url: "https://getholdings.com/nonprofits/ein/882110698", texts: ["Servants Heart Family Foundation — Carlisle, PA | EIN 88-2110698"] },
+  { url: "https://platform.grantadvance.com/public-funder/882110698-SERVANTS-HEART-FAMILY-FOUNDATION", texts: ["servants heart family foundation"] },
+];
+const shConfirmedEin = determineConfirmedEin(shSources, shNameToken);
+const shPass = shConfirmedEin === null;
+console.log(
+  `${shPass ? "PASS" : "FAIL"}: competing EINs must not confirm a winner -- got ${JSON.stringify(shConfirmedEin)}, expected null`
+);
+if (shPass) passCount++;
+else failCount++;
+
+// With no confirmed EIN, the prospect's own sources must still be usable
+// (name matched), not excluded -- withholding trust must never cost coverage.
+check(
+  "Servants Heart: prospect's own source stays usable when EIN is ambiguous -> legal_name_confirmed",
+  classifySourceEntity({
+    sourceUrl: "https://www.causeiq.com/organizations/servants-heart-foundation-inc,582218044/",
+    sourceTexts: ["Servant's Heart Foundation | Newport Beach, CA | Cause IQ"],
+    prospectWebsite: null,
+    nameToken: shNameToken,
+    confirmedEin: shConfirmedEin,
+  }),
+  "legal_name_confirmed"
+);
+
+// A genuinely unrelated organization must still be excluded even with no
+// confirmed EIN to compare against -- exclusion can't depend on the EIN step.
+check(
+  "Servants Heart: unrelated org still excluded with no confirmed EIN -> unrelated_excluded",
+  classifySourceEntity({
+    sourceUrl: "https://philanthropy.org/990/report/812637735/servant-s-heart-of-mint-hill-inc",
+    sourceTexts: ["Servant's Heart of Mint Hill INC — Form 990 financials (EIN 81-2637735)"],
+    prospectWebsite: null,
+    nameToken: shNameToken,
+    confirmedEin: shConfirmedEin,
+  }),
+  "unrelated_excluded"
 );
 
 console.log(`\n${passCount} passed, ${failCount} failed.`);
