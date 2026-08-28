@@ -161,6 +161,7 @@ export async function extractResearchClaims({
   findings,
   evidence,
   claimKeys,
+  modelOverride,
 }: {
   prospectName: string;
   findings: string;
@@ -174,9 +175,14 @@ export async function extractResearchClaims({
   // coverage entries it could never answer -- and invites undated financial
   // figures scraped from snippets.
   claimKeys?: { key: string; description: string }[];
+  // Evaluation-only override, used by scripts/replay-extraction.ts to run
+  // the same frozen evidence through different models. Production callers
+  // leave this unset and get the configured research model.
+  modelOverride?: string;
 }): Promise<ExtractionResult> {
   const keys = claimKeys ?? RESEARCH_CLAIM_KEYS.map((k) => ({ key: k.key, description: k.description }));
-  const { client, model } = resolveModel("research_extract");
+  const { client, model: configuredModel } = resolveModel("research_extract");
+  const model = modelOverride ?? configuredModel;
 
   const evidenceList =
     evidence.length > 0
