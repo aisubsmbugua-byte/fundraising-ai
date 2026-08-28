@@ -1,6 +1,8 @@
 import { resolveModel } from "@/lib/ai/model-select";
 import {
   RESEARCH_CLAIM_KEYS,
+  isFinancialClaimKey,
+  NO_REPORTING_PERIOD,
   type ResearchClaimType,
   type ResearchConfidence,
   type ResearchEvidenceKind,
@@ -264,10 +266,10 @@ export async function extractResearchClaims({
                     reporting_period: {
                       type: "string",
                       description:
-                        "REQUIRED for every financial figure (revenue, expenses, assets, disbursements, grants paid, grant counts, grant sizes): the exact fiscal or tax year that figure covers, e.g. 'FY2024' or 'Tax Year 2023'. Never omit it on a financial claim, and never state a period the evidence doesn't actually support -- if the evidence gives a figure with no year, say so in confidence_reason and lower confidence instead of guessing.",
+                        `The fiscal or tax year this fact covers, e.g. "FY2024" or "Tax Year 2023". Required on EVERY claim. If the fact is not tied to a time period (a legal name, a location, a focus area), answer exactly "${NO_REPORTING_PERIOD}". If it IS a financial figure but the evidence states no year, also answer "${NO_REPORTING_PERIOD}" -- never guess or infer a year the evidence does not state.`,
                     },
                   },
-                  required: ["claim_key", "claim_type", "claim", "evidence_ids", "supports_directly", "confidence"],
+                  required: ["claim_key", "claim_type", "claim", "evidence_ids", "supports_directly", "confidence", "reporting_period"],
                 },
               },
               coverage: {
@@ -371,6 +373,28 @@ ${findings || "(no findings)"}`,
         confidence: c.confidence as ResearchConfidence,
         confidence_reason: typeof c.confidence_reason === "string" ? c.confidence_reason : undefined,
         reporting_period: typeof c.reporting_period === "string" ? c.reporting_period : undefined,
+      };
+    })
+    // An undated financial figure can never be presented as trustworthy.
+    // The schema now forces the model to answer the field, so "no period" is
+    // a deliberate statement rather than an omission -- but a deliberate
+    // "not_time_bound" on an assets or giving figure still means the number
+    // cannot be checked or compared, so it is capped at low confidence with
+    // the reason stated. Enforced here rather than in the prompt: compliance
+    // measured 52-80% across repeated runs when it was an instruction, and
+    // this is the same class of model-obedience dependency the entity work
+    // removed. Applied in extraction so evaluation replays see it too.
+    .map((c) => (c.reporting_period === NO_REPORTING_PERIOD && !isFinancialClaimKey(c.claim_key) ? { ...c, reporting_period: undefined } : c))
+    .map((c) => {
+      const undated = !c.reporting_period || c.reporting_period === NO_REPORTING_PERIOD;
+      if (!isFinancialClaimKey(c.claim_key) || !undated) return c;
+      return {
+        ...c,
+        reporting_period: undefined,
+        confidence: "low" as ResearchConfidence,
+        confidence_reason: c.confidence_reason
+          ? `${c.confidence_reason}; reporting period unstated`
+          : "reporting period unstated -- an undated financial figure cannot be compared or verified",
       };
     });
 

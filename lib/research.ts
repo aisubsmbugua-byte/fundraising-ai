@@ -271,6 +271,34 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // application.* mechanics beyond whether you can apply at all. Those matter
 // when writing the ask, not when deciding whether to pursue -- and they live
 // on guidelines pages that screen depth genuinely cannot fetch.
+// Claim keys whose value is meaningless without the period it covers. A
+// funder's assets, giving and grant sizes all move year to year, so "total
+// assets $167M" with no year attached cannot be checked, compared, or safely
+// used in an ask -- it is worse than no figure at all, because it looks like
+// knowledge.
+export const FINANCIAL_CLAIM_KEYS = new Set<string>([
+  "funding.grant_count_annual",
+  "funding.total_annual_giving",
+  "funding.charitable_disbursements",
+  "funding.total_assets",
+  "funding.total_revenue",
+  "funding.total_expenses",
+  "funding.median_grant_size",
+  "funding.grant_size_range",
+  "funding.multiyear_grant_stats",
+]);
+
+export function isFinancialClaimKey(claimKey: string): boolean {
+  return FINANCIAL_CLAIM_KEYS.has(claimKey);
+}
+
+// The value the model must give when a fact genuinely has no reporting
+// period. reporting_period is a REQUIRED field precisely so that "no period"
+// is a deliberate answer rather than a silent omission -- omission was
+// indistinguishable from forgetting, and compliance measured 52-80% across
+// repeated runs on identical evidence when it was optional.
+export const NO_REPORTING_PERIOD = "not_time_bound";
+
 export const RESEARCH_TRIAGE_CLAIM_KEYS = [
   // Who they are
   "identity.legal_name",
