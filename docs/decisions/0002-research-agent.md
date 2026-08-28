@@ -1,7 +1,7 @@
 # 0002 — Research Agent (Build 1)
 
-**Date:** 2026-08-27
-**Status:** Implemented, migration `0035_research_agent.sql` sent to the user to apply. Dark: no UI, superadmin-only, not yet evaluated.
+**Date:** 2026-08-27, revised 2026-08-28 (twice)
+**Status:** Implemented through Revision 4 (source provenance fix). Dark: no UI beyond the superadmin `/admin/research` eval tool, not wired into Strategy. Not yet accepted for the full evaluation set — see "Not yet done."
 
 ## Why this exists
 
@@ -130,6 +130,121 @@ button any ordinary tenant user sees or can trigger.
   route by cost/latency/quality shows up) doesn't have to touch every call
   site again. No config, no abstraction beyond one function today.
 
+## Revision 3 — evaluation-readiness hardening (2026-08-28)
+
+First real run (Maclellan Foundation) surfaced concrete gaps a review round
+turned into ten numbered items. Changes made:
+
+- **Atomic claims.** `application.process` and `funding.typical_grant_size`
+  each bundled several unrelated facts under one key — split into ~9 atomic
+  keys (see `RESEARCH_CLAIM_KEYS`). Rule going forward: one key = one
+  independently confirmable/disputable fact.
+- **`research_key_coverage` table** (`0036_research_key_coverage.sql`) — one
+  row per `claim_key` per run, reporting `found`/`not_public`/`not_found`/
+  `conflicting` (model-authored) or `not_attempted`/`extraction_failed`
+  (always **server-derived**, never trusted to model self-reporting).
+  **`found` is derived from whether a valid claim actually exists for that
+  key, never from the model's own coverage entry** — a real bug caught live:
+  the first version trusted the model's coverage array as authoritative, and
+  a run with 16 real claims showed "20 not attempted" because the model's
+  coverage entries didn't line up 1:1 with its own claims.
+- **Confidence rubric** made explicit in the extraction prompt (source
+  authority, directness, staleness, inference) instead of an unexplained
+  model number — see Revision 4 below for `confidence_reason`, added next.
+- **Error codes.** `research_runs.error_code` is now a small stable set
+  (`search_failed`, `extraction_failed`, `claims_insert_failed`, etc.,
+  thrown via a local `ResearchError` class in `research-actions.ts`); the
+  full exception message stays in `error_message` (DB/logs only) instead of
+  being the default UI text — closes a real leak (the first Maclellan run's
+  error showed raw Anthropic SDK header-validation text in the interface).
+- **`/admin/research`** — the first real UI: per-claim provenance, coverage
+  summary, a claim-review control (verdict + notes + confirm/dispute →
+  `research_eval_reviews`/`research_claims.verification_status`), and a
+  working `retryResearch` button (`retry_of` chaining).
+- **`scripts/test-tenant-isolation.ts`, `scripts/test-research-concurrency.ts`,
+  `scripts/confidence-calibration-check.ts`** — real, repeatable verification
+  scripts (not just manual clicking), following the `.ts` + `npx tsx
+  --env-file=.env.local` convention (verified `tsx` resolves this project's
+  `@/*` tsconfig path alias automatically, so these import from `lib/`
+  directly like any other file). `test-tenant-isolation.ts` mints two real
+  `authenticated`-role sessions via the same `generateLink`→`verifyOtp`
+  mechanism `middleware.ts`'s `DISABLE_AUTH` bypass already uses, parameterized
+  to two throwaway orgs/users — deliberately not the service-role client,
+  which bypasses RLS and would prove nothing.
+
+## Revision 4 — source provenance fix (2026-08-28)
+
+The next review correctly rejected Revision 3's output on one point: almost
+every claim showed "no source url." Root cause, confirmed via
+`node_modules/@anthropic-ai/sdk/resources/messages/messages.d.ts`, not model
+flakiness: `searchFunderWeb()` kept only `TextBlock.text` from the search
+response and discarded two things the API already returns whenever the
+`web_search` tool runs — `WebSearchToolResultBlock.content` (every page
+actually retrieved, real `url`/`title`/`page_age`) and `TextBlock.citations`
+(`CitationsWebSearchResultLocation`: which sentences are grounded in which
+page, with the exact cited text). The extraction step then only ever saw
+flattened prose (verified: the real Maclellan `findings` text contained zero
+literal URLs) and had to type a `source_url` from memory of that prose —
+exactly the "infer/fabricate a URL after the fact" failure the review named.
+
+**Fix:** capture both citation sources at the search step
+(`lib/ai/funder-search.ts` now returns `citedSources`/`searchedSources`),
+pass a deduped, numbered list into extraction
+(`lib/ai/research-extract.ts`), and require the model to cite by index only
+— `claims[].source_indices: number[]`, never a free-text URL. Any index
+outside the real list is dropped server-side, same defensive-filter idiom
+as `claim_key` validation.
+
+**New tables** (`0037_research_sources.sql`): `research_sources` (one row
+per distinct URL retrieved, written for *every* page checked, cited or
+not — this is what answers "what was searched" for `not_found` coverage
+entries too) and `research_claim_sources` (links a claim to 1+ sources,
+`supports_directly` distinguishing direct quotation from inference,
+`content_hash` = `sha256(cited_text)` as a lightweight integrity signal —
+**not** a durable page snapshot; a real snapshot would mean fetching and
+archiving third-party pages ourselves, a separate, bigger feature with its
+own storage/robots.txt/legal considerations, not attempted here).
+
+**A second trigger was needed, and only got caught by writing the isolation
+test before applying the migration.** The first design had
+`research_claim_sources` reuse `enforce_research_run_org_match()` (checks
+the row's own `organization_id` against its `research_run_id`'s org) and
+assumed that was sufficient. Writing the isolation test surfaced that this
+says nothing about whether `claim_id`/`source_id` actually *belong* to that
+`research_run_id` — a session could insert a row with its own valid
+`research_run_id` (passing the first trigger) while `claim_id`/`source_id`
+point at another organization's real rows. `enforce_claim_source_run_match()`
+was added specifically to close this before the migration ever ran, checking
+that both `claim_id` and `source_id` resolve to the same `research_run_id`
+as the row being inserted. Lesson: **writing the test before applying the
+migration is what caught this** — worth keeping as the default order for any
+future junction-table addition, not just Build 1.
+
+`research_claims.source_url`/`source_excerpt` are kept, now always populated
+from a real captured source (never model-typed) for backward-compatible
+simple display; the full multi-source list lives in the new tables. Also
+added: `confidence_reason`/`reporting_period` on claims,
+`retry_recommended` on coverage, verdict `"hallucinated"` renamed to
+`"unsupported"` (zero existing rows — safe rename, not additive) to match
+reviewer terminology.
+
+**`RESEARCH_CLAIM_KEYS` expanded again** (v4) to match a specific target
+presentation structure the user supplied (a curated "Prospect Intelligence"
+reader document, 14 fixed sections, Maclellan Foundation worked example) —
+new keys: `identity.legal_name`,
+`funding.total_assets`/`total_revenue`/`total_expenses`/
+`charitable_disbursements` (kept explicitly distinct from
+`total_annual_giving`, which is a *sum of listed grants* — the two can
+legitimately differ and must never be silently combined into one generic
+figure, per the target spec's own explicit warning),
+`application.invitation_mechanism`, `application.decision_timeframe`
+(distinct from `application.deadline`), `application.foreign_org_eligibility`,
+`application.fiscal_sponsorship_rules`, `application.prohibited_activities`.
+Since `claim_key` is `text`, not a DB enum, none of this needed a migration
+— purely a `lib/research.ts` + prompt-version-bump change. **The reader
+presentation itself (the 14-section curated document) is deliberately not
+built yet** — see "Not yet done."
+
 ## Evaluation protocol (not yet run)
 
 Track 1 (AI-output quality) reports four separate figures, not one
@@ -140,8 +255,8 @@ fixture's expected facts, how many got any claim at all for that key),
 real and specific, or vague/fabricated-sounding), and **unsupported-claim
 rate** (claims with no corresponding expected fact — not automatically bad,
 reviewed and recorded). `research_eval_reviews.verdict` values: `match` /
-`partial` / `miss` / `contradicted` (Mode A, per expected fact) or
-`plausible` / `hallucinated` / `unclear` (Mode B, per claim, no ground
+`partial` / `miss` / `contradicted` / `outdated` (Mode A, per expected fact)
+or `plausible` / `unsupported` / `unclear` (Mode B, per claim, no ground
 truth). Track 2 (software regression) is contract-based, not byte-for-byte —
 AI output is nondeterministic, so tests check statuses reached, gating
 behavior, and UI availability, never exact generated text.
@@ -154,40 +269,66 @@ Tunde Aviation requires that organization's explicit agreement first.
 
 ## Not yet done
 
+- **The "Prospect Intelligence" reader presentation** — a curated document
+  assembled from the atomic claims/sources/coverage, organized into a fixed
+  14-section order (at a glance → mission/priorities → geographic reach →
+  eligibility → application access → required materials → restrictions →
+  funding capacity → key people → recent grants → conflicts → unknown/
+  unresolved → research conclusion → human-review actions). The target spec
+  and a full Maclellan-Foundation worked example were supplied by the user
+  (2026-08-28); `RESEARCH_CLAIM_KEYS` was expanded specifically so the
+  underlying data can support it (see Revision 4 above), but the reader page
+  itself is deliberately deferred — explicitly out of scope for Build 1's
+  current review, which is about validating the raw data layer first. When
+  this gets built: the "conflicts" section maps directly to multiple claims
+  sharing one `claim_key` each with low confidence and reason "conflicting
+  sources" (already representable, no schema change needed); "unknown or
+  unresolved" maps directly to non-`found` `research_key_coverage` rows;
+  "human review: compare with earlier/later versions" is a query across
+  `research_runs.version` for the same `claim_key`, not a new column.
 - The evaluation harness itself: 5 controlled fixture prospects in a
   dedicated Eval organization, hand-authored `research_expected_facts` rows,
   and an actual evaluation report. Nothing has been run against real or
   fixture data yet.
-- The five contract-based regression tests described in the approved plan
-  (existing combined action still reaches `ready_for_review`;
-  `approveStrategy` still gates draft generation; `evidence/page.tsx`'s usage
-  count still runs against the same query; `suggestNextStep` still succeeds;
-  both `deep-dive-panel.tsx` and `strategy-review-workspace.tsx` still render
-  every existing state) — not yet written or run. This codebase has no
-  automated test suite today; these would be the first.
-- Concurrency test (two simultaneous `runResearch` calls for the same
-  prospect, confirming two distinct correctly-ordered versions via the
-  retry-on-conflict path) — not yet run.
-- Cross-org trigger-rejection test (a deliberately mismatched insert gets
-  rejected) — not yet run.
-- No UI consumes any of this yet — by design, for Build 1. A later build
-  decides whether/how Strategy consumes Research's claims.
+- The five contract-based regression tests described in the approved plan —
+  still not written as an automated suite (this codebase has none yet);
+  non-regression has instead been demonstrated by hand each round (a full
+  live browser walkthrough once; grep-confirmation that later rounds' diffs
+  don't touch the live-workflow files, since they don't).
+- Confidence-calibration script (`scripts/confidence-calibration-check.ts`)
+  needs `ANTHROPIC_API_KEY` in local `.env.local` to actually run — blocked
+  on that, not yet re-solved as of Revision 4.
+- No UI outside `/admin/research` consumes any of this yet — by design. A
+  later, separately-authorized build decides whether/how Strategy consumes
+  Research's claims.
 
 ## Critical files
 
-- `supabase/migrations/0035_research_agent.sql` — the full schema
+- `supabase/migrations/0035_research_agent.sql`, `0036_research_key_coverage.sql`,
+  `0037_research_sources.sql` — the full schema across all three revisions
 - `app/(dashboard)/prospects/[id]/research-actions.ts` — `startResearch`,
-  `retryResearch`, `runResearch`
-- `lib/research.ts` — `RESEARCH_CLAIM_KEYS` (the shared claim-key vocabulary),
-  status/type/verdict unions, row types
+  `retryResearch`, `runResearch` (version allocation, write ordering,
+  source resolution, error classification)
+- `lib/research.ts` — `RESEARCH_CLAIM_KEYS` (the shared claim-key
+  vocabulary — read the comment above it before adding/removing a key),
+  `allocateResearchRunVersion`, status/type/verdict unions, row types
 - `lib/ai/funder-search.ts` — `searchFunderWeb`, shared with the live
-  `runDeepDive`
+  `runDeepDive`; now also returns `citedSources`/`searchedSources`
+- `lib/ai/research-extract.ts` — `extractResearchClaims`, `buildIndexedSources`;
+  independently callable (no DB, no auth) by
+  `scripts/confidence-calibration-check.ts`
 - `lib/ai/model-select.ts` — `resolveModel`
 - `lib/auth.ts` — `requireSuperadmin`, shared with
   `app/admin/organizations/actions.ts`
+- `app/admin/research/` — `page.tsx` (provenance/coverage display),
+  `claim-review.tsx`, `actions.ts` (`triggerResearch`, `submitClaimReview`,
+  `setClaimVerificationStatus`)
+- `scripts/test-tenant-isolation.ts`, `scripts/test-research-concurrency.ts`,
+  `scripts/confidence-calibration-check.ts` — repeatable verification,
+  `npx tsx --env-file=.env.local scripts/<name>.ts`
 - `app/(dashboard)/prospects/[id]/deep-dive-actions.ts` — the live combined
   action; only its web-search step was touched, extraction/strategy call is
   unchanged
 - [0001-multi-tenancy.md](0001-multi-tenancy.md) — the RLS pattern this
   schema follows, and the accepted cross-table-FK gap this build closes for
-  its own new tables via the trigger above
+  its own new tables via the triggers above

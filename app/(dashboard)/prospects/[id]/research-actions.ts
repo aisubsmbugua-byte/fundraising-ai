@@ -12,9 +12,13 @@ import { allocateResearchRunVersion, RESEARCH_CLAIM_KEYS, type ResearchKeyCovera
 // interpretable after either one drifts. v3: real citation-backed sources
 // (source_indices resolved against actually-retrieved pages, no more
 // model-typed URLs), confidence_reason, reporting_period, further atomic
-// key splits.
-const PROMPT_VERSION = "v3";
-const EXTRACTION_SCHEMA_VERSION = "v3";
+// key splits. v4: claim_key vocabulary expanded to match the target
+// Prospect Intelligence presentation structure -- legal_name, filing-level
+// totals (assets/revenue/expenses/charitable_disbursements, kept distinct
+// from total_annual_giving), foreign-org/fiscal-sponsorship eligibility,
+// invitation_mechanism, decision_timeframe, prohibited_activities.
+const PROMPT_VERSION = "v4";
+const EXTRACTION_SCHEMA_VERSION = "v4";
 
 // Approximate published Claude Sonnet pricing at the time this was written
 // -- not read from a live source. Good enough for comparing runs to each
