@@ -199,6 +199,17 @@ export async function runResearch(runId: string, prospectId: string) {
 
       const claimSourceRows = claims.flatMap((c, i) => {
         const claimId = insertedClaimIds[i];
+        // The extraction schema gives one source_excerpt per CLAIM, not
+        // one per linked source -- it's only ever attributable to whichever
+        // single source it actually came from. Checking it against every
+        // additional corroborating source (index 1+) produced a real bug
+        // on the first real run: multi-source claims like identity.ein
+        // showed "drifted" against sources that legitimately corroborate
+        // the fact but were never quoted for this specific excerpt.
+        // citation_consistency is therefore only assessed for the primary
+        // (first) source_index; additional sources get null (not
+        // applicable), same as they'd render for a pre-Stage-4 run.
+        const primarySourceIndex = c.source_indices[0];
         return c.source_indices
           .filter((idx) => !!sourceIds[idx])
           .map((idx) => ({
@@ -210,7 +221,8 @@ export async function runResearch(runId: string, prospectId: string) {
             // Compares against the search step's own citation for this
             // exact source, not the live webpage -- see
             // assessCitationConsistency's own doc comment.
-            citation_consistency: assessCitationConsistency(c.source_excerpt, excerptsByUrl.get(indexedSources[idx].url) ?? []),
+            citation_consistency:
+              idx === primarySourceIndex ? assessCitationConsistency(c.source_excerpt, excerptsByUrl.get(indexedSources[idx].url) ?? []) : null,
             content_hash: c.source_excerpt ? createHash("sha256").update(c.source_excerpt).digest("hex") : null,
           }));
       });
