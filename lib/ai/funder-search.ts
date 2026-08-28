@@ -119,7 +119,12 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
         tools: withFetch ? [searchTool, fetchTool] : [searchTool],
         messages: [{ role: "user", content: isResearch ? researchOnlyPrompt : combinedPrompt }],
       },
-      { timeout: isResearch ? 240_000 : 120_000 }
+      // 150s, down from 240s: real research searches land at 60-90s even
+      // with page fetches, so 240 was unused headroom that pushed the
+      // search+extraction worst case (240+280) past the route's 450s
+      // maxDuration. 150+280 = 430s fits, and still leaves ample room over
+      // the observed times. The combined deep-dive keeps its 120s.
+      { timeout: isResearch ? 150_000 : 120_000 }
     );
 
   // Fetch can't be exercised from this repo's local env (no ANTHROPIC_API_KEY

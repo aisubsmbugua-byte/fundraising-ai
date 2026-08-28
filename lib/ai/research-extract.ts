@@ -162,7 +162,13 @@ export async function extractResearchClaims({
       ? evidence.map((e, i) => `[${i}] (${e.entityStatus}, ${e.kind}) ${e.url}${e.title ? ` — ${e.title}` : ""}: "${e.exactText}"`).join("\n")
       : "(none -- no usable captured evidence this run; see the note below)";
 
-  const response = await client.messages.create(
+  // Streamed, not a plain create(): at ~65 output tokens/sec (measured on
+  // Maclellan v20) a full 16k response takes ~250s, which is long enough
+  // that a non-streaming HTTP request is the wrong shape -- the SDK's own
+  // guidance is to stream anything with a large max_tokens. finalMessage()
+  // returns the same Message, so everything downstream is unchanged.
+  const response = await client.messages
+    .stream(
     {
       model,
       // 30+ mandatory coverage entries plus a growing, now-atomic claim
@@ -172,7 +178,13 @@ export async function extractResearchClaims({
       // block was still present, just incomplete). Sized generously
       // rather than tuned to the exact current vocabulary size, since
       // that will keep growing.
-      max_tokens: 8000,
+      //
+      // 8000 then truncated in turn once A' landed: Maclellan v20 hit the
+      // cap at 68 facts and reported itself incomplete. A' multiplies
+      // claims because full-page filing data yields a figure per year per
+      // metric, so output scales with how well-documented a funder is --
+      // the largest funders, which matter most, truncate first.
+      max_tokens: 16000,
       tools: [
         {
           name: "submit_research_claims",
@@ -289,15 +301,14 @@ ${findings || "(no findings)"}`,
         },
       ],
     },
-    // 90s was marginal once A' landed: extraction now reads ~13k tokens of
-    // evidence (full-page excerpts, not 150-char snippets) and writes up to
-    // 8k, and two real runs died here at exactly 90s -- Servants Heart v3 and
-    // Maclellan v19 -- while a same-sized payload (v4, 50.6k chars vs v19's
-    // 51.9k) succeeded. That's a borderline limit, not a payload cliff, so
-    // the budget moves rather than the prompt. Overrides the client's 110s
-    // default; the route's maxDuration is raised to match.
-    { timeout: 150_000 }
-  );
+    // Sized against the measured generation rate, not guessed: 16k output
+    // at ~65 tok/s is ~250s. Paired with the search call's 150s, worst case
+    // is 430s inside the route's 450s maxDuration. Overrides the client's
+    // 110s default. (90s died twice before this -- Servants Heart v3 and
+    // Maclellan v19 -- on payloads no larger than ones that succeeded.)
+    { timeout: 280_000 }
+    )
+    .finalMessage();
 
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") {
