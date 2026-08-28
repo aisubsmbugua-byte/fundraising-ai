@@ -200,8 +200,21 @@ export function classifySourceEntity({
     nameToken.length > 0 &&
     (combinedText.toLowerCase().includes(nameToken.toLowerCase()) || sourceUrl.toLowerCase().includes(nameToken.toLowerCase()));
 
+  // IRS-filing aggregators (e.g. ProPublica's Nonprofit Explorer) commonly
+  // embed the EIN in the URL itself with no dash (.../organizations/626041468),
+  // which EIN_PATTERN's dashed \d{2}-\d{7} never matches. Since confirmedEin
+  // is already trusted (derived by majority vote over dashed mentions
+  // elsewhere in the run), it's safe to also recognize it here in undashed
+  // form -- this only widens what counts as "matches the known-good EIN,"
+  // it doesn't add a new, riskier bare-9-digit EIN extractor.
+  const confirmedEinMatches =
+    confirmedEin !== null &&
+    (einsInSource.includes(confirmedEin) ||
+      combinedText.includes(confirmedEin.replace("-", "")) ||
+      sourceUrl.includes(confirmedEin.replace("-", "")));
+
   if (confirmedEin) {
-    if (einsInSource.includes(confirmedEin)) return "ein_confirmed";
+    if (confirmedEinMatches) return "ein_confirmed";
     if (einsInSource.length > 0) return nameMatches ? "affiliate_related_entity" : "entity_mismatch";
   }
   return nameMatches ? "legal_name_confirmed" : "unrelated_excluded";

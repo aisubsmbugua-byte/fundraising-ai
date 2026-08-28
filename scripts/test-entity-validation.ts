@@ -53,7 +53,7 @@ check(
 check(
   "Aggregator with matching name, no EIN -> legal_name_confirmed",
   classifySourceEntity({
-    sourceUrl: "https://grantable.co/search/funders/profile/the-maclellan-foundation-inc-us-foundation-626041468",
+    sourceUrl: "https://grantable.co/search/funders/profile/the-maclellan-foundation-inc-us-foundation",
     sourceTexts: ["The Maclellan Foundation Inc — Grants, Financials & Contact | Grantable"],
     prospectWebsite: "https://maclellan.net",
     nameToken,
@@ -131,6 +131,23 @@ check(
     confirmedEin: noEinConfirmed,
   }),
   "legal_name_confirmed"
+);
+
+// The real ProPublica false-positive found in the v10 Maclellan run: the
+// correct EIN sits in the URL with no dash (.../organizations/626041468),
+// and the captured title was just the bare domain, so neither the dashed
+// EIN_PATTERN nor the name-token check could recognize it -- it must still
+// resolve to ein_confirmed via the undashed-URL check.
+check(
+  "ProPublica Nonprofit Explorer, EIN in URL with no dash -> ein_confirmed",
+  classifySourceEntity({
+    sourceUrl: "https://projects.propublica.org/nonprofits/organizations/626041468",
+    sourceTexts: ["projects.propublica.org", "Summary charts: organization finances over time"],
+    prospectWebsite: "https://maclellan.net",
+    nameToken,
+    confirmedEin,
+  }),
+  "ein_confirmed"
 );
 
 console.log(`\n${passCount} passed, ${failCount} failed.`);
