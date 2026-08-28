@@ -75,26 +75,50 @@ async function main() {
     // below has something real to compare against (a real caller never
     // hits this, since runResearch always uses the request-scoped client).
     await admin.from("research_runs").update({ status: "extracting", organization_id: profile.organization_id }).eq("id", runId3);
-    const { error: claimInsertError } = await admin.from("research_claims").insert({
-      research_run_id: runId3,
-      prospect_id: prospect.id,
-      organization_id: profile.organization_id,
-      claim_type: "fact",
-      claim_key: "identity.location",
-      category: "Identity",
-      claim: "[test claim -- simulated mid-flight state, never should be trusted]",
-      confidence: "high",
-    });
-    if (claimInsertError) throw new Error(`Claims insert failed: ${claimInsertError.message}`);
+
+    const { data: sourceRow, error: sourceInsertError } = await admin
+      .from("research_sources")
+      .insert({ research_run_id: runId3, organization_id: profile.organization_id, url: "https://example.org/concurrency-test-source", title: "test" })
+      .select("id")
+      .single();
+    if (sourceInsertError || !sourceRow) throw new Error(`Source insert failed: ${sourceInsertError?.message}`);
+
+    const { data: claimRow, error: claimInsertError } = await admin
+      .from("research_claims")
+      .insert({
+        research_run_id: runId3,
+        prospect_id: prospect.id,
+        organization_id: profile.organization_id,
+        claim_type: "fact",
+        claim_key: "identity.location",
+        category: "Identity",
+        claim: "[test claim -- simulated mid-flight state, never should be trusted]",
+        confidence: "high",
+      })
+      .select("id")
+      .single();
+    if (claimInsertError || !claimRow) throw new Error(`Claims insert failed: ${claimInsertError?.message}`);
+
+    const { error: claimSourceInsertError } = await admin
+      .from("research_claim_sources")
+      .insert({ claim_id: claimRow.id, source_id: sourceRow.id, research_run_id: runId3, organization_id: profile.organization_id, cited_text: "test" });
+    if (claimSourceInsertError) throw new Error(`Claim-source insert failed: ${claimSourceInsertError.message}`);
+
     // Deliberately never flip status to 'ready' -- simulates a crash
-    // between the claims insert and the final status write.
+    // between these inserts and the final status write.
     const { data: partialRun } = await admin.from("research_runs").select("status").eq("id", runId3).single();
     const { data: partialClaims } = await admin.from("research_claims").select("id").eq("research_run_id", runId3);
-    console.log(`Run status after claims insert, before the 'ready' write: ${partialRun?.status}`);
-    console.log(`Claims present on this not-yet-ready run: ${partialClaims?.length ?? 0}`);
+    const { data: partialSources } = await admin.from("research_sources").select("id").eq("research_run_id", runId3);
+    const { data: partialClaimSources } = await admin.from("research_claim_sources").select("id").eq("research_run_id", runId3);
+    console.log(`Run status after claims/sources/claim_sources insert, before the 'ready' write: ${partialRun?.status}`);
+    console.log(
+      `Present on this not-yet-ready run: ${partialClaims?.length ?? 0} claims, ${partialSources?.length ?? 0} sources, ${
+        partialClaimSources?.length ?? 0
+      } claim_sources`
+    );
     console.log(
       partialRun?.status !== "ready"
-        ? "PASS: a consumer gating on status = 'ready' never observes these claims."
+        ? "PASS: a consumer gating on status = 'ready' never observes any of these rows."
         : "FAIL: run reached ready with a status that should have blocked it."
     );
   } finally {

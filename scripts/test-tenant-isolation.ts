@@ -1,6 +1,7 @@
-// Demonstrates tenant isolation on all four Build 1 tables (research_runs,
-// research_claims, research_expected_facts, research_eval_reviews), in
-// both directions, using two REAL authenticated `authenticated`-role
+// Demonstrates tenant isolation on all six Build 1 tables (research_runs,
+// research_claims, research_expected_facts, research_eval_reviews,
+// research_sources, research_claim_sources), in both directions, using two
+// REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
 // middleware.ts's DISABLE_AUTH bypass mints kanjii's dev session
@@ -122,7 +123,21 @@ async function main() {
       .single();
     if (reviewAError || !reviewA) throw new Error(`Org A eval_reviews insert failed: ${reviewAError?.message}`);
 
-    console.log("Seeded one row per table under Org A.\n");
+    const { data: sourceA, error: sourceAError } = await clientA
+      .from("research_sources")
+      .insert({ research_run_id: runA.id, url: "https://example.org/org-a-source", title: "[test] Org A source" })
+      .select("id")
+      .single();
+    if (sourceAError || !sourceA) throw new Error(`Org A source insert failed: ${sourceAError?.message}`);
+
+    const { data: claimSourceA, error: claimSourceAError } = await clientA
+      .from("research_claim_sources")
+      .insert({ claim_id: claimA.id, source_id: sourceA.id, research_run_id: runA.id, cited_text: "[test]" })
+      .select("id")
+      .single();
+    if (claimSourceAError || !claimSourceA) throw new Error(`Org A claim_source insert failed: ${claimSourceAError?.message}`);
+
+    console.log("Seeded one row per table (six total) under Org A.\n");
 
     // --- Org B must not be able to read any of it by direct id ---
     const { data: readRun } = await clientB.from("research_runs").select("id").eq("id", runA.id);
@@ -136,6 +151,12 @@ async function main() {
 
     const { data: readReview } = await clientB.from("research_eval_reviews").select("id").eq("id", reviewA.id);
     check("Org B cannot SELECT Org A's research_eval_reviews row by id", (readReview?.length ?? 0) === 0);
+
+    const { data: readSource } = await clientB.from("research_sources").select("id").eq("id", sourceA.id);
+    check("Org B cannot SELECT Org A's research_sources row by id", (readSource?.length ?? 0) === 0);
+
+    const { data: readClaimSource } = await clientB.from("research_claim_sources").select("id").eq("id", claimSourceA.id);
+    check("Org B cannot SELECT Org A's research_claim_sources row by id", (readClaimSource?.length ?? 0) === 0);
 
     // --- Org B must not be able to insert a child row against Org A's run (the trigger) ---
     const { error: crossClaimError } = await clientB.from("research_claims").insert({
@@ -154,9 +175,60 @@ async function main() {
       .insert({ research_run_id: runA.id, verdict: "match", reviewed_by: b.userId });
     check("Org B cannot INSERT a research_eval_reviews row against Org A's run (org-match trigger)", !!crossReviewError);
 
+    // Org B has its own real prospect/run/claim/source at this point in
+    // the script (created just below for the symmetry check would be too
+    // late -- create a minimal Org B claim/source pair now so this cross-
+    // tenant FK case is a real attempt: Org B trying to link ITS OWN claim
+    // to ORG A's source, and vice versa, not just referencing nothing).
+    const { data: prospectBEarly } = await clientB
+      .from("prospects")
+      .insert({ name: "[test] Org B Probe Prospect (early)", channel: "foundation", owner_id: b.userId })
+      .select("id")
+      .single();
+    const { data: runBEarly } = await clientB
+      .from("research_runs")
+      .insert({ prospect_id: prospectBEarly!.id, version: 1, status: "researching", status_message: "test", created_by: b.userId })
+      .select("id")
+      .single();
+    const { data: claimBEarly } = await clientB
+      .from("research_claims")
+      .insert({
+        research_run_id: runBEarly!.id,
+        prospect_id: prospectBEarly!.id,
+        claim_type: "fact",
+        claim_key: "identity.location",
+        category: "Identity",
+        claim: "[test] Org B claim",
+        confidence: "high",
+      })
+      .select("id")
+      .single();
+
+    const { error: crossClaimSourceError } = await clientB
+      .from("research_claim_sources")
+      .insert({ claim_id: claimBEarly!.id, source_id: sourceA.id, research_run_id: runBEarly!.id, cited_text: "[test] cross-org attempt" });
+    check("Org B cannot INSERT a research_claim_sources row citing Org A's source (org-match trigger)", !!crossClaimSourceError);
+
+    const { error: crossSourceError } = await clientB
+      .from("research_claim_sources")
+      .insert({ claim_id: claimA.id, source_id: sourceA.id, research_run_id: runBEarly!.id, cited_text: "[test] cross-org attempt, wrong run" });
+    check(
+      "Org B cannot INSERT a research_claim_sources row against its own run pointing at Org A's claim (org-match trigger)",
+      !!crossSourceError
+    );
+
     // --- Org B must not be able to update Org A's row ---
     const { data: updateResult } = await clientB.from("research_runs").update({ status: "error" }).eq("id", runA.id).select("id");
     check("Org B's UPDATE on Org A's research_runs row affects 0 rows", (updateResult?.length ?? 0) === 0);
+
+    // research_sources/research_claim_sources have NO update policy at all
+    // (insert + select only, by design -- they're immutable historical
+    // records of what was searched/cited, same "never alter the original"
+    // principle as research_claims). Confirm that holds for the OWNING org
+    // too, not just a cross-tenant attempt -- this is what "no one can
+    // update" should look like, not an org-scoping gap.
+    const { data: ownUpdateResult } = await clientA.from("research_sources").update({ title: "edited" }).eq("id", sourceA.id).select("id");
+    check("research_sources has no update policy -- even Org A's own UPDATE on its own row affects 0 rows", (ownUpdateResult?.length ?? 0) === 0);
 
     // --- Symmetry: one probe under Org B, unreachable from Org A ---
     const { data: prospectB } = await clientB
@@ -174,9 +246,10 @@ async function main() {
 
     // Cleanup of seeded rows: deleting the prospects cascades through
     // research_runs -> research_claims/research_key_coverage/
-    // research_eval_reviews, and research_expected_facts references
-    // prospects directly, same on delete cascade.
-    await admin.from("prospects").delete().in("id", [prospectA.id, prospectB!.id]);
+    // research_sources/research_claim_sources/research_eval_reviews, and
+    // research_expected_facts references prospects directly, same on
+    // delete cascade.
+    await admin.from("prospects").delete().in("id", [prospectA.id, prospectBEarly!.id, prospectB!.id]);
   } finally {
     await admin.from("profiles").delete().in("id", [a.userId, b.userId]);
     await admin.auth.admin.deleteUser(a.userId);

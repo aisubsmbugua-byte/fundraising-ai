@@ -32,6 +32,8 @@ const SAFE_ERROR_MESSAGES: Record<string, string> = {
   search_failed: "The web search step failed.",
   extraction_failed: "The AI extraction step failed or returned an unusable result.",
   claims_insert_failed: "Saving extracted facts failed.",
+  sources_insert_failed: "Saving retrieved sources failed.",
+  claim_sources_insert_failed: "Linking claims to their sources failed.",
   coverage_insert_failed: "Saving the completeness report failed.",
   unknown_error: "Research failed for an unexpected reason.",
   research_failed: "Research failed for an unexpected reason.",
@@ -59,14 +61,24 @@ export default async function AdminResearchPage() {
   const { data: claims } = await supabase
     .from("research_claims")
     .select(
-      "id, research_run_id, claim_key, category, claim, confidence, source_url, source_excerpt, retrieved_at, verification_status, verified_at, recheck_at"
+      "id, research_run_id, claim_key, category, claim, confidence, confidence_reason, reporting_period, source_url, source_excerpt, retrieved_at, verification_status, verified_at, recheck_at"
     )
     .in("research_run_id", runIds)
     .order("claim_key");
 
   const { data: coverage } = await supabase
     .from("research_key_coverage")
-    .select("id, research_run_id, claim_key, status, notes")
+    .select("id, research_run_id, claim_key, status, notes, retry_recommended")
+    .in("research_run_id", runIds);
+
+  const { data: sources } = await supabase
+    .from("research_sources")
+    .select("id, research_run_id, url, title, source_type, page_age, retrieved_at")
+    .in("research_run_id", runIds);
+
+  const { data: claimSources } = await supabase
+    .from("research_claim_sources")
+    .select("id, claim_id, cited_text, supports_directly, research_sources(url, title, source_type, retrieved_at)")
     .in("research_run_id", runIds);
 
   const claimsByRun = new Map<string, NonNullable<typeof claims>>();
@@ -81,6 +93,20 @@ export default async function AdminResearchPage() {
     const list = coverageByRun.get(c.research_run_id) ?? [];
     list.push(c);
     coverageByRun.set(c.research_run_id, list);
+  }
+
+  const sourcesByRun = new Map<string, NonNullable<typeof sources>>();
+  for (const s of sources ?? []) {
+    const list = sourcesByRun.get(s.research_run_id) ?? [];
+    list.push(s);
+    sourcesByRun.set(s.research_run_id, list);
+  }
+
+  const sourcesByClaim = new Map<string, NonNullable<typeof claimSources>>();
+  for (const cs of claimSources ?? []) {
+    const list = sourcesByClaim.get(cs.claim_id) ?? [];
+    list.push(cs);
+    sourcesByClaim.set(cs.claim_id, list);
   }
 
   // First (most recent, since runs is already sorted desc) run per
@@ -109,8 +135,9 @@ export default async function AdminResearchPage() {
         {(runs ?? []).map((run) => {
           const runClaims = claimsByRun.get(run.id) ?? [];
           const runCoverage = coverageByRun.get(run.id) ?? [];
-          const coverageCounts = new Map<string, number>();
-          for (const c of runCoverage) coverageCounts.set(c.status, (coverageCounts.get(c.status) ?? 0) + 1);
+          const runSources = sourcesByRun.get(run.id) ?? [];
+          const nonFoundCoverage = runCoverage.filter((c) => c.status !== "found");
+          const foundCount = runCoverage.length - nonFoundCoverage.length;
 
           return (
             <div key={run.id} style={cardStyle}>
@@ -157,41 +184,105 @@ export default async function AdminResearchPage() {
                 </div>
               )}
 
+              {runSources.length > 0 && (
+                <details style={{ marginTop: spacing.sm }}>
+                  <summary style={{ fontSize: 12.5, color: colors.textMuted, cursor: "pointer" }}>
+                    Sources checked this run ({runSources.length})
+                  </summary>
+                  <div style={{ display: "grid", gap: 2, marginTop: spacing.xs }}>
+                    {runSources.map((s) => (
+                      <div key={s.id} style={{ fontSize: 12, color: colors.textFaint }}>
+                        [{s.source_type}]{" "}
+                        <a href={s.url} target="_blank" rel="noreferrer" style={{ color: colors.focus, wordBreak: "break-all" }}>
+                          {s.title || s.url}
+                        </a>
+                        {s.page_age && ` · ${s.page_age}`}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
               {runCoverage.length > 0 && (
-                <div style={{ display: "flex", gap: spacing.xs, flexWrap: "wrap", marginTop: spacing.sm }}>
-                  {Array.from(coverageCounts.entries()).map(([status, count]) => (
-                    <span key={status} style={chipStyle(COVERAGE_TONE[status] ?? "neutral")}>
-                      {count} {status.replace(/_/g, " ")}
-                    </span>
-                  ))}
+                <div style={{ marginTop: spacing.sm }}>
+                  <div style={{ display: "flex", gap: spacing.xs, flexWrap: "wrap" }}>
+                    <span style={chipStyle("teal")}>{foundCount} found</span>
+                    {Object.entries(
+                      nonFoundCoverage.reduce<Record<string, number>>((acc, c) => {
+                        acc[c.status] = (acc[c.status] ?? 0) + 1;
+                        return acc;
+                      }, {})
+                    ).map(([status, count]) => (
+                      <span key={status} style={chipStyle(COVERAGE_TONE[status] ?? "neutral")}>
+                        {count} {status.replace(/_/g, " ")}
+                      </span>
+                    ))}
+                  </div>
+                  {nonFoundCoverage.length > 0 && (
+                    <div style={{ display: "grid", gap: 4, marginTop: spacing.xs }}>
+                      {nonFoundCoverage.map((c) => (
+                        <div key={c.id} style={{ fontSize: 12, color: colors.textFaint }}>
+                          <span style={{ fontFamily: "monospace" }}>{c.claim_key}</span> — <strong>{c.status.replace(/_/g, " ")}</strong>
+                          {c.notes && <span>: {c.notes}</span>}
+                          {(c.status === "not_found" || c.status === "not_public" || c.status === "conflicting") && (
+                            <span> · retry {c.retry_recommended ? "may help" : "unlikely to help"}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {runClaims.length > 0 && (
                 <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>
-                  {runClaims.map((claim) => (
-                    <div key={claim.id} style={{ fontSize: 13.5, borderTop: `1px solid ${colors.border}`, paddingTop: spacing.sm }}>
-                      <div>
-                        <span style={{ fontFamily: "monospace", fontSize: 12, color: colors.textMuted }}>{claim.claim_key}</span>
-                        <span style={{ marginLeft: spacing.sm, color: colors.textFaint, fontSize: 11 }}>[{claim.category}]</span>
-                        <span style={{ marginLeft: spacing.sm }}>{claim.claim}</span>
-                        <span style={{ marginLeft: spacing.sm, color: colors.textFaint, fontSize: 12 }}>({claim.confidence})</span>
-                      </div>
-                      <div style={{ fontSize: 12, color: colors.textFaint, marginTop: 2 }}>
-                        {claim.source_url ? (
-                          <span style={{ wordBreak: "break-all" }}>{claim.source_url}</span>
-                        ) : (
-                          <span>no source url</span>
-                        )}
-                        {claim.source_excerpt && <div style={{ fontStyle: "italic", marginTop: 2 }}>&quot;{claim.source_excerpt}&quot;</div>}
-                        <div style={{ marginTop: 2 }}>
-                          checked {claim.retrieved_at ? new Date(claim.retrieved_at).toLocaleString() : "--"}
-                          {claim.recheck_at && ` · recheck by ${new Date(claim.recheck_at).toLocaleDateString()}`}
+                  {runClaims.map((claim) => {
+                    const linkedSources = sourcesByClaim.get(claim.id) ?? [];
+                    return (
+                      <div key={claim.id} style={{ fontSize: 13.5, borderTop: `1px solid ${colors.border}`, paddingTop: spacing.sm }}>
+                        <div>
+                          <span style={{ fontFamily: "monospace", fontSize: 12, color: colors.textMuted }}>{claim.claim_key}</span>
+                          <span style={{ marginLeft: spacing.sm, color: colors.textFaint, fontSize: 11 }}>[{claim.category}]</span>
+                          <span style={{ marginLeft: spacing.sm }}>{claim.claim}</span>
+                          <span style={{ marginLeft: spacing.sm, color: colors.textFaint, fontSize: 12 }}>
+                            ({claim.confidence}
+                            {claim.confidence_reason ? `: ${claim.confidence_reason}` : ""})
+                          </span>
                         </div>
+                        <div style={{ fontSize: 12, color: colors.textFaint, marginTop: 2 }}>
+                          {linkedSources.length > 0 ? (
+                            <div style={{ display: "grid", gap: 2 }}>
+                              {linkedSources.map((cs) => {
+                                const src = Array.isArray(cs.research_sources) ? cs.research_sources[0] : cs.research_sources;
+                                return (
+                                  <div key={cs.id}>
+                                    <a href={src?.url} target="_blank" rel="noreferrer" style={{ color: colors.focus, wordBreak: "break-all" }}>
+                                      {src?.title || src?.url}
+                                    </a>{" "}
+                                    <span>
+                                      [{src?.source_type}
+                                      {cs.supports_directly ? "" : ", inference"}]
+                                    </span>
+                                    {cs.cited_text && <div style={{ fontStyle: "italic" }}>&quot;{cs.cited_text}&quot;</div>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : claim.source_url ? (
+                            <span style={{ wordBreak: "break-all" }}>{claim.source_url}</span>
+                          ) : (
+                            <span>no source captured</span>
+                          )}
+                          <div style={{ marginTop: 2 }}>
+                            checked {claim.retrieved_at ? new Date(claim.retrieved_at).toLocaleString() : "--"}
+                            {claim.reporting_period && ` · reporting period: ${claim.reporting_period}`}
+                            {claim.recheck_at && ` · recheck by ${new Date(claim.recheck_at).toLocaleDateString()}`}
+                          </div>
+                        </div>
+                        <ClaimReview claimId={claim.id} researchRunId={run.id} currentVerificationStatus={claim.verification_status} />
                       </div>
-                      <ClaimReview claimId={claim.id} researchRunId={run.id} currentVerificationStatus={claim.verification_status} />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

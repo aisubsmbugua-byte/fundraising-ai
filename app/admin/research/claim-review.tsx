@@ -11,7 +11,7 @@ const VERDICTS: ResearchEvalVerdict[] = [
   "miss",
   "contradicted",
   "plausible",
-  "hallucinated",
+  "unsupported",
   "unclear",
   "outdated",
 ];
