@@ -6,10 +6,18 @@ import { fieldStyle, labelStyle, buttonPrimary, spacing, colors } from "@/lib/ui
 
 type ProspectOption = { id: string; name: string; organization: string | null };
 
-export default function ResearchPanel({ prospects }: { prospects: ProspectOption[] }) {
+export default function ResearchPanel({
+  prospects,
+  mostRecentRunByProspect,
+}: {
+  prospects: ProspectOption[];
+  mostRecentRunByProspect: Record<string, string>;
+}) {
   const [prospectId, setProspectId] = useState(prospects[0]?.id ?? "");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const previousRunId = mostRecentRunByProspect[prospectId] ?? null;
 
   return (
     <div style={{ marginTop: spacing.lg }}>
@@ -31,12 +39,12 @@ export default function ResearchPanel({ prospects }: { prospects: ProspectOption
           onClick={() => {
             setError(null);
             startTransition(async () => {
-              const result = await triggerResearch(prospectId);
+              const result = await triggerResearch(prospectId, previousRunId);
               if ("error" in result) setError(result.error);
             });
           }}
         >
-          {isPending ? "Researching..." : "Run research"}
+          {isPending ? "Researching..." : previousRunId ? "Retry research" : "Run research"}
         </button>
       </div>
       {isPending && (
