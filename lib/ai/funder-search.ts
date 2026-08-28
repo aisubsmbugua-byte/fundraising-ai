@@ -67,7 +67,9 @@ export async function searchFunderWeb(
 
 Work in two passes:
 1. SEARCH to locate the authoritative sources for this organization.
-2. Then FETCH and read the most authoritative pages you found -- IRS Form 990/990-PF data (e.g. ProPublica's Nonprofit Explorer), the organization's own site, and official filings. Search-result snippets are far too short to carry filing detail: when a page looks authoritative, fetch and read it rather than relying on its snippet.
+2. Then FETCH and read the most authoritative pages you found. Search-result snippets are far too short to carry real detail, so fetch the page rather than relying on its snippet. Two kinds of page matter most, and you should read BOTH kinds when they exist:
+   a. IRS Form 990/990-PF data (e.g. ProPublica's Nonprofit Explorer) -- the only reliable source of financial figures.
+   b. The funder's OWN website pages about applying -- FAQ, grant guidelines, "how to apply", eligibility, what they do and do not fund. Application rules, eligibility, exclusions and fiscal-sponsorship terms appear ONLY here; a filing will never contain them. Do not skip these in favour of filings.
 
 Find real, current, verifiable facts: identity (legal name, EIN, location), funding priorities and focus areas, eligibility and application requirements, deadlines, and key people.
 
