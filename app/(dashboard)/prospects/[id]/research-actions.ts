@@ -28,8 +28,13 @@ import {
 // extraction cites evidence_ids into a pre-captured, entity-validated
 // fragment list instead of writing its own source_excerpt; see
 // docs/decisions/0002-research-agent.md.
-const PROMPT_VERSION = "v5";
-const EXTRACTION_SCHEMA_VERSION = "v5";
+// v6 (A'): retrieval depth. The search step may now fetch and read
+// authoritative pages in full rather than relying on ~150-char search
+// snippets, and both prompts require a reporting period on every financial
+// figure. Schema version moves with it because evidence gained a third
+// kind (fetched_page_excerpt).
+const PROMPT_VERSION = "v6";
+const EXTRACTION_SCHEMA_VERSION = "v6";
 
 // Approximate published Claude Sonnet pricing at the time this was written
 // -- not read from a live source. Good enough for comparing runs to each
@@ -119,7 +124,15 @@ export async function runResearch(runId: string, prospectId: string) {
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
     if (!prospect) throw new ResearchError("prospect_not_found", "Prospect not found");
 
-    const { findings, usage: searchUsage, citedSources, searchedSources } = await searchFunderWeb(prospect, "research_only").catch((err) => {
+    const {
+      findings,
+      usage: searchUsage,
+      citedSources,
+      searchedSources,
+      fetchedSources,
+      fetchedCitations,
+      fetchAvailable,
+    } = await searchFunderWeb(prospect, "research_only").catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
 
@@ -131,7 +144,7 @@ export async function runResearch(runId: string, prospectId: string) {
       })
       .eq("id", runId);
 
-    const indexedSources = buildIndexedSources(citedSources, searchedSources);
+    const indexedSources = buildIndexedSources(citedSources, searchedSources, fetchedSources);
 
     // --- Entity validation: classify every source BEFORE any evidence is
     // built or shown to extraction. Deterministic, code-only -- see
@@ -140,7 +153,11 @@ export async function runResearch(runId: string, prospectId: string) {
     for (const s of indexedSources) {
       if (s.title) textsByUrl.set(s.url, [s.title]);
     }
-    for (const c of citedSources) {
+    // Fetched page text is included here deliberately: a page read in full
+    // states the EIN and legal name that a search snippet (or a bare-domain
+    // title) never carried, which is what lets an authoritative filing page
+    // reach ein_confirmed instead of falling through the name check.
+    for (const c of [...citedSources, ...fetchedCitations]) {
       if (!c.citedText) continue;
       const list = textsByUrl.get(c.url) ?? [];
       list.push(c.citedText);
@@ -193,7 +210,7 @@ export async function runResearch(runId: string, prospectId: string) {
     // citation instance or a title), including ones from excluded sources
     // -- excluded evidence is never shown to extraction (see filtering
     // below) but IS still persisted, for audit, never silently dropped.
-    const allFragments: EvidenceFragment[] = buildEvidenceFragments(citedSources, searchedSources, entityStatusByUrl);
+    const allFragments: EvidenceFragment[] = buildEvidenceFragments(citedSources, searchedSources, entityStatusByUrl, fetchedCitations);
     let evidenceIds: string[] = [];
     if (allFragments.length > 0) {
       const { data: evidenceRows, error: evidenceError } = await supabase
@@ -341,7 +358,9 @@ export async function runResearch(runId: string, prospectId: string) {
       : !extraction.evidenceAvailable
         ? "Research completed, but no usable captured evidence this run -- claims below have no verifiable source."
         : claims.length > 0
-          ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"}${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
+          ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
+              fetchAvailable ? "" : " (page fetch unavailable this run -- search snippets only)"
+            }${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
           : "Research completed, but found nothing extractable";
 
     await supabase

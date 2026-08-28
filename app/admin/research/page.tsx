@@ -7,6 +7,12 @@ import ClaimReview from "./claim-review";
 // call finishes, same reasoning as /admin/organizations.
 export const dynamic = "force-dynamic";
 
+// runResearch is a server action invoked from this page, so it inherits
+// this route's function duration. A' fetches and reads pages in full on
+// top of searching, which pushes a run well past the snippet-only ~120s;
+// 280 matches the ceiling already used by the prospect detail page.
+export const maxDuration = 280;
+
 const STATUS_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   ready: "teal",
   researching: "amber",

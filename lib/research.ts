@@ -291,7 +291,15 @@ export type ResearchSource = {
 // real, API-captured data, never model-typed. "Captured evidence," not a
 // webpage -- this is a fragment (a citation span or a title), never
 // implied to be a full page. See docs/decisions/0002-research-agent.md.
-export type ResearchEvidenceKind = "citation_fragment" | "page_title";
+//
+// fetched_page_excerpt is the A' addition: a citation span from a page the
+// model actually FETCHED and read, rather than a ~150-char search-result
+// snippet. Same guarantee as the others (real API-captured text, never
+// model-typed), but drawn from full page content, which is what makes
+// filing-level detail -- disbursements, grant counts, named grantees --
+// reachable at all. Kept as a distinct kind rather than folded into
+// citation_fragment so evidence depth stays visible and measurable.
+export type ResearchEvidenceKind = "citation_fragment" | "page_title" | "fetched_page_excerpt";
 
 export type ResearchEvidence = {
   id: string;
