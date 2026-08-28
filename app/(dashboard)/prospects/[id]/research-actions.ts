@@ -127,19 +127,27 @@ export async function runResearch(runId: string, prospectId: string) {
     // model's own coverage array as complete: a "found" entry with no
     // matching valid claim (dropped by the filter above) becomes
     // extraction_failed; any key the model's coverage array omitted
-    // entirely becomes not_attempted. This is what keeps a key from
-    // disappearing into a clean-looking result just because the model
-    // skipped it or answered it in a shape validation rejected.
+    // entirely (and that has no matching claim either) becomes
+    // not_attempted. This is what keeps a key from disappearing into a
+    // clean-looking result just because the model skipped it or answered
+    // it in a shape validation rejected.
+    //
+    // "found" is always derived from whether a valid claim actually
+    // exists for that key, never from the model's separate self-reported
+    // coverage entry -- the claim itself is the stronger, harder-to-fake
+    // signal. This matters in practice: the model can produce a real,
+    // valid claim for a key while its own coverage array entry for that
+    // same key is missing or wrong, and the claim should win.
     const foundKeys = new Set(claims.map((c) => c.claim_key));
     const modelCoverageByKey = new Map(extraction.coverage.map((c) => [c.claim_key, c]));
     const coverageRows: { research_run_id: string; claim_key: string; status: ResearchKeyCoverageStatus; notes: string | null }[] = [];
     for (const { key } of RESEARCH_CLAIM_KEYS) {
       const modelEntry = modelCoverageByKey.get(key);
       let status: ResearchKeyCoverageStatus;
-      if (modelEntry?.status === "found") {
-        status = foundKeys.has(key) ? "found" : "extraction_failed";
+      if (foundKeys.has(key)) {
+        status = "found";
       } else if (modelEntry) {
-        status = modelEntry.status;
+        status = modelEntry.status === "found" ? "extraction_failed" : modelEntry.status;
       } else {
         status = "not_attempted";
       }
