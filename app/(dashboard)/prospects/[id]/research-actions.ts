@@ -16,6 +16,8 @@ import {
   classifyRunSources,
   isConfirmedDossier,
   ENTITY_CLASSIFICATION_VERSION,
+  defaultDepthForStage,
+  type ResearchDepth,
   deriveEntityNameToken,
   resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
@@ -107,7 +109,7 @@ export async function retryResearch(prospectId: string, previousRunId: string): 
 // absence of a UI entry point. started_at acts as a claim-lock, same
 // pattern as runDeepDive, so a duplicate trigger (e.g. a page refresh
 // mid-run) can't start the same run twice.
-export async function runResearch(runId: string, prospectId: string) {
+export async function runResearch(runId: string, prospectId: string, depthOverride?: ResearchDepth) {
   await requireSuperadmin();
   const supabase = createClient();
 
@@ -126,6 +128,11 @@ export async function runResearch(runId: string, prospectId: string) {
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
     if (!prospect) throw new ResearchError("prospect_not_found", "Prospect not found");
 
+    // Depth follows pipeline stage unless the caller overrides it: a
+    // Discovery candidate gets a cheap screen, anything accepted gets the
+    // full dossier. See defaultDepthForStage in lib/research.ts.
+    const depth: ResearchDepth = depthOverride ?? defaultDepthForStage(prospect.stage ?? null);
+
     const {
       findings,
       usage: searchUsage,
@@ -134,7 +141,7 @@ export async function runResearch(runId: string, prospectId: string) {
       fetchedSources,
       fetchedCitations,
       fetchAvailable,
-    } = await searchFunderWeb(prospect, "research_only").catch((err) => {
+    } = await searchFunderWeb(prospect, "research_only", depth).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
 
@@ -375,7 +382,9 @@ export async function runResearch(runId: string, prospectId: string) {
       : !extraction.evidenceAvailable
         ? "Research completed, but no usable captured evidence this run -- claims below have no verifiable source."
         : claims.length > 0
-          ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
+          ? depth === "screen"
+            ? `Screen: found ${claims.length} fact${claims.length === 1 ? "" : "s"} from search only${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
+            : `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
               fetchAvailable ? "" : " (page fetch unavailable this run -- search snippets only)"
             }${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
           : "Research completed, but found nothing extractable";
@@ -396,6 +405,9 @@ export async function runResearch(runId: string, prospectId: string) {
         confirmed_ein: confirmedEin,
         entity_resolution_method: entityResolutionMethod,
         entity_classification_version: ENTITY_CLASSIFICATION_VERSION,
+        // Recorded because cost, latency and coverage are only interpretable
+        // alongside the depth that produced them.
+        depth,
         // Backend state, not a convention: when identity was refused, several
         // competing organizations sit at the same trust level and only the
         // model's reading separates them. Such a run stays as candidate

@@ -28,7 +28,10 @@ export async function searchFunderWeb(
     website: string | null;
     channel: string;
   },
-  purpose: "combined" | "research_only" = "combined"
+  purpose: "combined" | "research_only" = "combined",
+  // Only meaningful for research_only. "screen" skips page fetching
+  // entirely -- see RESEARCH_DEPTHS in lib/research.ts.
+  depth: "screen" | "dossier" = "dossier"
 ): Promise<{
   findings: string;
   stopReason: string | null;
@@ -84,11 +87,25 @@ Reporting periods are mandatory: attach the fiscal/tax year to every financial f
 
 Only report things you actually find -- do not invent facts. If something isn't available, say so plainly rather than approximating. Do NOT recommend an approach, suggest positioning, or draft any outreach language -- this is fact-gathering only, not strategy.`;
 
+  // Triage-depth. Deliberately does NOT ask for filing-level financial
+  // detail: that requires reading 990s in full, which is what makes dossier
+  // depth expensive. Asking for it here would either be ignored or answered
+  // from unreliable snippets, and an undated figure from a snippet is worse
+  // than no figure at all.
+  const screenPrompt = `Screen this funding organization for a nonprofit's prospect triage: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+
+This is a fast first pass to decide whether the funder is worth pursuing -- not a full dossier. A few well-chosen searches, no exhaustive research.
+
+Find only what triage needs: legal name and EIN if stated, location, funder type, the cause areas they fund, their geographic focus, and whether they accept unsolicited applications.
+
+Do not estimate or infer financial figures. If a specific figure appears with its fiscal year clearly stated, you may report it with that year; otherwise omit it rather than reporting an undated or approximate number. Only report things you actually find -- do not invent facts. Do NOT recommend an approach, suggest positioning, or draft any outreach language.`;
+
   const combinedPrompt = `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
 
 Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`;
 
   const isResearch = purpose === "research_only";
+  const isScreen = isResearch && depth === "screen";
 
   // The live combined deep-dive keeps its original tool config and token
   // budget byte-for-byte -- a human waits on that call, so its latency
@@ -98,7 +115,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
   const searchTool = {
     type: "web_search_20260318" as const,
     name: "web_search" as const,
-    max_uses: isResearch ? 6 : 3,
+    max_uses: isScreen ? 3 : isResearch ? 6 : 3,
     allowed_callers: ["direct" as const],
   };
   // citations default to DISABLED on web_fetch -- without this, fetched
@@ -134,9 +151,14 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
   // failed run, fall back to search-only once. Worst case this lands exactly
   // on the previous behavior instead of an error; fetchAvailable records
   // which path actually ran.
-  let fetchAvailable = isResearch;
+  let fetchAvailable = isResearch && !isScreen;
   let searchResponse;
-  if (isResearch) {
+  if (isScreen) {
+    // No fetch tool at all: page content is the dominant input-token cost, so
+    // withholding the tool (rather than asking the model not to use it) is
+    // what makes screen depth cheap.
+    searchResponse = await request(false);
+  } else if (isResearch) {
     try {
       searchResponse = await request(true);
     } catch (err) {

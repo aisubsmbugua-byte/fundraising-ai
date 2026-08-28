@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import { triggerResearch } from "./actions";
 import { fieldStyle, labelStyle, buttonPrimary, spacing, colors } from "@/lib/ui";
 
-type ProspectOption = { id: string; name: string; organization: string | null };
+type ProspectOption = { id: string; name: string; organization: string | null; stage?: string | null };
+
+type DepthChoice = "auto" | "screen" | "dossier";
 
 export default function ResearchPanel({
   prospects,
@@ -14,6 +16,7 @@ export default function ResearchPanel({
   mostRecentRunByProspect: Record<string, string>;
 }) {
   const [prospectId, setProspectId] = useState(prospects[0]?.id ?? "");
+  const [depth, setDepth] = useState<DepthChoice>("auto");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -33,13 +36,21 @@ export default function ResearchPanel({
             ))}
           </select>
         </div>
+        <div style={{ width: 190, flexShrink: 0 }}>
+          <label style={labelStyle}>Depth</label>
+          <select style={fieldStyle} value={depth} onChange={(e) => setDepth(e.target.value as DepthChoice)}>
+            <option value="auto">Auto (by pipeline stage)</option>
+            <option value="screen">Screen — search only</option>
+            <option value="dossier">Dossier — read pages</option>
+          </select>
+        </div>
         <button
           style={{ ...buttonPrimary, opacity: isPending || !prospectId ? 0.6 : 1, flexShrink: 0 }}
           disabled={isPending || !prospectId}
           onClick={() => {
             setError(null);
             startTransition(async () => {
-              const result = await triggerResearch(prospectId, previousRunId);
+              const result = await triggerResearch(prospectId, previousRunId, depth === "auto" ? undefined : depth);
               if ("error" in result) setError(result.error);
             });
           }}

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
 import { startResearch, retryResearch, runResearch } from "@/app/(dashboard)/prospects/[id]/research-actions";
-import type { ResearchEvalVerdict, ResearchVerificationStatus } from "@/lib/research";
+import type { ResearchDepth, ResearchEvalVerdict, ResearchVerificationStatus } from "@/lib/research";
 
 type ActionResult = { error: string } | { success: true };
 
@@ -18,11 +18,15 @@ type ActionResult = { error: string } | { success: true };
 // check) would otherwise show the button's caller nothing useful.
 export async function triggerResearch(
   prospectId: string,
-  previousRunId: string | null
+  previousRunId: string | null,
+  // Optional override. Left undefined, depth follows the prospect's pipeline
+  // stage; this panel is the evaluation surface, so it can force either depth
+  // to compare them on the same prospect.
+  depth?: ResearchDepth
 ): Promise<{ error: string } | { success: true; runId: string }> {
   try {
     const runId = previousRunId ? await retryResearch(prospectId, previousRunId) : await startResearch(prospectId);
-    await runResearch(runId, prospectId);
+    await runResearch(runId, prospectId, depth);
     revalidatePath("/admin/research");
     return { success: true, runId };
   } catch (err) {

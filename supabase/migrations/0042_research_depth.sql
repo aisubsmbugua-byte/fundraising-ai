@@ -1,0 +1,23 @@
+-- Research depth, so cost scales with commitment rather than being flat.
+--
+-- Deep research (fetching and reading filings and guidelines in full) costs
+-- roughly $0.65-$0.78 per organization and takes 3-4 minutes. That is the
+-- right spend once a prospect is being pursued, and the wrong default for
+-- every candidate that surfaces in Discovery -- most of which will never be
+-- pursued at all.
+--
+-- The decision point already exists in the product: accepting a candidate
+-- into the pipeline is, per the build rules, "a commitment to do the work of
+-- pursuing it". So depth follows pipeline stage: Discovery screens, anything
+-- accepted gets the full dossier.
+--
+-- Recorded per run because a run's cost, latency and coverage are only
+-- interpretable alongside the depth that produced them -- comparing a screen
+-- run's coverage against a dossier run's would otherwise look like a
+-- regression.
+--
+-- text, not an enum, matching the convention for vocabularies still being
+-- worked out (entity_validation_status, evidence kind, resolution method).
+-- Null on all pre-existing rows, which were all full-depth runs by
+-- definition; readers should treat null as "dossier".
+alter table research_runs add column depth text;

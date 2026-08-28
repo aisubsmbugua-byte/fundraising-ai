@@ -232,6 +232,28 @@ export type ResearchEntityResolutionMethod = (typeof RESEARCH_ENTITY_RESOLUTION_
 // Readers use entityStatusMeaning() to render an old value in current terms.
 export const ENTITY_CLASSIFICATION_VERSION = 2;
 
+// How much retrieval a run is allowed to spend.
+//
+//   screen   search only, no page fetching. Enough for identity, focus
+//            areas, geography and funder type -- what triage actually needs.
+//            Measured at roughly $0.10-0.15 per organization.
+//   dossier  search plus fetching and reading filings and the funder's own
+//            guidelines in full. The only way to get dated financial figures
+//            and application rules. Roughly $0.65-0.78 and 3-4 minutes.
+//
+// Null on pre-Stage-1 rows, which were all full-depth by definition.
+export const RESEARCH_DEPTHS = ["screen", "dossier"] as const;
+export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
+
+// Depth follows pipeline stage, because the product already places the
+// commitment decision there: accepting a candidate out of Discovery is
+// "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
+// dossier-level money before that point means paying full price for every
+// candidate that surfaces, most of which are never pursued.
+export function defaultDepthForStage(stage: string | null): ResearchDepth {
+  return stage === "discovery" || stage === null ? "screen" : "dossier";
+}
+
 // How a stored status should be READ, given the classifier version that
 // produced it. v1's "affiliate_related_entity" asserted a relationship it had
 // not established and allowed that evidence into extraction; v2 states only

@@ -79,14 +79,14 @@ export default async function AdminResearchPage() {
 
   const { data: prospects } = await supabase
     .from("prospects")
-    .select("id, name, organization, ein")
+    .select("id, name, organization, ein, stage")
     .order("created_at", { ascending: false })
     .limit(50);
 
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -187,6 +187,9 @@ export default async function AdminResearchPage() {
                   </span>
                 </div>
                 <span style={chipStyle(STATUS_TONE[run.status] ?? "neutral")}>{run.status}</span>
+                {run.depth && (
+                  <span style={{ ...chipStyle(run.depth === "screen" ? "neutral" : "teal"), marginLeft: 4 }}>{run.depth}</span>
+                )}
               </div>
 
               <div style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>{run.status_message}</div>
