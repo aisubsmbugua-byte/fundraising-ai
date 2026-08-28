@@ -49,6 +49,23 @@ export function buildIndexedSources(citedSources: CitedSource[], searchedSources
   return Array.from(byUrl.values());
 }
 
+// Stage 4 (citation consistency -- see lib/research.ts) needs every
+// distinct excerpt actually cited for a url, not just one per url the way
+// buildIndexedSources collapses them for the extraction prompt's numbered
+// list. A url with no citations here (only ever appeared in
+// searchedSources) correctly yields no entry -- "unverifiable", not an
+// empty array masquerading as "checked and found nothing."
+export function groupExcerptsByUrl(citedSources: CitedSource[]): Map<string, string[]> {
+  const byUrl = new Map<string, string[]>();
+  for (const c of citedSources) {
+    if (!c.citedText) continue;
+    const list = byUrl.get(c.url) ?? [];
+    list.push(c.citedText);
+    byUrl.set(c.url, list);
+  }
+  return byUrl;
+}
+
 // Pure and DB-free -- no auth check, no writes -- so it's independently
 // callable from scripts/confidence-calibration-check.ts as well as from
 // runResearch. Both the tool schema and the prompt are the source of

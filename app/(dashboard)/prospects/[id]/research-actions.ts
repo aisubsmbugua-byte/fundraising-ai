@@ -4,8 +4,14 @@ import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
-import { extractResearchClaims, buildIndexedSources } from "@/lib/ai/research-extract";
-import { allocateResearchRunVersion, RESEARCH_CLAIM_KEYS, type ResearchKeyCoverageStatus, type ResearchSourceType } from "@/lib/research";
+import { extractResearchClaims, buildIndexedSources, groupExcerptsByUrl } from "@/lib/ai/research-extract";
+import {
+  allocateResearchRunVersion,
+  assessCitationConsistency,
+  RESEARCH_CLAIM_KEYS,
+  type ResearchKeyCoverageStatus,
+  type ResearchSourceType,
+} from "@/lib/research";
 
 // Bump these when the extraction prompt or the tool's input schema shape
 // changes -- they're recorded per-run so evaluation results stay
@@ -121,6 +127,11 @@ export async function runResearch(runId: string, prospectId: string) {
       .eq("id", runId);
 
     const indexedSources = buildIndexedSources(citedSources, searchedSources);
+    // Every distinct excerpt actually cited for a url -- Stage 4 (citation
+    // consistency) checks an extracted claim's excerpt against these, not
+    // against the live webpage. A url with no entry here (only ever
+    // appeared in searchedSources) correctly yields "unverifiable" below.
+    const excerptsByUrl = groupExcerptsByUrl(citedSources);
 
     // Written first, before extraction's own writes -- captures what was
     // actually searched even if extraction fails afterward, and answers
@@ -137,6 +148,7 @@ export async function runResearch(runId: string, prospectId: string) {
             title: s.title,
             source_type: classifySourceType(s.url, prospect.website),
             page_age: s.pageAge,
+            search_time_excerpts: excerptsByUrl.get(s.url) ?? [],
           }))
         )
         .select("id");
@@ -188,14 +200,17 @@ export async function runResearch(runId: string, prospectId: string) {
       const claimSourceRows = claims.flatMap((c, i) => {
         const claimId = insertedClaimIds[i];
         return c.source_indices
-          .map((idx) => sourceIds[idx])
-          .filter((sourceId): sourceId is string => !!sourceId)
-          .map((sourceId) => ({
+          .filter((idx) => !!sourceIds[idx])
+          .map((idx) => ({
             claim_id: claimId,
-            source_id: sourceId,
+            source_id: sourceIds[idx],
             research_run_id: runId,
             cited_text: c.source_excerpt ?? null,
             supports_directly: c.supports_directly,
+            // Compares against the search step's own citation for this
+            // exact source, not the live webpage -- see
+            // assessCitationConsistency's own doc comment.
+            citation_consistency: assessCitationConsistency(c.source_excerpt, excerptsByUrl.get(indexedSources[idx].url) ?? []),
             content_hash: c.source_excerpt ? createHash("sha256").update(c.source_excerpt).digest("hex") : null,
           }));
       });

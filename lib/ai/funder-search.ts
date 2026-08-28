@@ -60,7 +60,15 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
     .map((block) => (block as { text: string }).text)
     .join("\n");
 
-  const citedByUrl = new Map<string, CitedSource>();
+  // Every citation instance is kept, not deduped by url -- a source cited
+  // for several different sentences yields several entries, each with its
+  // own citedText. Stage 4 (citation consistency -- see lib/research.ts)
+  // needs all of them to check an extracted claim's excerpt against
+  // anything that was actually cited, not just the first citation to that
+  // url. buildIndexedSources() (research-extract.ts) still dedupes by url
+  // for the numbered source list shown to the extraction prompt -- that's
+  // a different, unrelated use of this same array.
+  const citedSources: CitedSource[] = [];
   for (const block of searchResponse.content) {
     if (block.type !== "text") continue;
     const citations = (block as { citations?: unknown }).citations;
@@ -68,13 +76,11 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
     for (const citation of citations) {
       const c = citation as Record<string, unknown>;
       if (c.type !== "web_search_result_location" || typeof c.url !== "string") continue;
-      if (!citedByUrl.has(c.url)) {
-        citedByUrl.set(c.url, {
-          url: c.url,
-          title: typeof c.title === "string" ? c.title : null,
-          citedText: typeof c.cited_text === "string" ? c.cited_text : "",
-        });
-      }
+      citedSources.push({
+        url: c.url,
+        title: typeof c.title === "string" ? c.title : null,
+        citedText: typeof c.cited_text === "string" ? c.cited_text : "",
+      });
     }
   }
 
@@ -103,7 +109,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
       inputTokens: searchResponse.usage?.input_tokens ?? 0,
       outputTokens: searchResponse.usage?.output_tokens ?? 0,
     },
-    citedSources: Array.from(citedByUrl.values()),
+    citedSources,
     searchedSources: Array.from(searchedByUrl.values()),
   };
 }

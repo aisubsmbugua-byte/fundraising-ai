@@ -120,9 +120,49 @@ export type ResearchSource = {
   title: string | null;
   source_type: ResearchSourceType;
   page_age: string | null;
+  search_time_excerpts: string[];
   retrieved_at: string;
   created_at: string;
 };
+
+// Stage 4 (Citation Consistency Validation) of the Research Department
+// redesign -- deterministic, code-only, no model call. Compares an
+// extraction claim's own source_excerpt against the SEARCH step's own
+// citation text for that same source (real API-provided data, not
+// model-typed). This proves the extraction step didn't drift from what
+// was actually cited at search time -- it does NOT independently verify
+// the live webpage still says that. See docs/decisions/0002-research-agent.md.
+//
+// Deliberately text, not a Postgres enum, per the same reasoning as the
+// rest of the Research Department's still-evolving verification-state
+// vocabulary: shared constant + app-level validation, not a rigid DB type,
+// while this is still being worked out.
+export const RESEARCH_CITATION_CONSISTENCY_STATUSES = ["consistent", "drifted", "unverifiable", "no_excerpt"] as const;
+export type ResearchCitationConsistency = (typeof RESEARCH_CITATION_CONSISTENCY_STATUSES)[number];
+
+function normalizeForCitationComparison(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Exact-or-substring only, deliberately -- a tunable fuzzy/word-overlap
+// score would trade "exact and deterministic" for a heuristic, which isn't
+// what this check is for. If exact/substring proves too strict against
+// real data, that's a separate, later, explicitly-justified change.
+export function assessCitationConsistency(
+  claimExcerpt: string | null | undefined,
+  sourceExcerpts: string[]
+): ResearchCitationConsistency {
+  if (!claimExcerpt || !claimExcerpt.trim()) return "no_excerpt";
+  if (sourceExcerpts.length === 0) return "unverifiable";
+  const normalizedClaim = normalizeForCitationComparison(claimExcerpt);
+  for (const raw of sourceExcerpts) {
+    const normalizedSource = normalizeForCitationComparison(raw);
+    if (!normalizedSource) continue;
+    if (normalizedClaim === normalizedSource) return "consistent";
+    if (normalizedSource.includes(normalizedClaim) || normalizedClaim.includes(normalizedSource)) return "consistent";
+  }
+  return "drifted";
+}
 
 export type ResearchClaimSource = {
   id: string;
@@ -131,6 +171,7 @@ export type ResearchClaimSource = {
   research_run_id: string;
   cited_text: string | null;
   supports_directly: boolean;
+  citation_consistency: ResearchCitationConsistency | null;
   content_hash: string | null;
   created_at: string;
 };

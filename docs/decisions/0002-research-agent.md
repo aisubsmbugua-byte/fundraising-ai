@@ -245,6 +245,55 @@ Since `claim_key` is `text`, not a DB enum, none of this needed a migration
 presentation itself (the 14-section curated document) is deliberately not
 built yet** — see "Not yet done."
 
+## Research Department redesign, Stage 4 — Citation Consistency Validation (2026-08-28)
+
+Testing surfaced a further gap Revision 4 didn't close: even with real,
+retrieved source URLs, nothing checked whether the *extraction* step's
+claimed `source_excerpt` actually matched what the *search* step had
+originally cited. A broader "Research Department" redesign was proposed
+(scoping → source discovery → extraction → deterministic provenance
+validation → independent Claude verification → coverage audit → conflict
+reconciliation → materiality classification → Prospect Intelligence
+assembly), explicitly sequenced one stage at a time rather than built in
+one pass. This entry covers only the first stage, built now; the rest are
+deliberately not started.
+
+**Naming discipline, explicit:** this is called **citation consistency**,
+never "source verification." It proves the extraction step didn't drift
+from what Claude's search pass actually cited — it does **not** prove the
+live webpage still says that. `lib/research.ts`'s `assessCitationConsistency`
+carries this same distinction in its own doc comment; the admin UI shows it
+inline next to the badge, not just in code.
+
+**Design, deliberately deterministic — no new model call.** `searchFunderWeb`
+(`lib/ai/funder-search.ts`) used to dedupe citations by URL, keeping only
+the first instance — closed first, since Stage 4 needs every citation
+instance a URL received (a page cited for three different sentences yields
+three excerpts to check against, not one).
+`research_sources.search_time_excerpts` (`text[]`) stores all of them per
+source; `research_claim_sources.citation_consistency` (`text`, one of
+`consistent`/`drifted`/`unverifiable`/`no_excerpt`) records the per-
+`(claim, source)` result of `assessCitationConsistency` — exact match or
+substring containment after whitespace/case normalization, deliberately
+**not** a fuzzy/word-overlap score (that would trade "exact and
+deterministic" for a tunable heuristic). Both columns are plain
+`text`/`text[]`, not a new Postgres enum — the broader redesign's
+verification-state vocabulary is still being worked out, so new states here
+follow the same shared-constant-plus-app-validation pattern already used
+elsewhere, not a rigid DB type that would need a migration to extend later.
+`citation_consistency` stays `null` on every pre-Stage-4 row (v1–v6) —
+never backfilled, same non-destructive idiom as everything else in this
+build. Verified with `scripts/test-citation-consistency.ts` (7/7, no
+Anthropic call needed — pure string logic).
+
+**Deferred, not built:** independent *webpage* verification (actually
+fetching the live page — via Anthropic's own `web_fetch` tool, the more
+natural fit over a custom scraper, or not at all) is a distinct, later,
+separately-scoped stage. Open questions for whenever it's built: fetch per
+claim or per distinct source (many claims share a handful of sources — the
+latter is far cheaper); every run or only Enhanced-depth/flagged claims;
+where fetched content is stored and for how long.
+
 ## Evaluation protocol (not yet run)
 
 Track 1 (AI-output quality) reports four separate figures, not one

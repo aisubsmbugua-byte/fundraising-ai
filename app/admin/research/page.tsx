@@ -23,6 +23,15 @@ const COVERAGE_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   extraction_failed: "red",
 };
 
+// Stage 4 (citation consistency) -- compares against the search step's own
+// citation, not the live webpage. "drifted" is the one that should draw a
+// reviewer's eye; "no_excerpt"/null (legacy pre-Stage-4 rows) render nothing.
+const CITATION_CONSISTENCY_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
+  consistent: "teal",
+  drifted: "red",
+  unverifiable: "neutral",
+};
+
 // Stable, safe-to-show text per error_code -- the full error_message
 // (which can contain SDK/implementation detail, e.g. the real Maclellan
 // v1 run's "X-Api-Key ... Authorization headers" text) moves into a
@@ -78,7 +87,7 @@ export default async function AdminResearchPage() {
 
   const { data: claimSources } = await supabase
     .from("research_claim_sources")
-    .select("id, claim_id, cited_text, supports_directly, research_sources(url, title, source_type, retrieved_at)")
+    .select("id, claim_id, cited_text, supports_directly, citation_consistency, research_sources(url, title, source_type, retrieved_at)")
     .in("research_run_id", runIds);
 
   const claimsByRun = new Map<string, NonNullable<typeof claims>>();
@@ -263,6 +272,14 @@ export default async function AdminResearchPage() {
                                       [{src?.source_type}
                                       {cs.supports_directly ? "" : ", inference"}]
                                     </span>
+                                    {cs.citation_consistency && cs.citation_consistency !== "no_excerpt" && (
+                                      <span
+                                        style={{ ...chipStyle(CITATION_CONSISTENCY_TONE[cs.citation_consistency] ?? "neutral"), marginLeft: 4 }}
+                                        title="Compares against the search step's own citation, not the live webpage"
+                                      >
+                                        citation: {cs.citation_consistency}
+                                      </span>
+                                    )}
                                     {cs.cited_text && <div style={{ fontStyle: "italic" }}>&quot;{cs.cited_text}&quot;</div>}
                                   </div>
                                 );
