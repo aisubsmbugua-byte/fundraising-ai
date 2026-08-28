@@ -1,0 +1,14 @@
+-- A screen-depth run is not asked about most claim keys at all: it cannot
+-- read a 990 or a guidelines page, so financial and application-process keys
+-- are outside what it could possibly answer.
+--
+-- Those keys need a status that means "deliberately not attempted at this
+-- depth", distinct from 'not_attempted', which is a FAILURE signal (the model
+-- was asked and silently skipped it) and defaults to retry_recommended. Using
+-- not_attempted for out-of-scope keys would make every screen run look like
+-- 25 extraction failures.
+--
+-- Recorded rather than omitted so coverage stays comparable across depths:
+-- a screen run still writes one row per key, and "7 found / 1 not_found /
+-- 25 not_in_scope" is directly readable against a dossier run's 29/33.
+alter type research_key_coverage_status add value if not exists 'not_in_scope';

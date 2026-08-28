@@ -30,6 +30,7 @@ const COVERAGE_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   conflicting: "amber",
   not_attempted: "red",
   extraction_failed: "red",
+  not_in_scope: "neutral",
 };
 
 // Stage 4 (citation consistency) -- compares against the search step's own

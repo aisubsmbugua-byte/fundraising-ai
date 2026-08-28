@@ -3,6 +3,7 @@
 import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
+import { estimateCostUsd } from "@/lib/ai/model-select";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import {
   extractResearchClaims,
@@ -17,6 +18,7 @@ import {
   isConfirmedDossier,
   ENTITY_CLASSIFICATION_VERSION,
   defaultDepthForStage,
+  claimKeysForDepth,
   type ResearchDepth,
   deriveEntityNameToken,
   resolveRunEntity,
@@ -44,12 +46,9 @@ const EXTRACTION_SCHEMA_VERSION = "v6";
 // -- not read from a live source. Good enough for comparing runs to each
 // other; re-check against current Anthropic pricing before trusting the
 // dollar figure for anything else.
-const COST_PER_INPUT_TOKEN_USD = 3 / 1_000_000;
-const COST_PER_OUTPUT_TOKEN_USD = 15 / 1_000_000;
-
-function estimateCostUsd(inputTokens: number, outputTokens: number) {
-  return inputTokens * COST_PER_INPUT_TOKEN_USD + outputTokens * COST_PER_OUTPUT_TOKEN_USD;
-}
+// Priced per model -- research runs on a different (cheaper) model than the
+// live workflow, so a fixed rate would silently misreport cost. See
+// MODEL_PRICING in lib/ai/model-select.ts.
 
 // Cheap, deterministic heuristic -- no extra model round-trip. A model
 // override could be added later if this proves too coarse; not needed yet.
@@ -263,7 +262,8 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     const usableFragments = usableIndices.map((i) => allFragments[i]);
     const usableRealIds = usableIndices.map((i) => evidenceIds[i]);
 
-    const extraction = await extractResearchClaims({ prospectName: prospect.name, findings, evidence: usableFragments }).catch((err) => {
+    const scopedKeys = claimKeysForDepth(depth);
+    const extraction = await extractResearchClaims({ prospectName: prospect.name, findings, evidence: usableFragments, claimKeys: scopedKeys }).catch((err) => {
       throw new ResearchError("extraction_failed", err instanceof Error ? err.message : "Extraction call failed");
     });
     const { claims, model } = extraction;
@@ -354,9 +354,17 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       notes: string | null;
       retry_recommended: boolean;
     }[] = [];
+    const inScope = new Set(scopedKeys.map((k) => k.key));
     for (const { key } of RESEARCH_CLAIM_KEYS) {
       const modelEntry = modelCoverageByKey.get(key);
       let status: ResearchKeyCoverageStatus;
+      // Deliberately not asked at this depth -- distinct from not_attempted,
+      // which means the model WAS asked and skipped it. A row is still
+      // written for every key so coverage stays comparable across depths.
+      if (!inScope.has(key) && !foundKeys.has(key)) {
+        coverageRows.push({ research_run_id: runId, claim_key: key, status: "not_in_scope", notes: null, retry_recommended: false });
+        continue;
+      }
       if (foundKeys.has(key)) {
         status = "found";
       } else if (modelEntry) {
@@ -417,7 +425,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         code_version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
-        cost_usd: estimateCostUsd(inputTokens, outputTokens),
+        cost_usd: estimateCostUsd(model, inputTokens, outputTokens),
         latency_ms: Date.now() - startedAt,
         completed_at: new Date().toISOString(),
       })

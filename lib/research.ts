@@ -250,6 +250,38 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
 // dossier-level money before that point means paying full price for every
 // candidate that surfaces, most of which are never pursued.
+// What a screen-depth run is actually asked to extract.
+//
+// Screen cannot fetch a page, so it can never read a 990 or a guidelines
+// page -- every financial and application-process key is outside what it
+// could possibly answer. Asking anyway cost real money in the first screen
+// run: extraction still wrote a full 33-key coverage report and 36 claims,
+// leaving output at roughly half the run's total cost. Worse, it invites
+// undated financial figures pulled from search snippets, which are more
+// dangerous than an absent figure.
+//
+// These are the keys triage genuinely needs to decide "is this worth
+// pursuing": who they are, what they fund, where, and whether you can even
+// apply. Everything else waits for dossier depth.
+export const RESEARCH_TRIAGE_CLAIM_KEYS = [
+  "identity.legal_name",
+  "identity.location",
+  "identity.ein",
+  "identity.website",
+  "funding.funder_type",
+  "funding.focus_areas",
+  "funding.geographic_focus",
+  "funding.international_reach",
+  "application.accepts_unsolicited",
+] as const;
+
+export function claimKeysForDepth(depth: ResearchDepth): { key: string; description: string }[] {
+  const all = RESEARCH_CLAIM_KEYS.map((k) => ({ key: k.key, description: k.description }));
+  if (depth === "dossier") return all;
+  const triage = new Set<string>(RESEARCH_TRIAGE_CLAIM_KEYS);
+  return all.filter((k) => triage.has(k.key));
+}
+
 export function defaultDepthForStage(stage: string | null): ResearchDepth {
   return stage === "discovery" || stage === null ? "screen" : "dossier";
 }
@@ -712,13 +744,17 @@ export type ResearchClaimSource = {
 // answered with a malformed shape can't disappear into a clean-looking
 // result. Only written for runs that reach 'ready' -- an 'error' run's own
 // status already means "extraction failed" at the run level.
+// not_in_scope: deliberately not asked at this depth (see claimKeysForDepth).
+// Distinct from not_attempted, which means the model WAS asked and silently
+// skipped it -- a failure signal that defaults to retry_recommended.
 export type ResearchKeyCoverageStatus =
   | "found"
   | "not_public"
   | "not_found"
   | "conflicting"
   | "not_attempted"
-  | "extraction_failed";
+  | "extraction_failed"
+  | "not_in_scope";
 
 export type ResearchKeyCoverage = {
   id: string;

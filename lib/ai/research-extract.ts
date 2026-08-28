@@ -160,6 +160,7 @@ export async function extractResearchClaims({
   prospectName,
   findings,
   evidence,
+  claimKeys,
 }: {
   prospectName: string;
   findings: string;
@@ -167,7 +168,14 @@ export async function extractResearchClaims({
   // -- evidence_ids in the result index directly into this array, in order,
   // so the caller can map them back to real research_evidence rows.
   evidence: EvidenceFragment[];
+  // The claim keys this run is asked about. Screen depth passes a small
+  // triage subset (see claimKeysForDepth in lib/research.ts): it cannot read
+  // a page, so asking it about filing-level keys spends output tokens on
+  // coverage entries it could never answer -- and invites undated financial
+  // figures scraped from snippets.
+  claimKeys?: { key: string; description: string }[];
 }): Promise<ExtractionResult> {
+  const keys = claimKeys ?? RESEARCH_CLAIM_KEYS.map((k) => ({ key: k.key, description: k.description }));
   const { client, model } = resolveModel("research_extract");
 
   const evidenceList =
@@ -215,7 +223,7 @@ export async function extractResearchClaims({
                   properties: {
                     claim_key: {
                       type: "string",
-                      enum: RESEARCH_CLAIM_KEYS.map((k) => k.key),
+                      enum: keys.map((k) => k.key),
                       description: "Which fact this is, from the fixed vocabulary given in the prompt",
                     },
                     claim_type: {
@@ -262,7 +270,7 @@ export async function extractResearchClaims({
                 items: {
                   type: "object",
                   properties: {
-                    claim_key: { type: "string", enum: RESEARCH_CLAIM_KEYS.map((k) => k.key) },
+                    claim_key: { type: "string", enum: keys.map((k) => k.key) },
                     status: {
                       type: "string",
                       enum: ["found", "not_public", "not_found", "conflicting"],
@@ -295,7 +303,7 @@ Numbered evidence fragments actually captured this run -- cite claims ONLY by in
 ${evidenceList}
 
 Vocabulary -- one claim_key covers exactly one independently checkable fact. Do not combine multiple facts under one claim_key -- use the separate keys provided for each:
-${RESEARCH_CLAIM_KEYS.map((k) => `- ${k.key}: ${k.description}`).join("\n")}
+${keys.map((k) => `- ${k.key}: ${k.description}`).join("\n")}
 
 For EVERY key above, submit a coverage entry (found/not_public/not_found/conflicting). For every key you mark "found" in coverage, also submit a claims entry with that claim_key.
 

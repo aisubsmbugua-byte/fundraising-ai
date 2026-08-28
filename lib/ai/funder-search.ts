@@ -1,4 +1,5 @@
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
+import { resolveModel } from "@/lib/ai/model-select";
 import { channelLabel } from "@/lib/prospects";
 
 export type CitedSource = { url: string; title: string | null; citedText: string };
@@ -34,6 +35,8 @@ export async function searchFunderWeb(
   depth: "screen" | "dossier" = "dossier"
 ): Promise<{
   findings: string;
+  // Which model actually ran the search, so the caller can price it.
+  model: string;
   stopReason: string | null;
   usage: { inputTokens: number; outputTokens: number };
   // Real, API-provided citation data -- see lib/ai/research-extract.ts for
@@ -130,10 +133,14 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
     allowed_callers: ["direct" as const],
   };
 
+  // Research runs on its own (cheaper) model; the live combined deep-dive
+  // keeps DRAFT_MODEL untouched -- see resolveModel in lib/ai/model-select.ts.
+  const searchModel = isResearch ? resolveModel("research_search").model : DRAFT_MODEL;
+
   const request = (withFetch: boolean) =>
     anthropic.messages.create(
       {
-        model: DRAFT_MODEL,
+        model: searchModel,
         max_tokens: isResearch ? 8000 : 2000,
         tools: withFetch ? [searchTool, fetchTool] : [searchTool],
         messages: [{ role: "user", content: isResearch ? researchOnlyPrompt : combinedPrompt }],
@@ -260,6 +267,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
 
   return {
     findings,
+    model: searchModel,
     stopReason: searchResponse.stop_reason,
     usage: {
       inputTokens: searchResponse.usage?.input_tokens ?? 0,
