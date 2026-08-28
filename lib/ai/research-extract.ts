@@ -35,6 +35,7 @@ export type ExtractionResult = {
   model: string;
   usage: { inputTokens: number; outputTokens: number };
   sourcesAvailable: boolean;
+  truncated: boolean;
 };
 
 const VALID_KEYS = new Set<string>(RESEARCH_CLAIM_KEYS.map((k) => k.key));
@@ -72,7 +73,14 @@ export async function extractResearchClaims({
   const response = await client.messages.create(
     {
       model,
-      max_tokens: 3000,
+      // 28 mandatory coverage entries plus a growing, now-atomic claim
+      // vocabulary (several keys expect multiple claims each) need real
+      // headroom -- 3000 silently truncated the tool_use JSON on a real
+      // Maclellan run (0 claims saved despite clearly extractable
+      // findings, no error thrown since a tool_use block was still
+      // present, just incomplete). Sized generously rather than tuned to
+      // the exact current vocabulary size, since that will keep growing.
+      max_tokens: 8000,
       tools: [
         {
           name: "submit_research_claims",
@@ -256,5 +264,6 @@ ${findings || "(no findings)"}`,
       outputTokens: response.usage?.output_tokens ?? 0,
     },
     sourcesAvailable: sources.length > 0,
+    truncated: response.stop_reason === "max_tokens",
   };
 }

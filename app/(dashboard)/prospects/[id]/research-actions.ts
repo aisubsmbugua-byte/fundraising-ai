@@ -249,11 +249,13 @@ export async function runResearch(runId: string, prospectId: string) {
     const inputTokens = searchUsage.inputTokens + extraction.usage.inputTokens;
     const outputTokens = searchUsage.outputTokens + extraction.usage.outputTokens;
 
-    const statusMessage = !extraction.sourcesAvailable
-      ? "Research completed, but the search step returned no citable sources this run -- claims below have no verifiable source."
-      : claims.length > 0
-        ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"}`
-        : "Research completed, but found nothing extractable";
+    const statusMessage = extraction.truncated
+      ? `Extraction response was truncated (hit the token limit) -- results below are incomplete. Found ${claims.length} fact${claims.length === 1 ? "" : "s"} before truncation; retry likely to find more.`
+      : !extraction.sourcesAvailable
+        ? "Research completed, but the search step returned no citable sources this run -- claims below have no verifiable source."
+        : claims.length > 0
+          ? `Found ${claims.length} fact${claims.length === 1 ? "" : "s"}`
+          : "Research completed, but found nothing extractable";
 
     await supabase
       .from("research_runs")
