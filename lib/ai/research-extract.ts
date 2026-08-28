@@ -289,7 +289,14 @@ ${findings || "(no findings)"}`,
         },
       ],
     },
-    { timeout: 90_000 }
+    // 90s was marginal once A' landed: extraction now reads ~13k tokens of
+    // evidence (full-page excerpts, not 150-char snippets) and writes up to
+    // 8k, and two real runs died here at exactly 90s -- Servants Heart v3 and
+    // Maclellan v19 -- while a same-sized payload (v4, 50.6k chars vs v19's
+    // 51.9k) succeeded. That's a borderline limit, not a payload cliff, so
+    // the budget moves rather than the prompt. Overrides the client's 110s
+    // default; the route's maxDuration is raised to match.
+    { timeout: 150_000 }
   );
 
   const toolUse = response.content.find((block) => block.type === "tool_use");

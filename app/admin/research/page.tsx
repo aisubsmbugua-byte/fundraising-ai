@@ -9,9 +9,11 @@ export const dynamic = "force-dynamic";
 
 // runResearch is a server action invoked from this page, so it inherits
 // this route's function duration. A' fetches and reads pages in full on
-// top of searching, which pushes a run well past the snippet-only ~120s;
-// 280 matches the ceiling already used by the prospect detail page.
-export const maxDuration = 280;
+// top of searching, so the two calls' own timeouts (240s search + 150s
+// extraction) now need ~390s of headroom -- 280 could kill a legitimately
+// long run mid-flight. 450 matches the ceiling already in use by
+// discovery/search, so it's known-good on this plan.
+export const maxDuration = 450;
 
 const STATUS_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   ready: "teal",
