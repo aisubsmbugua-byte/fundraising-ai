@@ -67,6 +67,13 @@ export type Prospect = {
   notes: string | null;
   owner_id: string;
   stage: Stage;
+  // Authoritative identity, hand-entered or promoted from a research run by
+  // an explicit human action (never written automatically -- hard rule 3).
+  // A set ein makes the Research Agent's entity resolution deterministic;
+  // see resolveRunEntity in lib/research.ts.
+  ein: string | null;
+  legal_name: string | null;
+  aliases: string[] | null;
   // Funder intelligence -- populated from AI deep-dive research when
   // a human approves the strategy, not hand-entered.
   location: string | null;

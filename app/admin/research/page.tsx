@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { colors, spacing, cardStyle, chipStyle, type as typeScale } from "@/lib/ui";
 import ResearchPanel from "./research-panel";
 import ClaimReview from "./claim-review";
+import ConfirmEin from "./confirm-ein";
 
 // Live data every load -- runs and claims change as soon as a research
 // call finishes, same reasoning as /admin/organizations.
@@ -77,14 +78,14 @@ export default async function AdminResearchPage() {
 
   const { data: prospects } = await supabase
     .from("prospects")
-    .select("id, name, organization")
+    .select("id, name, organization, ein")
     .order("created_at", { ascending: false })
     .limit(50);
 
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -106,7 +107,7 @@ export default async function AdminResearchPage() {
 
   const { data: sources } = await supabase
     .from("research_sources")
-    .select("id, research_run_id, url, title, source_type, page_age, entity_validation_status, retrieved_at")
+    .select("id, research_run_id, url, title, source_type, page_age, entity_validation_status, source_ein, retrieved_at")
     .in("research_run_id", runIds);
 
   const { data: claimSources } = await supabase
@@ -151,6 +152,7 @@ export default async function AdminResearchPage() {
   }
 
   const prospectNames = new Map((prospects ?? []).map((p) => [p.id, p.organization ? `${p.name} (${p.organization})` : p.name]));
+  const prospectEins = new Map((prospects ?? []).map((p) => [p.id, p.ein as string | null]));
 
   return (
     <div>
@@ -187,6 +189,13 @@ export default async function AdminResearchPage() {
               </div>
 
               <div style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>{run.status_message}</div>
+
+              <ConfirmEin
+                prospectId={run.prospect_id}
+                proposedEin={run.confirmed_ein ?? null}
+                method={run.entity_resolution_method ?? null}
+                savedEin={prospectEins.get(run.prospect_id) ?? null}
+              />
 
               {run.status === "error" && (
                 <div style={{ marginTop: spacing.xs }}>
@@ -233,6 +242,7 @@ export default async function AdminResearchPage() {
                         {s.entity_validation_status && (
                           <span style={{ ...chipStyle(ENTITY_STATUS_TONE[s.entity_validation_status] ?? "neutral"), marginLeft: 4 }}>
                             {s.entity_validation_status.replace(/_/g, " ")}
+                            {s.source_ein ? ` · ${s.source_ein}` : ""}
                           </span>
                         )}
                       </div>

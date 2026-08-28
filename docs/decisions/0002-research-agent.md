@@ -464,3 +464,67 @@ Tunde Aviation requires that organization's explicit agreement first.
 - [0001-multi-tenancy.md](0001-multi-tenancy.md) — the RLS pattern this
   schema follows, and the accepted cross-table-FK gap this build closes for
   its own new tables via the triggers above
+
+## Stage 1 entity resolution (2026-08-28)
+
+Identity is now a determined property of a run rather than something that
+emerges from counting search results. Three real defects motivated this:
+
+1. **Same organization, different verdicts.** In Maclellan v21 one affiliated
+   foundation appeared at three URLs and received two different
+   classifications, because two of its pages carried its full name in the
+   title while its own summary page returned a bare-domain title and a
+   snippet that never repeated the name. Classification was per-URL, so the
+   thin page had nothing to match on.
+2. **Majority vote elevated the wrong entity.** In Servants Heart v1 the EIN
+   was chosen by counting mentions, and a different real organization
+   (Carlisle PA) won because it happened to state its EIN in more titles.
+   A dominance ratio patched the symptom but kept the mechanism.
+3. **Nowhere to record identity**, so every run re-derived it from scratch.
+
+**Resolution by priority, not popularity.** `resolveRunEntity` tries, in
+order: a human-confirmed EIN on the prospect; an EIN from a name-matching
+`irs_filing` source; an EIN on the prospect's own domain. Two competing
+authoritative filings resolve to `ambiguous_filings` and deliberately yield
+no EIN -- contested identity is never settled by picking the more frequent
+answer. Returning null withholds trust without excluding anything.
+
+**Classification per entity, not per URL.** `classifyRunSources` groups
+sources by the EIN they describe, pools their captured text, and reaches one
+verdict per entity. A page with a bare-domain title inherits the identity its
+siblings establish. Grouping also knows the entity's EIN from URLs that state
+it without a dash, which is what separates a genuine affiliate (different
+EIN, name still matches) from an unrelated near-miss -- text-only detection
+could not tell those apart.
+
+**Location downgrades, never excludes.** State-level only, and only when both
+sides state a location: a conflict turns `legal_name_confirmed` into
+`identity_unresolved`. City-level matching was rejected on evidence -- the
+real prospect record read "Irvine, CA" while the organization's filings say
+"Newport Beach, CA", so a city gate would have rejected the correct
+organization. This is the same false-negative class as the earlier
+McClellan/ProPublica defects, and the rule is the same: a weak signal may
+lower confidence but must never exclude.
+
+**Identity is proposed, not written.** A run records `confirmed_ein` and
+`entity_resolution_method` on itself; promoting that onto the prospect is an
+explicit human click (`confirmProspectEin`, superadmin-only). Writing an
+AI-derived identity straight into the CRM would be AI output landing in a
+non-review state, which hard rule 3 forbids. Once saved, resolution
+short-circuits to `stored_ein` and repeat runs become deterministic.
+
+**Testing.** `scripts/test-entity-validation.ts` (16 cases, all built from
+real captured run data) covers the v21 three-URL defect, the near-miss
+exclusions (Mclain/Maclean/Mccall), competing filings, and the
+Irvine/Newport Beach regression guard. `scripts/check-entity-admission.ts`
+asserts structurally -- every entity has one verdict, no excluded evidence
+supports a claim -- because the obvious outcome test ("zero wrong-entity
+claims") already passed before the fix and so could not detect it. That
+script also measures how much evidence withholding `identity_unresolved`
+would cost, which is the input to the Stage 2 decision rather than an
+assumption.
+
+**Deferred to Stage 2:** partitioned evidence-pool records, a human
+disambiguation picker, and excluding `identity_unresolved` from extraction.
+All three depend on Stage 1's measurements; the EIN field already provides a
+human resolution path.

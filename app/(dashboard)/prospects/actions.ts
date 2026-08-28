@@ -5,6 +5,17 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { upsertContact } from "@/lib/contacts";
+import { requireSuperadmin } from "@/lib/auth";
+
+// Accepts what people actually type -- "58-2218044", "582218044", stray
+// spaces -- and stores the canonical dashed form the research code compares
+// against. Anything that isn't 9 digits is rejected rather than guessed at.
+function normalizeEin(raw: string | null): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length !== 9) return null;
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+}
 
 function fieldsFromForm(formData: FormData) {
   const focusAreas = (formData.get("focus_areas") as string) || "";
@@ -17,6 +28,12 @@ function fieldsFromForm(formData: FormData) {
     website: (formData.get("website") as string) || null,
     notes: (formData.get("notes") as string) || null,
     location: (formData.get("location") as string) || null,
+    // Authoritative identity. Once set, the Research Agent resolves this
+    // prospect's entity deterministically instead of inferring it -- see
+    // resolveRunEntity in lib/research.ts. Normalized to NN-NNNNNNN so it
+    // compares equal to EINs detected in filings and URLs.
+    ein: normalizeEin(formData.get("ein") as string),
+    legal_name: (formData.get("legal_name") as string) || null,
     funder_type: (formData.get("funder_type") as string) || null,
     geographic_focus: (formData.get("geographic_focus") as string) || null,
     typical_grant_size: (formData.get("typical_grant_size") as string) || null,
@@ -221,4 +238,30 @@ export async function updateAskAmount(prospectId: string, askAmount: number | nu
   revalidatePath(`/prospects/${prospectId}`);
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
+}
+
+// Promotes a research run's proposed EIN onto the prospect record. This is
+// deliberately a separate, human-triggered action rather than something
+// runResearch does itself: an AI-derived identity written silently into the
+// CRM would be AI output landing in a non-review state, which hard rule 3
+// forbids. Once a human confirms it here, resolveRunEntity short-circuits to
+// stored_ein and every later run of this prospect is deterministic.
+//
+// Superadmin-only, matching the rest of the (dark) Research Agent surface.
+export async function confirmProspectEin(prospectId: string, ein: string) {
+  await requireSuperadmin();
+  const supabase = createClient();
+
+  const digits = ein.replace(/\D/g, "");
+  if (digits.length !== 9) throw new Error("An EIN must be 9 digits.");
+  const normalized = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+
+  const { error } = await supabase
+    .from("prospects")
+    .update({ ein: normalized, updated_at: new Date().toISOString() })
+    .eq("id", prospectId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/prospects/${prospectId}`);
+  revalidatePath("/admin/research");
 }

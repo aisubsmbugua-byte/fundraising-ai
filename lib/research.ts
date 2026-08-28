@@ -174,49 +174,140 @@ export function sourceMatchesName(sourceUrl: string, sourceTexts: string[], name
   return sourceTexts.join(" ").toLowerCase().includes(token) || sourceUrl.toLowerCase().includes(token);
 }
 
-// How far ahead the leading EIN must be before it's treated as this
-// entity's confirmed EIN rather than one of several competing candidates.
-const EIN_DOMINANCE_RATIO = 2;
+// How identity was established for a run. Recorded on research_runs so the
+// decision is auditable rather than implicit -- "which entity did we
+// research, and what settled it". Text validated here, not a Postgres enum,
+// same reasoning as the status vocabularies above.
+export const RESEARCH_ENTITY_RESOLUTION_METHODS = [
+  "stored_ein",
+  "authoritative_filing",
+  "official_domain",
+  "ambiguous_filings",
+  "unresolved",
+] as const;
+export type ResearchEntityResolutionMethod = (typeof RESEARCH_ENTITY_RESOLUTION_METHODS)[number];
 
-// Establishes the entity's EIN for a run, if one can be established
-// *unambiguously*. Only sources that already match the prospect's name are
-// allowed to vote, so an unrelated organization's EIN never enters the
-// tally at all.
-//
-// The dominance test is the important part. A plain majority vote is not
-// safe here: two genuinely different, similarly-named real organizations
-// (e.g. "Servants Heart Foundation" and "Servants Heart Family Foundation")
-// both attract well-indexed sources, and whichever happens to write its
-// EIN in more places wins -- which is how a real run elevated the WRONG
-// entity's sources to the highest trust tier while the right entity's
-// sources sat one tier lower. So a leader is only confirmed when it clearly
-// dominates the runner-up; otherwise identity is genuinely ambiguous from
-// EIN evidence alone and this returns null, skipping EIN elevation entirely
-// so every name-matching source settles at legal_name_confirmed instead.
-// Returning null is always the safe direction: it withholds trust, never
-// grants it, and never excludes a source on its own.
-//
-// A legitimate cluster of affiliated entities (a family foundation's
-// sibling trusts, each with its own EIN) still resolves cleanly, because
-// the entity actually being researched dominates its siblings by a wide
-// margin rather than running neck-and-neck with them.
-export function determineConfirmedEin(
-  sources: { url: string; texts: string[] }[],
-  nameToken: string
-): string | null {
-  const counts = new Map<string, number>();
-  for (const source of sources) {
-    if (!sourceMatchesName(source.url, source.texts, nameToken)) continue;
-    const candidates = [...source.texts.flatMap((t) => extractEinCandidates(t)), ...extractEinCandidatesFromUrl(source.url)];
-    for (const ein of candidates) counts.set(ein, (counts.get(ein) ?? 0) + 1);
+// Every EIN a source appears to describe, from its captured text and its
+// URL. One source can legitimately mention several (an aggregator page
+// listing affiliated foundations), so callers treat this as candidates.
+export function sourceEinCandidates(sourceUrl: string, sourceTexts: string[]): string[] {
+  return [...sourceTexts.flatMap((t) => extractEinCandidates(t)), ...extractEinCandidatesFromUrl(sourceUrl)];
+}
+
+// The single EIN a source is *about*, when that's unambiguous -- used to
+// group sources into entities. A source mentioning exactly one EIN is about
+// that entity; one mentioning several (or none) can't be assigned on this
+// evidence alone and stays ungrouped, classified on its own text.
+export function primarySourceEin(sourceUrl: string, sourceTexts: string[]): string | null {
+  const distinct = Array.from(new Set(sourceEinCandidates(sourceUrl, sourceTexts)));
+  return distinct.length === 1 ? distinct[0] : null;
+}
+
+// US state, for the tolerant location check. Matches a two-letter code or a
+// full state name; returns the code.
+const STATE_CODES: Record<string, string> = {
+  alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
+  connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI", idaho: "ID",
+  illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY", louisiana: "LA",
+  maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN",
+  mississippi: "MS", missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV",
+  "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+  "north carolina": "NC", "north dakota": "ND", ohio: "OH", oklahoma: "OK", oregon: "OR",
+  pennsylvania: "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD",
+  tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT", virginia: "VA", washington: "WA",
+  "west virginia": "WV", wisconsin: "WI", wyoming: "WY",
+};
+const STATE_CODE_SET = new Set(Object.values(STATE_CODES));
+
+// Deliberately STATE level only, never city. The prospect record for a real
+// funder read "Irvine, CA" while the organization's filings say "Newport
+// Beach, CA" -- adjacent cities, same metro, and a city-level match would
+// have rejected the correct organization outright. State is the coarsest
+// signal that still separates the cases we actually need separated
+// (California vs Pennsylvania vs North Carolina vs South Dakota, all of
+// which appear as distinct real "Servants Heart" organizations).
+export function extractStateCodes(text: string): string[] {
+  const found = new Set<string>();
+  for (const [name, code] of Object.entries(STATE_CODES)) {
+    if (new RegExp(`\\b${name}\\b`, "i").test(text)) found.add(code);
   }
-  if (counts.size === 0) return null;
+  for (const m of text.match(/\b[A-Z]{2}\b/g) ?? []) {
+    if (STATE_CODE_SET.has(m)) found.add(m);
+  }
+  return Array.from(found);
+}
 
-  const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  const [topEin, topCount] = ranked[0];
-  const runnerUpCount = ranked[1]?.[1] ?? 0;
-  if (runnerUpCount > 0 && topCount < runnerUpCount * EIN_DOMINANCE_RATIO) return null;
-  return topEin;
+// True only when both sides state a location AND they share no state. Used
+// to DOWNGRADE trust, never to exclude -- see classifyEntity.
+export function locationConflicts(prospectLocation: string | null, entityText: string): boolean {
+  if (!prospectLocation) return false;
+  const prospectStates = extractStateCodes(prospectLocation);
+  if (prospectStates.length === 0) return false;
+  const entityStates = extractStateCodes(entityText);
+  if (entityStates.length === 0) return false;
+  return !entityStates.some((s) => prospectStates.includes(s));
+}
+
+// Establishes which entity a run is actually about, by priority of evidence
+// quality -- NOT by counting mentions.
+//
+// Counting was the previous approach and it is not an identity
+// determination. Two genuinely different, similarly-named real
+// organizations both attract well-indexed sources, and whichever happens to
+// state its EIN in more places wins: that is how a real run elevated the
+// WRONG entity ("Servants Heart Family Foundation", Carlisle PA) to the
+// highest trust tier while the researched entity ("Servants Heart
+// Foundation Inc", Newport Beach CA) sat a tier lower. Adding a dominance
+// ratio patched the symptom but kept the mechanism.
+//
+// The order below prefers evidence that is authoritative rather than
+// frequent. Crucially, two competing authoritative filings do NOT get
+// resolved by picking the more common one -- that is ambiguous_filings, and
+// it deliberately returns no EIN. Returning null is always the safe
+// direction: it withholds trust without excluding anything, so every
+// name-matching source settles at legal_name_confirmed instead.
+export function resolveRunEntity({
+  storedEin,
+  prospectWebsite,
+  nameToken,
+  sources,
+}: {
+  storedEin: string | null;
+  prospectWebsite: string | null;
+  nameToken: string;
+  sources: { url: string; texts: string[]; sourceType: ResearchSourceType }[];
+}): { ein: string | null; method: ResearchEntityResolutionMethod } {
+  // 1. A human-confirmed EIN on the prospect record beats everything and
+  //    makes every future run of this prospect deterministic.
+  if (storedEin) return { ein: storedEin, method: "stored_ein" };
+
+  // 2. An EIN stated by an authoritative filing source that also matches the
+  //    prospect's name. Distinct competing answers here mean identity is
+  //    genuinely contested and must not be guessed.
+  const filingEins = new Set<string>();
+  for (const s of sources) {
+    if (s.sourceType !== "irs_filing") continue;
+    if (!sourceMatchesName(s.url, s.texts, nameToken)) continue;
+    for (const ein of sourceEinCandidates(s.url, s.texts)) filingEins.add(ein);
+  }
+  if (filingEins.size === 1) return { ein: Array.from(filingEins)[0], method: "authoritative_filing" };
+  if (filingEins.size > 1) return { ein: null, method: "ambiguous_filings" };
+
+  // 3. An EIN stated on the prospect's own official domain.
+  if (prospectWebsite) {
+    try {
+      const prospectHost = new URL(prospectWebsite).hostname.replace(/^www\./, "");
+      for (const s of sources) {
+        if (new URL(s.url).hostname.replace(/^www\./, "") !== prospectHost) continue;
+        const candidates = Array.from(new Set(sourceEinCandidates(s.url, s.texts)));
+        if (candidates.length === 1) return { ein: candidates[0], method: "official_domain" };
+      }
+    } catch {
+      // malformed url -- fall through to unresolved
+    }
+  }
+
+  return { ein: null, method: "unresolved" };
 }
 
 // Deterministic, code-only classification for one source -- see the
@@ -269,6 +360,122 @@ export function classifySourceEntity({
     if (einsInSource.length > 0) return nameMatches ? "affiliate_related_entity" : "entity_mismatch";
   }
   return nameMatches ? "legal_name_confirmed" : "unrelated_excluded";
+}
+
+// One source, grouped into an entity and given a verdict.
+export type ClassifiedSource = {
+  url: string;
+  sourceEin: string | null;
+  status: ResearchEntityValidationStatus;
+};
+
+// Classifies every source in a run, per ENTITY rather than per URL.
+//
+// Classifying URLs independently produced the defect this replaces: one
+// affiliated foundation appeared at three URLs in a single real run and
+// received two different verdicts, because two of its pages carried its full
+// name in the title while its own summary page came back with a bare-domain
+// title and a snippet that never repeated the name. Same organization,
+// opposite verdicts, decided by how much text each URL happened to yield.
+//
+// Sources are therefore grouped by the EIN they describe, their captured
+// text is POOLED, and the entity is classified once from everything known
+// about it -- so a thin page inherits the identity its siblings establish.
+// Sources with no single identifiable EIN can't be grouped and are still
+// judged on their own text.
+export function classifyRunSources({
+  sources,
+  prospectWebsite,
+  prospectLocation,
+  nameToken,
+  confirmedEin,
+}: {
+  sources: { url: string; texts: string[] }[];
+  prospectWebsite: string | null;
+  prospectLocation: string | null;
+  nameToken: string;
+  confirmedEin: string | null;
+}): ClassifiedSource[] {
+  const einByUrl = new Map<string, string | null>();
+  const pooledTextByEin = new Map<string, string[]>();
+  const pooledUrlsByEin = new Map<string, string[]>();
+
+  for (const s of sources) {
+    const ein = primarySourceEin(s.url, s.texts);
+    einByUrl.set(s.url, ein);
+    if (!ein) continue;
+    pooledTextByEin.set(ein, [...(pooledTextByEin.get(ein) ?? []), ...s.texts]);
+    pooledUrlsByEin.set(ein, [...(pooledUrlsByEin.get(ein) ?? []), s.url]);
+  }
+
+  // One verdict per entity, computed from everything captured about it.
+  const statusByEin = new Map<string, ResearchEntityValidationStatus>();
+  for (const [ein, texts] of pooledTextByEin) {
+    const urls = pooledUrlsByEin.get(ein) ?? [];
+    const nameMatches = sourceMatchesName(urls.join(" "), texts, nameToken);
+
+    // Grouping already established this entity's EIN, including from URLs
+    // that state it without a dash -- so compare it directly rather than
+    // re-deriving from text alone. This is what distinguishes a genuine
+    // affiliate (different EIN, name still matches -- a family foundation's
+    // sibling trust) from an unrelated organization that merely looks
+    // similar, which text-only detection could not tell apart.
+    let status: ResearchEntityValidationStatus;
+    if (confirmedEin && ein === confirmedEin) {
+      status = "ein_confirmed";
+    } else if (confirmedEin) {
+      status = nameMatches ? "affiliate_related_entity" : "entity_mismatch";
+    } else {
+      status = classifySourceEntity({
+        // Pooled URLs so a name appearing in any of this entity's URLs counts.
+        sourceUrl: urls.join(" "),
+        sourceTexts: texts,
+        prospectWebsite,
+        nameToken,
+        confirmedEin,
+      });
+    }
+
+    // The prospect's own domain outranks EIN reasoning: if any of this
+    // entity's pages is on it, this is the prospect itself.
+    if (prospectWebsite) {
+      try {
+        const prospectHost = new URL(prospectWebsite).hostname.replace(/^www\./, "");
+        if (urls.some((u) => new URL(u).hostname.replace(/^www\./, "") === prospectHost)) {
+          status = confirmedEin && ein === confirmedEin ? "ein_confirmed" : "official_domain_confirmed";
+        }
+      } catch {
+        // malformed url -- keep the status derived above
+      }
+    }
+
+    // Location DOWNGRADES a name-only match, never excludes. A conflicting
+    // state means the name matched a different organization somewhere else,
+    // which is a reason to stop trusting the name -- not a reason to throw
+    // the source away, since our own stored location can be imprecise.
+    if (status === "legal_name_confirmed" && locationConflicts(prospectLocation, texts.join(" "))) {
+      status = "identity_unresolved";
+    }
+    statusByEin.set(ein, status);
+  }
+
+  return sources.map((s) => {
+    const ein = einByUrl.get(s.url) ?? null;
+    if (ein && statusByEin.has(ein)) {
+      return { url: s.url, sourceEin: ein, status: statusByEin.get(ein)! };
+    }
+    let status = classifySourceEntity({
+      sourceUrl: s.url,
+      sourceTexts: s.texts,
+      prospectWebsite,
+      nameToken,
+      confirmedEin,
+    });
+    if (status === "legal_name_confirmed" && locationConflicts(prospectLocation, s.texts.join(" "))) {
+      status = "identity_unresolved";
+    }
+    return { url: s.url, sourceEin: ein, status };
+  });
 }
 
 export type ResearchSource = {

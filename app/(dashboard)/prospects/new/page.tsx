@@ -41,6 +41,14 @@ export default function NewProspectPage() {
           <input name="website" type="url" style={fieldStyle} />
         </label>
         <label style={labelStyle}>
+          Legal name
+          <input name="legal_name" placeholder="If different from the name above" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
+          EIN
+          <input name="ein" placeholder="e.g. 62-6041468" style={fieldStyle} />
+        </label>
+        <label style={labelStyle}>
           Notes
           <textarea name="notes" rows={4} style={fieldStyle} />
         </label>

@@ -13,9 +13,9 @@ import {
 } from "@/lib/ai/research-extract";
 import {
   allocateResearchRunVersion,
-  classifySourceEntity,
+  classifyRunSources,
   deriveEntityNameToken,
-  determineConfirmedEin,
+  resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
   type ResearchEntityValidationStatus,
   type ResearchKeyCoverageStatus,
@@ -163,24 +163,36 @@ export async function runResearch(runId: string, prospectId: string) {
       list.push(c.citedText);
       textsByUrl.set(c.url, list);
     }
-    const nameToken = deriveEntityNameToken(prospect.name);
-    const confirmedEin = determineConfirmedEin(
-      indexedSources.map((s) => ({ url: s.url, texts: textsByUrl.get(s.url) ?? [] })),
-      nameToken
+    // Identity is resolved BEFORE any source is classified, by priority of
+    // evidence quality rather than by counting mentions. A stored EIN on the
+    // prospect short-circuits it entirely, making repeat runs deterministic.
+    const nameToken = deriveEntityNameToken(
+      [prospect.name, prospect.legal_name, ...(prospect.aliases ?? [])].filter(Boolean).join(" ")
     );
-    const entityStatusByUrl = new Map<string, ResearchEntityValidationStatus>();
-    for (const s of indexedSources) {
-      entityStatusByUrl.set(
-        s.url,
-        classifySourceEntity({
-          sourceUrl: s.url,
-          sourceTexts: textsByUrl.get(s.url) ?? [],
-          prospectWebsite: prospect.website,
-          nameToken,
-          confirmedEin,
-        })
-      );
-    }
+    const { ein: confirmedEin, method: entityResolutionMethod } = resolveRunEntity({
+      storedEin: prospect.ein ?? null,
+      prospectWebsite: prospect.website,
+      nameToken,
+      sources: indexedSources.map((s) => ({
+        url: s.url,
+        texts: textsByUrl.get(s.url) ?? [],
+        sourceType: classifySourceType(s.url, prospect.website),
+      })),
+    });
+
+    // Classified per ENTITY, not per URL: sources describing the same EIN
+    // pool their captured text and share one verdict, so a page whose title
+    // came back as a bare domain inherits the identity its siblings
+    // establish instead of failing the name check alone.
+    const classified = classifyRunSources({
+      sources: indexedSources.map((s) => ({ url: s.url, texts: textsByUrl.get(s.url) ?? [] })),
+      prospectWebsite: prospect.website,
+      prospectLocation: prospect.location ?? null,
+      nameToken,
+      confirmedEin,
+    });
+    const entityStatusByUrl = new Map<string, ResearchEntityValidationStatus>(classified.map((c) => [c.url, c.status]));
+    const sourceEinByUrl = new Map<string, string | null>(classified.map((c) => [c.url, c.sourceEin]));
 
     // Written before extraction's own writes -- captures what was actually
     // searched (and how it was classified) even if extraction fails
@@ -199,6 +211,7 @@ export async function runResearch(runId: string, prospectId: string) {
             source_type: classifySourceType(s.url, prospect.website),
             page_age: s.pageAge,
             entity_validation_status: entityStatusByUrl.get(s.url) ?? null,
+            source_ein: sourceEinByUrl.get(s.url) ?? null,
           }))
         )
         .select("id");
@@ -372,6 +385,12 @@ export async function runResearch(runId: string, prospectId: string) {
         model,
         prompt_version: PROMPT_VERSION,
         extraction_schema_version: EXTRACTION_SCHEMA_VERSION,
+        // Proposed, never written back to the prospect automatically: an
+        // AI-derived identity landing straight in the CRM would be AI output
+        // in a non-review state (hard rule 3). The admin UI offers a
+        // one-click save, and once saved it drives every later run.
+        confirmed_ein: confirmedEin,
+        entity_resolution_method: entityResolutionMethod,
         code_version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
