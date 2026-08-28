@@ -221,8 +221,20 @@ export async function runResearch(runId: string, prospectId: string) {
             // Compares against the search step's own citation for this
             // exact source, not the live webpage -- see
             // assessCitationConsistency's own doc comment.
+            // The comparison set includes the source's own title alongside
+            // its cited body-text spans -- a title is real, independently-
+            // retrieved API data (WebSearchResultBlock.title), not
+            // model-typed, and short factual excerpts (org name, EIN) are
+            // often quoted directly from it rather than from an inline
+            // citation. Confirmed on a real run: an EIN claim excerpt was
+            // a verbatim quote of a source's title and nothing else.
             citation_consistency:
-              idx === primarySourceIndex ? assessCitationConsistency(c.source_excerpt, excerptsByUrl.get(indexedSources[idx].url) ?? []) : null,
+              idx === primarySourceIndex
+                ? assessCitationConsistency(c.source_excerpt, [
+                    ...(indexedSources[idx].title ? [indexedSources[idx].title as string] : []),
+                    ...(excerptsByUrl.get(indexedSources[idx].url) ?? []),
+                  ])
+                : null,
             content_hash: c.source_excerpt ? createHash("sha256").update(c.source_excerpt).digest("hex") : null,
           }));
       });
