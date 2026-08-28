@@ -50,7 +50,8 @@ const ENTITY_STATUS_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> =
   ein_confirmed: "teal",
   official_domain_confirmed: "teal",
   legal_name_confirmed: "teal",
-  affiliate_related_entity: "amber",
+  different_entity_unverified_relation: "red",
+  affiliate_related_entity: "red",
   identity_unresolved: "amber",
   entity_mismatch: "red",
   unrelated_excluded: "red",
@@ -85,7 +86,7 @@ export default async function AdminResearchPage() {
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -189,6 +190,13 @@ export default async function AdminResearchPage() {
               </div>
 
               <div style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>{run.status_message}</div>
+
+              {run.status === "ready" && run.entity_resolution_method && !run.dossier_confirmed && (
+                <div style={{ marginTop: spacing.xs, fontSize: 13, color: colors.danger }}>
+                  Identity unresolved — candidate intelligence only. This run cannot be treated as a confirmed
+                  dossier or advance into Strategy/Outreach until the entity is confirmed.
+                </div>
+              )}
 
               <ConfirmEin
                 prospectId={run.prospect_id}

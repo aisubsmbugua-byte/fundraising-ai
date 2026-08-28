@@ -126,6 +126,16 @@ export const RESEARCH_ENTITY_VALIDATION_STATUSES = [
   "ein_confirmed",
   "official_domain_confirmed",
   "legal_name_confirmed",
+  // A source whose EIN differs from the confirmed entity's. We know it is a
+  // DIFFERENT legal entity; we have not established any relationship to the
+  // prospect. The old name for this ("affiliate_related_entity") asserted an
+  // affiliation that was never shown -- a family foundation's sibling and an
+  // unrelated organization that happens to share a name are indistinguishable
+  // on the evidence we hold. Its evidence is withheld from extraction by
+  // code, not by asking the model to treat it "as context only".
+  "different_entity_unverified_relation",
+  // Retained so historical rows (classifier version 1) stay readable. Never
+  // emitted by current logic -- see ENTITY_CLASSIFICATION_VERSION.
   "affiliate_related_entity",
   "identity_unresolved",
   "entity_mismatch",
@@ -214,6 +224,45 @@ export const RESEARCH_ENTITY_RESOLUTION_METHODS = [
   "unresolved",
 ] as const;
 export type ResearchEntityResolutionMethod = (typeof RESEARCH_ENTITY_RESOLUTION_METHODS)[number];
+
+// Bumped whenever the classification rules change meaning, and recorded on
+// every run. Historical rows are NOT rewritten -- a stored verdict is a
+// record of what that version of the logic actually decided, and rewriting
+// it would destroy the audit trail the evidence ledger exists to provide.
+// Readers use entityStatusMeaning() to render an old value in current terms.
+export const ENTITY_CLASSIFICATION_VERSION = 2;
+
+// How a stored status should be READ, given the classifier version that
+// produced it. v1's "affiliate_related_entity" asserted a relationship it had
+// not established and allowed that evidence into extraction; v2 states only
+// what is known and withholds it.
+export function entityStatusMeaning(
+  status: ResearchEntityValidationStatus | null,
+  classificationVersion: number | null
+): { label: string; assertedRelationship: boolean } {
+  if (status === "affiliate_related_entity") {
+    return {
+      label: "different entity (v1 called this an affiliate -- relationship was never verified)",
+      assertedRelationship: true,
+    };
+  }
+  if (status === "different_entity_unverified_relation") {
+    return { label: "different legal entity -- relationship unverified", assertedRelationship: false };
+  }
+  return { label: (status ?? "not evaluated").replace(/_/g, " "), assertedRelationship: false };
+}
+
+// A run whose identity was never established may be kept and read as
+// candidate intelligence, but it must not be treated as a confirmed dossier
+// for the prospect: with no confirmed EIN, several competing organizations
+// sit at the same trust level, and only the model's reading separates them.
+// Enforced as backend state rather than convention -- any consumer that
+// would advance research into Strategy/Outreach must gate on this.
+export function isConfirmedDossier(run: {
+  entity_resolution_method: string | null;
+}): boolean {
+  return run.entity_resolution_method === "stored_ein" || run.entity_resolution_method === "authoritative_filing" || run.entity_resolution_method === "official_domain";
+}
 
 // Every EIN a source appears to describe, from its captured text and its
 // URL. One source can legitimately mention several (an aggregator page
@@ -412,7 +461,7 @@ export function classifySourceEntity({
 
   if (confirmedEin) {
     if (confirmedEinMatches) return "ein_confirmed";
-    if (einsInSource.length > 0) return nameMatches ? "affiliate_related_entity" : "entity_mismatch";
+    if (einsInSource.length > 0) return nameMatches ? "different_entity_unverified_relation" : "entity_mismatch";
   }
   return nameMatches ? "legal_name_confirmed" : "unrelated_excluded";
 }
@@ -479,7 +528,7 @@ export function classifyRunSources({
     if (confirmedEin && ein === confirmedEin) {
       status = "ein_confirmed";
     } else if (confirmedEin) {
-      status = nameMatches ? "affiliate_related_entity" : "entity_mismatch";
+      status = nameMatches ? "different_entity_unverified_relation" : "entity_mismatch";
     } else {
       status = classifySourceEntity({
         // Pooled URLs so a name appearing in any of this entity's URLs counts.

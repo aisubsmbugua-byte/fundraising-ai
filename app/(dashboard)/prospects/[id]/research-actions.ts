@@ -14,6 +14,8 @@ import {
 import {
   allocateResearchRunVersion,
   classifyRunSources,
+  isConfirmedDossier,
+  ENTITY_CLASSIFICATION_VERSION,
   deriveEntityNameToken,
   resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
@@ -393,6 +395,13 @@ export async function runResearch(runId: string, prospectId: string) {
         // one-click save, and once saved it drives every later run.
         confirmed_ein: confirmedEin,
         entity_resolution_method: entityResolutionMethod,
+        entity_classification_version: ENTITY_CLASSIFICATION_VERSION,
+        // Backend state, not a convention: when identity was refused, several
+        // competing organizations sit at the same trust level and only the
+        // model's reading separates them. Such a run stays as candidate
+        // intelligence but must not advance into Strategy/Outreach until a
+        // human confirms the entity.
+        dossier_confirmed: isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }),
         code_version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
         input_tokens: inputTokens,
         output_tokens: outputTokens,

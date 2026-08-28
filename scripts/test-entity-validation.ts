@@ -9,8 +9,11 @@
 //
 // Usage: npx tsx scripts/test-entity-validation.ts
 
+import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
 import {
   classifyRunSources,
+  entityStatusMeaning,
+  isConfirmedDossier,
   deriveEntityNameToken,
   locationConflicts,
   primarySourceEin,
@@ -143,7 +146,7 @@ const siblingResult = classifyRunSources({
 check(
   "same entity at 3 URLs -> ONE shared verdict (bare-domain page inherits identity)",
   siblingResult.map((r) => r.status),
-  ["affiliate_related_entity", "affiliate_related_entity", "affiliate_related_entity"]
+  ["different_entity_unverified_relation", "different_entity_unverified_relation", "different_entity_unverified_relation"]
 );
 check("...and every URL is attributed to the same entity", Array.from(new Set(siblingResult.map((r) => r.sourceEin))), [SIBLING_EIN]);
 
@@ -258,6 +261,35 @@ check(
   }),
   { ein: null, method: "ambiguous_filings" }
 );
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- Different-entity evidence is withheld by CODE, not by prompt ---");
+
+// A differing EIN means a different legal entity. Whether it is an affiliate
+// is NOT established -- a family foundation's sibling and an unrelated
+// organization that shares a name look identical on the evidence we hold. The
+// old label asserted the relationship and let that evidence into extraction
+// "as context", which left the guarantee resting on the model obeying.
+check("different-entity evidence cannot be cited", EXCLUDED_ENTITY_STATUSES.has("different_entity_unverified_relation"), true);
+check("v1 rows carrying the old label are withheld too", EXCLUDED_ENTITY_STATUSES.has("affiliate_related_entity"), true);
+check(
+  "the old label is re-read without asserting a relationship",
+  entityStatusMeaning("affiliate_related_entity", 1).assertedRelationship,
+  true
+);
+check(
+  "the current label asserts no relationship",
+  entityStatusMeaning("different_entity_unverified_relation", 2).assertedRelationship,
+  false
+);
+
+console.log("\n--- Unresolved identity cannot become a confirmed dossier ---");
+check("stored EIN -> confirmed dossier", isConfirmedDossier({ entity_resolution_method: "stored_ein" }), true);
+check("authoritative filing -> confirmed dossier", isConfirmedDossier({ entity_resolution_method: "authoritative_filing" }), true);
+check("ambiguous filings -> NOT a confirmed dossier", isConfirmedDossier({ entity_resolution_method: "ambiguous_filings" }), false);
+check("unresolved -> NOT a confirmed dossier", isConfirmedDossier({ entity_resolution_method: "unresolved" }), false);
+check("a pre-Stage-1 run -> NOT a confirmed dossier", isConfirmedDossier({ entity_resolution_method: null }), false);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);
