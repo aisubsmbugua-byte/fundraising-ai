@@ -250,29 +250,47 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
 // dossier-level money before that point means paying full price for every
 // candidate that surfaces, most of which are never pursued.
-// What a screen-depth run is actually asked to extract.
+// What a screen-depth run is asked to extract.
 //
-// Screen cannot fetch a page, so it can never read a 990 or a guidelines
-// page -- every financial and application-process key is outside what it
-// could possibly answer. Asking anyway cost real money in the first screen
-// run: extraction still wrote a full 33-key coverage report and 36 claims,
-// leaving output at roughly half the run's total cost. Worse, it invites
-// undated financial figures pulled from search snippets, which are more
-// dangerous than an absent figure.
+// An earlier version of this list held 9 identity/fit keys, justified by the
+// claim that a page-blind run "cannot answer" financial or application keys.
+// A real run disproved that: screen depth asked the full vocabulary found 26
+// keys, including dated, correct financial figures pulled from search
+// snippets (total revenue $13.8M Tax Year 2024, 161 grants Tax Year 2024) --
+// and it correctly reported a conflicting assets figure as two separate
+// claims rather than blending them.
 //
-// These are the keys triage genuinely needs to decide "is this worth
-// pursuing": who they are, what they fund, where, and whether you can even
-// apply. Everything else waits for dossier depth.
+// So the real question is not what screen CAN answer, it is what triage
+// NEEDS in order to decide "is this funder worth pursuing". That needs
+// capacity as well as fit: a perfectly aligned funder whose grants top out
+// at $5k is not worth pursuing for a $50k ask, and you cannot see that from
+// focus areas alone. Hence identity, fit, capacity, and who to talk to.
+//
+// Still excluded, and left to dossier depth: accounting detail (revenue,
+// expenses, charitable disbursements, multi-year aggregates) and the
+// application.* mechanics beyond whether you can apply at all. Those matter
+// when writing the ask, not when deciding whether to pursue -- and they live
+// on guidelines pages that screen depth genuinely cannot fetch.
 export const RESEARCH_TRIAGE_CLAIM_KEYS = [
+  // Who they are
   "identity.legal_name",
   "identity.location",
   "identity.ein",
   "identity.website",
+  // What and where they fund
   "funding.funder_type",
   "funding.focus_areas",
   "funding.geographic_focus",
   "funding.international_reach",
+  // Capacity -- can they fund an ask of our size at all
+  "funding.total_annual_giving",
+  "funding.total_assets",
+  "funding.grant_size_range",
+  "funding.median_grant_size",
+  "funding.grant_count_annual",
+  // Whether we can approach them, and who to approach
   "application.accepts_unsolicited",
+  "people.key_contacts",
 ] as const;
 
 export function claimKeysForDepth(depth: ResearchDepth): { key: string; description: string }[] {

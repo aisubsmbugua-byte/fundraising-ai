@@ -99,9 +99,13 @@ Only report things you actually find -- do not invent facts. If something isn't 
 
 This is a fast first pass to decide whether the funder is worth pursuing -- not a full dossier. A few well-chosen searches, no exhaustive research.
 
-Find only what triage needs: legal name and EIN if stated, location, funder type, the cause areas they fund, their geographic focus, and whether they accept unsolicited applications.
+Find what triage needs to decide whether this funder is worth pursuing:
+- Identity: legal name, EIN if stated, location, official website.
+- Fit: funder type, the cause areas they fund, geographic focus, whether they fund internationally.
+- Capacity: total annual giving, total assets, the range and median size of individual grants, and how many grants they make in a year. A funder whose grants top out well below a typical ask is not worth pursuing however well the mission aligns, so these matter as much as fit.
+- Access: whether they accept unsolicited applications, and the names and roles of the people who run the foundation.
 
-Do not estimate or infer financial figures. If a specific figure appears with its fiscal year clearly stated, you may report it with that year; otherwise omit it rather than reporting an undated or approximate number. Only report things you actually find -- do not invent facts. Do NOT recommend an approach, suggest positioning, or draft any outreach language.`;
+Financial figures must be dated or omitted. If a figure appears with its fiscal or tax year clearly stated, report it with that year; if it does not, leave it out rather than reporting an undated or approximate number -- an undated figure is worse than none. If two sources give different figures for the same thing, report both and say which source each came from rather than picking one. Only report things you actually find -- do not invent facts. Do NOT recommend an approach, suggest positioning, or draft any outreach language.`;
 
   const combinedPrompt = `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
 
