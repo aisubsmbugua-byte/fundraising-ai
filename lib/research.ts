@@ -168,6 +168,34 @@ export function extractEinCandidatesFromUrl(url: string): string[] {
 // distinctive core token of its name. Shared by the EIN vote below and by
 // classifySourceEntity, so both agree on what "this source is about the
 // right organization" means.
+// How far a source's own organization name sits from the prospect's, in
+// extra words. "Maclellan Foundation" vs "The Maclellan Foundation Inc" is
+// close (1-2 filler words); vs "Robert L And Kathrina H Maclellan
+// Foundation" is far (5 extra words naming different people).
+//
+// This is what separates the entity being researched from its affiliates
+// when BOTH legitimately carry the family name and BOTH appear in IRS
+// filings -- the case that made a straight "any matching filing may vote"
+// rule unable to ever resolve a family-foundation cluster. Returns null
+// when the source states no usable name.
+export function nameMatchDistance(prospectName: string, sourceTitle: string | null): number | null {
+  if (!sourceTitle) return null;
+  // Aggregators append their own branding ("... - Nonprofit Explorer -
+  // ProPublica", "... | Cause IQ"); the organization's name is the first
+  // segment. Cutting there keeps site names out of the distance.
+  const orgSegment = sourceTitle.split(/\s+[-|—·]\s+/)[0];
+  const tokenize = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+  const prospectTokens = new Set(tokenize(prospectName));
+  const sourceTokens = tokenize(orgSegment);
+  if (sourceTokens.length === 0) return null;
+  return sourceTokens.filter((t) => !prospectTokens.has(t)).length;
+}
+
 export function sourceMatchesName(sourceUrl: string, sourceTexts: string[], nameToken: string): boolean {
   if (nameToken.length === 0) return false;
   const token = nameToken.toLowerCase();
@@ -268,14 +296,16 @@ export function locationConflicts(prospectLocation: string | null, entityText: s
 // name-matching source settles at legal_name_confirmed instead.
 export function resolveRunEntity({
   storedEin,
+  prospectName,
   prospectWebsite,
   nameToken,
   sources,
 }: {
   storedEin: string | null;
+  prospectName: string;
   prospectWebsite: string | null;
   nameToken: string;
-  sources: { url: string; texts: string[]; sourceType: ResearchSourceType }[];
+  sources: { url: string; texts: string[]; title?: string | null; sourceType: ResearchSourceType }[];
 }): { ein: string | null; method: ResearchEntityResolutionMethod } {
   // 1. A human-confirmed EIN on the prospect record beats everything and
   //    makes every future run of this prospect deterministic.
@@ -284,14 +314,39 @@ export function resolveRunEntity({
   // 2. An EIN stated by an authoritative filing source that also matches the
   //    prospect's name. Distinct competing answers here mean identity is
   //    genuinely contested and must not be guessed.
-  const filingEins = new Set<string>();
+  //    A family foundation's siblings are themselves filing sources carrying
+  //    the family name, so "any matching filing may vote" could never
+  //    resolve such a cluster. Candidates are therefore ranked by how
+  //    closely the filing's own organization name matches the prospect's,
+  //    and only a TIE at the closest distance is genuinely ambiguous:
+  //      "Maclellan Foundation Inc"                   -> 1 extra word  (wins)
+  //      "Robert L And Kathrina H Maclellan Foundation" -> 5 extra words
+  //    while two equally-close competitors stay unresolved, e.g.
+  //      "Servants Heart Foundation Inc"   -> 1 extra word
+  //      "Servants Heart Family Foundation" -> 1 extra word  (tie -> ask a human)
+  const bestDistanceByEin = new Map<string, number>();
   for (const s of sources) {
     if (s.sourceType !== "irs_filing") continue;
-    if (!sourceMatchesName(s.url, s.texts, nameToken)) continue;
-    for (const ein of sourceEinCandidates(s.url, s.texts)) filingEins.add(ein);
+    // The title counts toward the name check as well as the captured text --
+    // callers usually seed one into the other, but a source's own title is
+    // the most direct statement of who it is about and must never be missed.
+    if (!sourceMatchesName(s.url, [...s.texts, s.title ?? ""], nameToken)) continue;
+    // The source's own stated name -- its title, else its first captured text.
+    const distance = nameMatchDistance(prospectName, s.title ?? s.texts[0] ?? null);
+    if (distance === null) continue;
+    for (const ein of sourceEinCandidates(s.url, s.texts)) {
+      const prev = bestDistanceByEin.get(ein);
+      if (prev === undefined || distance < prev) bestDistanceByEin.set(ein, distance);
+    }
   }
-  if (filingEins.size === 1) return { ein: Array.from(filingEins)[0], method: "authoritative_filing" };
-  if (filingEins.size > 1) return { ein: null, method: "ambiguous_filings" };
+  if (bestDistanceByEin.size === 1) return { ein: Array.from(bestDistanceByEin.keys())[0], method: "authoritative_filing" };
+  if (bestDistanceByEin.size > 1) {
+    const ranked = Array.from(bestDistanceByEin.entries()).sort((a, b) => a[1] - b[1]);
+    const closest = ranked[0][1];
+    const tied = ranked.filter(([, d]) => d === closest);
+    if (tied.length === 1) return { ein: tied[0][0], method: "authoritative_filing" };
+    return { ein: null, method: "ambiguous_filings" };
+  }
 
   // 3. An EIN stated on the prospect's own official domain.
   if (prospectWebsite) {

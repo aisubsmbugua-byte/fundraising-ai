@@ -15,6 +15,7 @@ import {
   locationConflicts,
   primarySourceEin,
   resolveRunEntity,
+  nameMatchDistance,
   type ResearchEntityValidationStatus,
 } from "../lib/research";
 
@@ -60,11 +61,12 @@ check(
   "two competing authoritative filings -> ambiguous, no EIN chosen",
   resolveRunEntity({
     storedEin: null,
+    prospectName: "Servants Heart Foundation",
     prospectWebsite: null,
     nameToken: servantsToken,
     sources: [
-      { url: "https://projects.propublica.org/nonprofits/organizations/582218044", texts: ["Servants Heart Foundation Inc"], sourceType: "irs_filing" },
-      { url: "https://getholdings.com/nonprofits/ein/882110698", texts: ["Servants Heart Family Foundation"], sourceType: "irs_filing" },
+      { url: "https://projects.propublica.org/nonprofits/organizations/582218044", title: "Servants Heart Foundation Inc", texts: ["Servants Heart Foundation Inc"], sourceType: "irs_filing" },
+      { url: "https://getholdings.com/nonprofits/ein/882110698", title: "Servants Heart Family Foundation", texts: ["Servants Heart Family Foundation"], sourceType: "irs_filing" },
     ],
   }),
   { ein: null, method: "ambiguous_filings" }
@@ -74,10 +76,11 @@ check(
   "a human-confirmed EIN on the prospect wins outright",
   resolveRunEntity({
     storedEin: "58-2218044",
+    prospectName: "Servants Heart Foundation",
     prospectWebsite: null,
     nameToken: servantsToken,
     sources: [
-      { url: "https://getholdings.com/nonprofits/ein/882110698", texts: ["Servants Heart Family Foundation"], sourceType: "irs_filing" },
+      { url: "https://getholdings.com/nonprofits/ein/882110698", title: "Servants Heart Family Foundation", texts: ["Servants Heart Family Foundation"], sourceType: "irs_filing" },
     ],
   }),
   { ein: "58-2218044", method: "stored_ein" }
@@ -87,11 +90,12 @@ check(
   "a single authoritative filing resolves identity",
   resolveRunEntity({
     storedEin: null,
+    prospectName: "Maclellan Foundation",
     prospectWebsite: "https://www.maclellan.net",
     nameToken: maclellanToken,
     sources: [
-      { url: "https://projects.propublica.org/nonprofits/organizations/626041468", texts: ["Maclellan Foundation Inc"], sourceType: "irs_filing" },
-      { url: "https://example.org/blog", texts: ["A post about the Maclellan Foundation"], sourceType: "secondary_source" },
+      { url: "https://projects.propublica.org/nonprofits/organizations/626041468", title: "Maclellan Foundation Inc", texts: ["Maclellan Foundation Inc"], sourceType: "irs_filing" },
+      { url: "https://example.org/blog", title: "A post", texts: ["A post about the Maclellan Foundation"], sourceType: "secondary_source" },
     ],
   }),
   { ein: MACLELLAN_EIN, method: "authoritative_filing" }
@@ -101,9 +105,10 @@ check(
   "a non-matching name may not vote at all",
   resolveRunEntity({
     storedEin: null,
+    prospectName: "Maclellan Foundation",
     prospectWebsite: null,
     nameToken: maclellanToken,
-    sources: [{ url: "https://projects.propublica.org/nonprofits/organizations/166032078", texts: ["Mclain Foundation"], sourceType: "irs_filing" }],
+    sources: [{ url: "https://projects.propublica.org/nonprofits/organizations/166032078", title: "Mclain Foundation", texts: ["Mclain Foundation"], sourceType: "irs_filing" }],
   }),
   { ein: null, method: "unresolved" }
 );
@@ -208,6 +213,50 @@ check(
     confirmedEin: null,
   })[0].status,
   "legal_name_confirmed"
+);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- Affiliate clusters must still resolve (Maclellan v22 regression) ---");
+
+// v22 regressed to 50 facts (from 80) because the sibling foundations are
+// themselves IRS filings carrying the family name, so "any matching filing
+// may vote" made a family-foundation cluster permanently ambiguous. The
+// researched entity's own filing names it almost exactly; its affiliates
+// carry extra words naming different people.
+check("prospect's own filing is the closest name match", nameMatchDistance("Maclellan Foundation", "The Maclellan Foundation Inc - Nonprofit Explorer - ProPublica"), 2);
+check("an affiliate's filing is much further away", nameMatchDistance("Maclellan Foundation", "Robert L And Kathrina H Maclellan Foundation - Full Filing - Nonprofit Explorer - ProPublica"), 5);
+
+check(
+  "a family cluster still resolves to the researched entity",
+  resolveRunEntity({
+    storedEin: null,
+    prospectName: "Maclellan Foundation",
+    prospectWebsite: "https://www.maclellan.net",
+    nameToken: maclellanToken,
+    sources: [
+      { url: "https://projects.propublica.org/nonprofits/organizations/626041468", title: "The Maclellan Foundation Inc - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+      { url: "https://projects.propublica.org/nonprofits/organizations/237159802", title: "Robert L And Kathrina H Maclellan Foundation - Full Filing - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+    ],
+  }),
+  { ein: MACLELLAN_EIN, method: "authoritative_filing" }
+);
+
+// ...but two EQUALLY close competitors are genuinely ambiguous and must not
+// be guessed between. This is the real Servants Heart case.
+check(
+  "two equally-close competitors stay ambiguous",
+  resolveRunEntity({
+    storedEin: null,
+    prospectName: "Servants Heart Foundation",
+    prospectWebsite: null,
+    nameToken: servantsToken,
+    sources: [
+      { url: "https://projects.propublica.org/nonprofits/organizations/582218044", title: "Servants Heart Foundation Inc - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+      { url: "https://getholdings.com/nonprofits/ein/882110698", title: "Servants Heart Family Foundation - Carlisle, PA", texts: [], sourceType: "irs_filing" },
+    ],
+  }),
+  { ein: null, method: "ambiguous_filings" }
 );
 
 console.log(`\n${pass} passed, ${fail} failed.`);

@@ -171,11 +171,13 @@ export async function runResearch(runId: string, prospectId: string) {
     );
     const { ein: confirmedEin, method: entityResolutionMethod } = resolveRunEntity({
       storedEin: prospect.ein ?? null,
+      prospectName: prospect.legal_name || prospect.name,
       prospectWebsite: prospect.website,
       nameToken,
       sources: indexedSources.map((s) => ({
         url: s.url,
         texts: textsByUrl.get(s.url) ?? [],
+        title: s.title,
         sourceType: classifySourceType(s.url, prospect.website),
       })),
     });
