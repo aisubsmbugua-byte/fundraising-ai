@@ -36,22 +36,40 @@ const admin = createClient(url, key, { auth: { autoRefreshToken: false, persistS
 // product treats as a finding and this script exists to separate out.
 type Cause =
   | "never_checked_by_design" // non-material key -- verification does not cover it
-  | "never_checked_unexpected" // material but no verdict -- verification skipped or failed
+  | "never_checked_run_skipped" // whole run was never eligible for verification
+  | "never_checked_run_failed" // verification ran and died -- retryable
+  | "never_checked_unexpected" // verification completed and still missed a material claim
   | "checked_partial"
   | "checked_unsupported"
   | "checked_contradicted";
 
 const CAUSE_LABEL: Record<Cause, string> = {
   never_checked_by_design: "never checked (non-material key -- by design)",
-  never_checked_unexpected: "never checked (material key -- verification skipped/failed)",
+  never_checked_run_skipped: "never checked (verification not eligible for this run)",
+  never_checked_run_failed: "never checked (verification failed -- retryable)",
+  never_checked_unexpected: "never checked (verification COMPLETED and missed it -- defect)",
   checked_partial: "checked: partially supported",
   checked_unsupported: "checked: unsupported",
   checked_contradicted: "checked: contradicted",
 };
 
+// A material claim with no verdict is only a defect if verification actually
+// ran to completion on that run. Verification is legitimately skipped for
+// non-dossier depths and for runs whose entity was never confirmed -- calling
+// those a failure would manufacture a bug report out of correct behaviour,
+// which is the same false-signal mistake this tool exists to prevent.
+function unverifiedMaterialCause(verificationState: string | null): Cause {
+  if (verificationState === "failed") return "never_checked_run_failed";
+  if (verificationState === "complete") return "never_checked_unexpected";
+  return "never_checked_run_skipped";
+}
+
 type RunReport = {
   prospect: string;
   version: number;
+  depth: string | null;
+  verificationState: string | null;
+  dossierConfirmed: boolean;
   total: number;
   material: number;
   decided: number;
@@ -59,7 +77,14 @@ type RunReport = {
   causes: Record<Cause, number>;
 };
 
-async function reportRun(runId: string, prospectName: string, version: number): Promise<RunReport> {
+async function reportRun(
+  runId: string,
+  prospectName: string,
+  version: number,
+  depth: string | null,
+  verificationState: string | null,
+  dossierConfirmed: boolean
+): Promise<RunReport> {
   const [{ data: claims }, { data: verifications }, { data: approvals }] = await Promise.all([
     admin.from("research_claims").select("id, claim_key").eq("research_run_id", runId),
     admin
@@ -78,6 +103,8 @@ async function reportRun(runId: string, prospectName: string, version: number): 
 
   const causes: Record<Cause, number> = {
     never_checked_by_design: 0,
+    never_checked_run_skipped: 0,
+    never_checked_run_failed: 0,
     never_checked_unexpected: 0,
     checked_partial: 0,
     checked_unsupported: 0,
@@ -102,7 +129,7 @@ async function reportRun(runId: string, prospectName: string, version: number): 
       continue;
     }
     if (!v) {
-      causes[isMaterial ? "never_checked_unexpected" : "never_checked_by_design"]++;
+      causes[isMaterial ? unverifiedMaterialCause(verificationState) : "never_checked_by_design"]++;
     } else if (v === "partially_supported") {
       causes.checked_partial++;
     } else if (v === "contradicted") {
@@ -112,7 +139,18 @@ async function reportRun(runId: string, prospectName: string, version: number): 
     }
   }
 
-  return { prospect: prospectName, version, total: (claims ?? []).length, material, decided, supportedUndecided, causes };
+  return {
+    prospect: prospectName,
+    version,
+    depth,
+    verificationState,
+    dossierConfirmed,
+    total: (claims ?? []).length,
+    material,
+    decided,
+    supportedUndecided,
+    causes,
+  };
 }
 
 function queueSize(r: RunReport) {
@@ -122,12 +160,11 @@ function queueSize(r: RunReport) {
 async function main() {
   const nameQuery = process.argv[2];
 
-  let query = admin
+  const { data: runs } = await admin
     .from("research_runs")
-    .select("id, version, status, prospect_id, prospects(name)")
+    .select("id, version, status, depth, verification_state, dossier_confirmed, prospect_id, prospects(name)")
     .eq("status", "ready")
     .order("version", { ascending: false });
-  const { data: runs } = await query;
   if (!runs?.length) throw new Error("No completed research runs found.");
 
   // Latest ready run per prospect only -- older versions are superseded and
@@ -147,11 +184,23 @@ async function main() {
   const reports: RunReport[] = [];
   for (const r of selected) {
     const p = (Array.isArray(r.prospects) ? r.prospects[0] : r.prospects) as { name: string } | undefined;
-    reports.push(await reportRun(r.id as string, p?.name ?? "(unknown)", r.version as number));
+    reports.push(
+      await reportRun(
+        r.id as string,
+        p?.name ?? "(unknown)",
+        r.version as number,
+        (r.depth as string | null) ?? null,
+        (r.verification_state as string | null) ?? null,
+        !!r.dossier_confirmed
+      )
+    );
   }
 
   for (const rep of reports) {
     console.log(`\n${rep.prospect} — v${rep.version}`);
+    console.log(
+      `  depth ${rep.depth ?? "(unset)"} · verification ${rep.verificationState ?? "(none)"} · entity ${rep.dossierConfirmed ? "confirmed" : "NOT confirmed"}`
+    );
     console.log(`  ${rep.total} claims (${rep.material} material, ${rep.total - rep.material} not)`);
     console.log(`  already decided: ${rep.decided}`);
     console.log(`  verified and awaiting bulk approval: ${rep.supportedUndecided}`);
@@ -162,23 +211,44 @@ async function main() {
   }
 
   if (reports.length > 1) {
-    const sum = (f: (r: RunReport) => number) => reports.reduce((a, r) => a + f(r), 0);
-    const queue = sum(queueSize);
-    const byDesign = sum((r) => r.causes.never_checked_by_design);
-    const unexpected = sum((r) => r.causes.never_checked_unexpected);
-    const genuine = queue - byDesign - unexpected;
+    // The headline ratio counts only runs that were actually verified. A run
+    // verification never ran on contributes an all-unchecked queue that says
+    // nothing about where the human gate belongs, and averaging it in would
+    // understate how much of a REAL review queue is genuine signal.
+    const verified = reports.filter((r) => r.verificationState === "complete");
+    const excluded = reports.filter((r) => r.verificationState !== "complete");
 
+    const tally = (set: RunReport[]) => {
+      const sum = (f: (r: RunReport) => number) => set.reduce((a, r) => a + f(r), 0);
+      const queue = sum(queueSize);
+      const byDesign = sum((r) => r.causes.never_checked_by_design);
+      const defect = sum((r) => r.causes.never_checked_unexpected);
+      const failed = sum((r) => r.causes.never_checked_run_failed);
+      const genuine = sum((r) => r.causes.checked_partial + r.causes.checked_unsupported + r.causes.checked_contradicted);
+      const pct = (n: number) => (queue ? `  (${Math.round((n / queue) * 100)}%)` : "");
+      return { sum, queue, byDesign, defect, failed, genuine, pct };
+    };
+
+    const t = tally(verified);
     console.log(`\n${"=".repeat(60)}`);
-    console.log(`ACROSS ${reports.length} PROSPECTS`);
-    console.log(`  claims: ${sum((r) => r.total)} (${sum((r) => r.material)} material)`);
-    console.log(`  individual decisions outstanding: ${queue}`);
-    console.log(`    never checked, by design:  ${byDesign}${queue ? `  (${Math.round((byDesign / queue) * 100)}%)` : ""}`);
-    console.log(`    never checked, unexpected: ${unexpected}${queue ? `  (${Math.round((unexpected / queue) * 100)}%)` : ""}`);
-    console.log(`    checked, not supported:    ${genuine}${queue ? `  (${Math.round((genuine / queue) * 100)}%)` : ""}`);
-    console.log(
-      `\n  The last line is the only one that reflects research quality. The`
-    );
-    console.log(`  first is a coverage decision we made, showing up as reviewer work.`);
+    console.log(`ACROSS ${verified.length} VERIFIED RUN${verified.length === 1 ? "" : "S"}`);
+    console.log(`  claims: ${t.sum((r) => r.total)} (${t.sum((r) => r.material)} material)`);
+    console.log(`  already decided: ${t.sum((r) => r.decided)} · verified awaiting bulk approval: ${t.sum((r) => r.supportedUndecided)}`);
+    console.log(`  individual decisions outstanding: ${t.queue}`);
+    console.log(`    never checked, by design: ${t.byDesign}${t.pct(t.byDesign)}`);
+    console.log(`    checked, not supported:   ${t.genuine}${t.pct(t.genuine)}`);
+    if (t.defect > 0) console.log(`    DEFECT -- verification completed and missed: ${t.defect}${t.pct(t.defect)}`);
+    if (t.failed > 0) console.log(`    verification failed (retryable): ${t.failed}${t.pct(t.failed)}`);
+    console.log(`\n  "checked, not supported" is the only line reflecting research quality.`);
+    console.log(`  "by design" is a coverage decision, showing up as reviewer work.`);
+
+    if (excluded.length) {
+      console.log(`\n  EXCLUDED from the ratio -- verification never completed:`);
+      for (const r of excluded) {
+        console.log(`    ${r.prospect} v${r.version}: verification ${r.verificationState ?? "(none)"}, depth ${r.depth ?? "(unset)"}, entity ${r.dossierConfirmed ? "confirmed" : "not confirmed"} -- ${queueSize(r)} claims unreviewable`);
+      }
+    }
+
     console.log(`\n  Decisions that count as approval downstream: ${[...APPROVED_FOR_DOWNSTREAM].join(", ")}`);
   }
 }
