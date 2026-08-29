@@ -10,7 +10,7 @@
 // Usage: npx tsx scripts/test-entity-validation.ts
 
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
-import { claimFiguresAppearInEvidence, distinctiveNumbers } from "../lib/research";
+import { claimFiguresAppearInEvidence, distinctiveNumbers, isQuantitativeClaimKey } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -380,6 +380,16 @@ check(
   claimFiguresAppearInEvidence("The foundation supports Christian ministry organizations.", [MISSION_FRAGMENT]),
   true
 );
+
+
+// A real false positive from Servants Heart v9: a focus-areas claim reading
+// "(NTEE-designated 501(c)(3) private grantmaking foundation)" yielded "501"
+// and was flagged, though its cited fragment reasonably contained no digits.
+// The figure check applies only where a number IS the claim.
+check("focus areas is not a quantitative claim", isQuantitativeClaimKey("funding.focus_areas"), false);
+check("total assets is", isQuantitativeClaimKey("funding.total_assets"), true);
+check("recent grants is -- this is where the defect first appeared", isQuantitativeClaimKey("funding.recent_grants"), true);
+check("identity keys are not", isQuantitativeClaimKey("identity.legal_name"), false);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);

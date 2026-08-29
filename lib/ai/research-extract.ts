@@ -3,6 +3,7 @@ import {
   RESEARCH_CLAIM_KEYS,
   claimFiguresAppearInEvidence,
   isFinancialClaimKey,
+  isQuantitativeClaimKey,
   NO_REPORTING_PERIOD,
   UNSTATED_REPORTING_PERIOD,
   type ResearchClaimType,
@@ -387,7 +388,8 @@ ${findings || "(no findings)"}`,
     // model attaches the nearest one instead. Checked here, in extraction, so
     // evaluation replays see it too.
     .map((c) => {
-      if (c.evidence_ids.length === 0) return c;
+      // Only where a figure IS the claim -- see isQuantitativeClaimKey.
+      if (!isQuantitativeClaimKey(c.claim_key) || c.evidence_ids.length === 0) return c;
       const cited = c.evidence_ids.map((i) => evidence[i]?.exactText ?? "").filter(Boolean);
       if (cited.length === 0 || claimFiguresAppearInEvidence(c.claim, cited)) return c;
       return {

@@ -413,6 +413,21 @@ export function isFinancialClaimKey(claimKey: string): boolean {
   return FINANCIAL_CLAIM_KEYS.has(claimKey);
 }
 
+// Claims whose substance IS a figure, and where a number appearing nowhere in
+// the cited evidence means the claim is attached to the wrong fragment.
+//
+// Narrower than "any claim containing a digit", on evidence: a focus-areas
+// claim reading "(NTEE-designated 501(c)(3) private grantmaking foundation)"
+// yielded "501" and was wrongly flagged, because its cited fragment quite
+// reasonably contained no digits at all. Incidental numbers -- legal forms,
+// NTEE codes, percentages, addresses -- are not what the claim asserts.
+// Where a number is not the point, prose support is Stage 5's job.
+const QUANTITATIVE_CLAIM_KEYS = new Set<string>([...FINANCIAL_CLAIM_KEYS, "funding.recent_grants"]);
+
+export function isQuantitativeClaimKey(claimKey: string): boolean {
+  return QUANTITATIVE_CLAIM_KEYS.has(claimKey);
+}
+
 // reporting_period is a REQUIRED field so that "no period" is a deliberate
 // answer rather than a silent omission -- omission was indistinguishable
 // from forgetting, and compliance measured 52-80% across repeated runs on
