@@ -12,6 +12,7 @@ import MoveStageControl from "@/app/(dashboard)/pipeline/move-stage-control";
 import RightRail from "./right-rail";
 import OverviewTab from "./overview-tab";
 import ResearchTab from "./research-tab";
+import { loadProspectIntelligence } from "@/lib/prospect-intelligence";
 import ActivityTab from "./activity-tab";
 import ContactsTab from "./contacts-tab";
 import DeepDivePanel from "./deep-dive-panel";
@@ -52,6 +53,8 @@ export default async function ProspectDetailPage({
     .single<Prospect>();
 
   if (!prospect) notFound();
+
+  const intelligence = await loadProspectIntelligence(supabase, prospect.id);
 
   const [
     { data: history },
@@ -140,6 +143,32 @@ export default async function ProspectDetailPage({
           )}
         </div>
       </div>
+
+      {/* Identity doubt belongs where progression happens, not only inside the
+          Research tab -- a user acting from the header would otherwise never
+          see it. Deliberately a warning and not a block: the pipeline gate is
+          a HUMAN decision, and a fundraiser may well know which foundation
+          this is when our resolver could not tell from search results.
+          Automated consumers (Strategy) are gated separately and strictly. */}
+      {intelligence?.state === "blocked" && (
+        <div
+          style={{
+            marginTop: spacing.md,
+            padding: spacing.sm,
+            border: `1px solid ${colors.danger}`,
+            borderRadius: 6,
+            fontSize: 13,
+            color: colors.text,
+          }}
+        >
+          <strong>Identity not confirmed.</strong> Research found more than one organization matching this name and
+          could not tell which is meant, so its findings may describe a different one.{" "}
+          <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: colors.danger }}>
+            Confirm the entity in Research
+          </Link>{" "}
+          before relying on this research or generating a strategy from it.
+        </div>
+      )}
 
       {isEditing ? (
         <form action={boundUpdate} style={{ display: "grid", gap: spacing.md, marginTop: spacing.xl, maxWidth: 480 }}>
@@ -267,7 +296,9 @@ export default async function ProspectDetailPage({
                   recentHistory={(history ?? []).slice(0, 3)}
                 />
               )}
-              {activeTab === "research" && <ResearchTab deepDiveRun={deepDiveRun ?? null} />}
+              {activeTab === "research" && (
+                <ResearchTab prospectId={prospect.id} intelligence={intelligence} deepDiveRun={deepDiveRun ?? null} />
+              )}
               {activeTab === "strategy" && (
                 <>
                   <MoveStageControl prospectId={prospect.id} prospectName={prospect.name} currentStage={prospect.stage} />
