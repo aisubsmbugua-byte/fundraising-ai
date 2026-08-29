@@ -53,7 +53,7 @@ export async function updateEvidenceItem(id: string, formData: FormData) {
 // Sets verified_at/verified_by/permission together in one step --
 // permission is meaningless before an item has actually been reviewed,
 // and 'approved' is what gates entry into an AI prompt (see
-// deep-dive-actions.ts), so this is the one action that opens that
+// strategy-actions.ts), so this is the one action that opens that
 // gate, not a silent default.
 export async function verifyEvidenceItem(id: string, permission: EvidencePermission) {
   const supabase = createClient();

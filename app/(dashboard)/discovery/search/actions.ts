@@ -146,7 +146,7 @@ export async function startDiscoverySearch(channel: Channel): Promise<string> {
 
 // The heavy-lifting call. Triggered by the search page itself (which
 // stays mounted for the duration) via a fire-and-forget call, same
-// pattern as runDeepDive -- the panel polls /api/discovery-search-runs
+// pattern as runStrategy -- the panel polls /api/discovery-search-runs
 // for progress instead of awaiting this directly. started_at is a
 // lock so a duplicate trigger (e.g. re-render) doesn't run it twice.
 export async function runDiscoverySearch(runId: string, channel: Channel) {

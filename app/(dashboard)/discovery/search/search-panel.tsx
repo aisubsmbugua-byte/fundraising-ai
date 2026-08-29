@@ -19,7 +19,7 @@ export default function SearchPanel() {
 
   // This panel is the stable component for a run -- it's responsible
   // for actually kicking off the work once a run row exists, mirroring
-  // DeepDivePanel. triggeredRef guards against firing twice within
+  // StrategyPanel. triggeredRef guards against firing twice within
   // this component instance; started_at on the server guards against
   // firing twice across page loads/refreshes.
   useEffect(() => {

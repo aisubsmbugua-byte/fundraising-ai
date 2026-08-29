@@ -7,7 +7,7 @@ import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { buildProfileSummary } from "@/lib/channel-match";
 import { channelLabel } from "@/lib/prospects";
 import { interactionKindLabel } from "@/lib/interactions";
-import type { Strategy } from "@/lib/deep-dive";
+import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { Interaction, InteractionKind } from "@/lib/interactions";
 
@@ -58,7 +58,7 @@ export async function suggestNextStep(prospectId: string) {
 
   const [{ data: latestRun }, { data: recentInteractions }, { data: profile }] = await Promise.all([
     supabase
-      .from("deep_dive_runs")
+      .from("strategy_runs")
       .select("approved_strategy")
       .eq("prospect_id", prospectId)
       .not("approved_strategy", "is", null)

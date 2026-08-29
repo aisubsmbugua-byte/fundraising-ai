@@ -113,7 +113,7 @@ export async function retryResearch(prospectId: string, previousRunId: string): 
 // infrastructure, not a feature soft-launched to real tenant users, so the
 // authorization boundary is enforced here structurally, not just by the
 // absence of a UI entry point. started_at acts as a claim-lock, same
-// pattern as runDeepDive, so a duplicate trigger (e.g. a page refresh
+// pattern as runStrategy, so a duplicate trigger (e.g. a page refresh
 // mid-run) can't start the same run twice.
 export async function runResearch(runId: string, prospectId: string, depthOverride?: ResearchDepth) {
   await requireSuperadmin();

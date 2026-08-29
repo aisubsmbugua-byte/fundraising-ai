@@ -19,7 +19,7 @@ export default function ImportCandidatesPage({
         <code>typical_grant_size</code>, <code>focus_areas</code> (comma-separated within the cell —
         quote the field if it contains commas, e.g.{" "}
         <code>&quot;Education, Youth Development&quot;</code>). Any of these you fill in won&apos;t be
-        overwritten by the AI deep-dive later. Rows with a missing name or invalid channel are
+        overwritten by AI research later. Rows with a missing name or invalid channel are
         skipped.
       </p>
 

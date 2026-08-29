@@ -8,16 +8,16 @@ export type SearchedSource = { url: string; title: string | null; pageAge: strin
 // search result. Only produced for purpose: "research_only".
 export type FetchedSource = { url: string; title: string | null; retrievedAt: string | null };
 
-// Shared by the live combined deep-dive action and the new (dark,
+// Shared by the live combined strategy action and the new (dark,
 // superadmin-only) Research Agent action -- same web-search call either
 // way, extracted here so neither has to duplicate it. This is a pure,
-// behavior-preserving extraction of what deep-dive-actions.ts already did
+// behavior-preserving extraction of what strategy-actions.ts already did
 // inline: same prompt, same model, same tool config, same timeout.
 //
 // purpose distinguishes the two callers' prompts: "combined" (the default,
-// used by deep-dive-actions.ts) keeps the original wording byte-for-byte,
+// used by strategy-actions.ts) keeps the original wording byte-for-byte,
 // including "how they prefer to be approached" -- Strategy-flavored
-// framing that combined deep-dive genuinely needs. "research_only" (used
+// framing that the combined strategy action genuinely needs. "research_only" (used
 // by runResearch) drops that clause entirely -- Research must stay
 // upstream of Strategy (see docs/decisions/0002-research-agent.md's
 // governing principles), and that framing has no place in findings meant
@@ -28,7 +28,7 @@ export async function searchFunderWeb(
     organization: string | null;
     website: string | null;
     channel: string;
-    // Optional so the live combined deep-dive's call site is unchanged; used
+    // Optional so the live combined strategy call site is unchanged; used
     // only by the identity preflight, where a stored city/state is a useful
     // disambiguator between similarly-named organizations.
     location?: string | null;
@@ -51,7 +51,7 @@ export async function searchFunderWeb(
   // own TextBlock.citations); searchedSources is the full set of pages
   // examined, cited or not (via WebSearchToolResultBlock.content) -- both
   // auto-populated by the API whenever the web_search tool runs, no extra
-  // flag needed. deep-dive-actions.ts (the live combined action) only
+  // flag needed. strategy-actions.ts (the live combined action) only
   // destructures {findings, stopReason}, so adding these is additive.
   citedSources: CitedSource[];
   searchedSources: SearchedSource[];
@@ -145,7 +145,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
   // Neither identity nor screen may fetch pages.
   const isSearchOnly = isScreen || isIdentity;
 
-  // The live combined deep-dive keeps its original tool config and token
+  // The live combined strategy action keeps its original tool config and
   // budget byte-for-byte -- a human waits on that call, so its latency
   // budget is the constraint. Research is a background evaluation pipeline
   // where retrieval depth matters more than speed, so it gets more
@@ -168,7 +168,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
     allowed_callers: ["direct" as const],
   };
 
-  // Research runs on its own (cheaper) model; the live combined deep-dive
+  // Research runs on its own (cheaper) model; the combined strategy action
   // keeps DRAFT_MODEL untouched -- see resolveModel in lib/ai/model-select.ts.
   const searchModel = isResearch ? resolveModel("research_search").model : DRAFT_MODEL;
 
@@ -184,7 +184,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
       // with page fetches, so 240 was unused headroom that pushed the
       // search+extraction worst case (240+280) past the route's 450s
       // maxDuration. 150+280 = 430s fits, and still leaves ample room over
-      // the observed times. The combined deep-dive keeps its 120s.
+      // the observed times. The combined strategy action keeps its 120s.
       { timeout: isResearch ? 150_000 : 120_000 }
     );
 

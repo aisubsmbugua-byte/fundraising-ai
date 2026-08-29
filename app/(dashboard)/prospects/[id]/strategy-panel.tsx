@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { approveStrategy, retryDeepDive, runDeepDive } from "./deep-dive-actions";
+import { approveStrategy, retryStrategy, runStrategy } from "./strategy-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ControlledListInput from "@/components/ControlledListInput";
 import LoadingStatus from "@/components/LoadingStatus";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
-import type { DeepDiveRun, Strategy, OrganizationIntel } from "@/lib/deep-dive";
+import type { StrategyRun, Strategy, OrganizationIntel } from "@/lib/strategy";
 
 const RUNNING_STATUSES = new Set(["researching", "analyzing"]);
 
@@ -18,20 +18,20 @@ const emptyIntel: OrganizationIntel = {
   focus_areas: [],
 };
 
-export default function DeepDivePanel({
+export default function StrategyPanel({
   prospectId,
   initialRun,
   onApproved,
 }: {
   prospectId: string;
-  initialRun: DeepDiveRun | null;
+  initialRun: StrategyRun | null;
   // Optional -- lets a caller like Strategy Review's split-pane
   // workspace know a strategy was just approved (so it can drop the
   // item out of its "waiting on review" list) without this panel
   // needing to know anything about where it's embedded.
   onApproved?: () => void;
 }) {
-  const [run, setRun] = useState<DeepDiveRun | null>(initialRun);
+  const [run, setRun] = useState<StrategyRun | null>(initialRun);
   const [isPending, startTransition] = useTransition();
   const [outreach, setOutreach] = useState(run?.strategy?.outreach_approach ?? "");
   const [positioning, setPositioning] = useState(run?.strategy?.ask_positioning ?? "");
@@ -45,24 +45,24 @@ export default function DeepDivePanel({
   const triggeredRef = useRef<string | null>(null);
 
   // Fetches run status via a plain REST route, not a Server Action --
-  // see app/api/deep-dive-runs/[prospectId]/route.ts for why.
+  // see app/api/strategy-runs/[prospectId]/route.ts for why.
   async function fetchRun() {
-    const res = await fetch(`/api/deep-dive-runs/${prospectId}`);
+    const res = await fetch(`/api/strategy-runs/${prospectId}`);
     if (!res.ok) return null;
     const { run: latest } = await res.json();
-    return latest as DeepDiveRun | null;
+    return latest as StrategyRun | null;
   }
 
   // This panel is the stable "destination" component for a run, so
   // it's responsible for actually kicking off the work -- not
-  // whatever page navigated here (see runDeepDive's comment for why).
+  // whatever page navigated here (see runStrategy's comment for why).
   // triggeredRef guards against firing twice for the same run within
   // this component instance (e.g. React re-render); started_at on the
   // server guards against firing twice across page loads/refreshes.
   useEffect(() => {
     if (run && run.status === "researching" && !run.started_at && triggeredRef.current !== run.id) {
       triggeredRef.current = run.id;
-      runDeepDive(run.id, prospectId);
+      runStrategy(run.id, prospectId);
     }
   }, [run, prospectId]);
 
@@ -103,7 +103,7 @@ export default function DeepDivePanel({
       {RUNNING_STATUSES.has(run.status) && (
         <div style={{ ...cardStyle, marginTop: spacing.md }}>
           <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm }}>
-            Our AI is doing a deep dive on this prospect to formulate an outreach and ask strategy.
+            Our AI is preparing an outreach and ask strategy for this prospect.
             This typically takes a minute or two — this will update automatically as soon as it&apos;s
             ready for your review.
           </p>
@@ -122,10 +122,10 @@ export default function DeepDivePanel({
             disabled={isPending}
             onClick={() =>
               startTransition(async () => {
-                const newRunId = await retryDeepDive(prospectId);
+                const newRunId = await retryStrategy(prospectId);
                 const latest = await fetchRun();
                 setRun(latest);
-                runDeepDive(newRunId, prospectId);
+                runStrategy(newRunId, prospectId);
               })
             }
             style={{ ...buttonSecondary, marginTop: spacing.sm }}
@@ -203,10 +203,10 @@ export default function DeepDivePanel({
                 disabled={isPending}
                 onClick={() =>
                   startTransition(async () => {
-                    const newRunId = await retryDeepDive(prospectId);
+                    const newRunId = await retryStrategy(prospectId);
                     const latest = await fetchRun();
                     setRun(latest);
-                    runDeepDive(newRunId, prospectId);
+                    runStrategy(newRunId, prospectId);
                   })
                 }
                 style={{ ...buttonSecondary, marginTop: spacing.md }}

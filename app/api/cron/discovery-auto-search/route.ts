@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAutoDiscoverySearchForChannel } from "@/app/(dashboard)/discovery/search/actions";
-import { countStrategiesReadyForReview } from "@/lib/deep-dive";
+import { countStrategiesReadyForReview } from "@/lib/strategy";
 import { CHANNELS } from "@/lib/prospects";
 
 // Up to 7 sequential channel searches (each search call alone can
@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     // Strategy review is the real backlog (each one takes actually
     // reading a full AI-researched strategy and deciding on it), and
     // it's also the queue auto-search indirectly feeds: every candidate
-    // accepted triggers a deep-dive that lands there. Searching for more
+    // accepted triggers strategy generation that lands there. Searching for more
     // candidates while that queue is already backed up just sets up more
     // strain downstream instead of helping.
     const readyForReviewCount = await countStrategiesReadyForReview(supabase, settings.organization_id);

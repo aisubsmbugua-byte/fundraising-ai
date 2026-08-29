@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { countStrategiesReadyForReview } from "@/lib/deep-dive";
+import { countStrategiesReadyForReview } from "@/lib/strategy";
 import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import { colors } from "@/lib/ui";
 import Sidebar from "@/components/Sidebar";
@@ -17,7 +17,7 @@ export default async function DashboardLayout({
   if (!user) redirect("/login");
 
   // Badges represent items that are, by definition, waiting on a
-  // human -- pending Donor Finder candidates, deep-dive strategies
+  // human -- pending Donor Finder candidates, proposed strategies
   // ready_for_review, unverified evidence -- so they all get the same
   // "needs a look" treatment.
   const [readyForReviewCount, { count: pendingCandidateCount }, { data: pipelineProspects }, { count: needsReviewEvidenceCount }] =

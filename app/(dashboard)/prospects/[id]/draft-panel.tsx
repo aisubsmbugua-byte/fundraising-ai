@@ -17,11 +17,11 @@ const DRAFT_MESSAGES = [
 
 export default function DraftPanel({
   prospectId,
-  deepDiveRunId,
+  strategyRunId,
   drafts,
 }: {
   prospectId: string;
-  deepDiveRunId: string;
+  strategyRunId: string;
   drafts: Draft[];
 }) {
   // Tracked per-kind (not a single shared isPending) so clicking one
@@ -34,7 +34,7 @@ export default function DraftPanel({
     setPendingKinds((prev) => new Set(prev).add(kind));
     startTransition(async () => {
       try {
-        await generateDraft(prospectId, deepDiveRunId, kind);
+        await generateDraft(prospectId, strategyRunId, kind);
       } finally {
         setPendingKinds((prev) => {
           const next = new Set(prev);

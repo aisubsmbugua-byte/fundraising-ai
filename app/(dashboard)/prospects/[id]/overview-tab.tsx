@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Layers, Clock, CalendarDays, type LucideIcon } from "lucide-react";
 import { channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
 import { tierLabel, type ScreeningResult } from "@/lib/screening";
-import type { DeepDiveRun } from "@/lib/deep-dive";
+import type { StrategyRun } from "@/lib/strategy";
 import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 import EditableAskAmount from "@/components/EditableAskAmount";
@@ -13,13 +13,13 @@ export default function OverviewTab({
   prospect,
   daysInStage,
   latestScreening,
-  deepDiveRun,
+  strategyRun,
   recentHistory,
 }: {
   prospect: Prospect;
   daysInStage: number;
   latestScreening: ScreeningResult | null;
-  deepDiveRun: DeepDiveRun | null;
+  strategyRun: StrategyRun | null;
   recentHistory: StageChange[];
 }) {
   return (
@@ -75,10 +75,10 @@ export default function OverviewTab({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ fontSize: 14 }}>AI strategy</h3>
           <Link href={`/prospects/${prospect.id}?tab=strategy`} style={{ fontSize: 13 }}>
-            {deepDiveRun?.approved_strategy ? "View full strategy →" : "View →"}
+            {strategyRun?.approved_strategy ? "View full strategy →" : "View →"}
           </Link>
         </div>
-        {deepDiveRun?.approved_strategy ? (
+        {strategyRun?.approved_strategy ? (
           <div>
             <div
               style={{
@@ -88,18 +88,18 @@ export default function OverviewTab({
                 color: colors.teal700,
               }}
             >
-              Approved{deepDiveRun.approved_at ? ` ${new Date(deepDiveRun.approved_at).toLocaleDateString()}` : ""}
+              Approved{strategyRun.approved_at ? ` ${new Date(strategyRun.approved_at).toLocaleDateString()}` : ""}
             </div>
             <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.sm }}>
-              {deepDiveRun.approved_strategy.rationale}
+              {strategyRun.approved_strategy.rationale}
             </p>
           </div>
-        ) : deepDiveRun?.status === "ready_for_review" ? (
+        ) : strategyRun?.status === "ready_for_review" ? (
           <p style={{ fontSize: 13, color: colors.textMuted, margin: 0 }}>
             AI proposed a strategy — waiting on your review in Strategy review.
           </p>
-        ) : deepDiveRun?.status === "error" ? (
-          <p style={{ fontSize: 13, color: colors.danger, margin: 0 }}>{deepDiveRun.status_message}</p>
+        ) : strategyRun?.status === "error" ? (
+          <p style={{ fontSize: 13, color: colors.danger, margin: 0 }}>{strategyRun.status_message}</p>
         ) : (
           <p style={{ fontSize: 13, color: colors.textFaint, margin: 0 }}>AI is still researching this prospect.</p>
         )}

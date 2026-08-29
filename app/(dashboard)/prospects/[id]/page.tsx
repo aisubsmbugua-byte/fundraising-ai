@@ -15,16 +15,16 @@ import ResearchTab from "./research-tab";
 import { loadProspectIntelligence } from "@/lib/prospect-intelligence";
 import ActivityTab from "./activity-tab";
 import ContactsTab from "./contacts-tab";
-import DeepDivePanel from "./deep-dive-panel";
+import StrategyPanel from "./strategy-panel";
 import DraftPanel from "./draft-panel";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle } from "@/lib/ui";
-import type { DeepDiveRun } from "@/lib/deep-dive";
+import type { StrategyRun } from "@/lib/strategy";
 import type { Draft } from "@/lib/drafts";
 import type { Contact } from "@/lib/contacts";
 
-// Deep dive runs two sequential AI calls with real web search, which
+// Strategy generation runs two sequential AI calls with real web search,
 // can run past the Vercel Pro default (60s) -- give this route real
 // headroom instead of racing the clock.
 export const maxDuration = 280;
@@ -59,7 +59,7 @@ export default async function ProspectDetailPage({
   const [
     { data: history },
     { data: screenings },
-    { data: deepDiveRun },
+    { data: strategyRun },
     { data: drafts },
     { data: rulesData },
     { data: relatedContacts },
@@ -77,12 +77,12 @@ export default async function ProspectDetailPage({
       .order("created_at", { ascending: false })
       .returns<ScreeningResult[]>(),
     supabase
-      .from("deep_dive_runs")
+      .from("strategy_runs")
       .select("*")
       .eq("prospect_id", prospect.id)
       .order("created_at", { ascending: false })
       .limit(1)
-      .maybeSingle<DeepDiveRun>(),
+      .maybeSingle<StrategyRun>(),
     supabase.from("drafts").select("*").eq("prospect_id", prospect.id).order("created_at", { ascending: false }).returns<Draft[]>(),
     supabase.from("screening_rules").select("*").eq("active", true),
     supabase.from("contacts").select("*").eq("source_prospect_id", prospect.id).returns<Contact[]>(),
@@ -292,14 +292,14 @@ export default async function ProspectDetailPage({
                   prospect={prospect}
                   daysInStage={daysInStage}
                   latestScreening={latestScreening}
-                  deepDiveRun={deepDiveRun ?? null}
+                  strategyRun={strategyRun ?? null}
                   recentHistory={(history ?? []).slice(0, 3)}
                 />
               )}
               {activeTab === "research" && (
-                <ResearchTab prospectId={prospect.id} intelligence={intelligence} deepDiveRun={deepDiveRun ?? null} />
+                <ResearchTab prospectId={prospect.id} intelligence={intelligence} strategyRun={strategyRun ?? null} />
               )}
-              {activeTab === "strategy" && deepDiveRun?.strategy && !deepDiveRun.approved_intelligence_run_id && (
+              {activeTab === "strategy" && strategyRun?.strategy && !strategyRun.approved_intelligence_run_id && (
                 <div
                   style={{
                     padding: spacing.sm,
@@ -319,10 +319,10 @@ export default async function ProspectDetailPage({
                 <>
                   <MoveStageControl prospectId={prospect.id} prospectName={prospect.name} currentStage={prospect.stage} />
                   <div style={{ marginTop: spacing.lg }}>
-                    <DeepDivePanel prospectId={prospect.id} initialRun={deepDiveRun ?? null} />
+                    <StrategyPanel prospectId={prospect.id} initialRun={strategyRun ?? null} />
                   </div>
-                  {deepDiveRun?.approved_strategy && (
-                    <DraftPanel prospectId={prospect.id} deepDiveRunId={deepDiveRun.id} drafts={drafts ?? []} />
+                  {strategyRun?.approved_strategy && (
+                    <DraftPanel prospectId={prospect.id} strategyRunId={strategyRun.id} drafts={drafts ?? []} />
                   )}
                 </>
               )}

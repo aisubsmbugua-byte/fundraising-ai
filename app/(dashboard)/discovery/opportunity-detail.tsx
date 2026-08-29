@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Globe, MapPin, Coins, Building2, Database, Bookmark, RotateCcw, X, CircleCheck } from "lucide-react";
 import { acceptCandidate, dismissCandidate, saveCandidateForLater, restoreCandidateToPending } from "./actions";
-import { runDeepDive } from "../prospects/[id]/deep-dive-actions";
+import { runStrategy } from "../prospects/[id]/strategy-actions";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
 import FitScoreCircle from "@/components/FitScoreCircle";
@@ -23,7 +23,7 @@ export default function OpportunityDetail({
 }) {
   const [status, setStatus] = useState<PanelStatus>("idle");
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [pendingDeepDive, setPendingDeepDive] = useState<{ runId: string; prospectId: string } | null>(null);
+  const [pendingStrategyRun, setPendingStrategyRun] = useState<{ runId: string; prospectId: string } | null>(null);
   const [, startTransition] = useTransition();
 
   // Reset local transient state whenever the selected candidate
@@ -36,12 +36,12 @@ export default function OpportunityDetail({
   // Fired from an effect, not inline in the transition below --
   // calling a Server Action directly inside startTransition kept
   // isPending-equivalent state stuck for as long as that call took to
-  // settle even though it's never awaited (same fix as DeepDivePanel).
+  // settle even though it's never awaited (same fix as StrategyPanel).
   useEffect(() => {
-    if (pendingDeepDive) {
-      runDeepDive(pendingDeepDive.runId, pendingDeepDive.prospectId);
+    if (pendingStrategyRun) {
+      runStrategy(pendingStrategyRun.runId, pendingStrategyRun.prospectId);
     }
-  }, [pendingDeepDive]);
+  }, [pendingStrategyRun]);
 
   const disabled = status !== "idle";
   const confidenceTone =
@@ -197,7 +197,7 @@ export default function OpportunityDetail({
       <ConfirmDialog
         open={confirmOpen}
         title="Accept candidate"
-        message={`Accept "${candidate.name}" into the pipeline as a new prospect at the Discovery stage? This starts an automatic deep-dive to propose a strategy for pursuing them.`}
+        message={`Accept "${candidate.name}" into the pipeline as a new prospect at the Discovery stage? This starts automatic research and proposes a strategy for pursuing them.`}
         confirmLabel="Accept"
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => {
@@ -209,7 +209,7 @@ export default function OpportunityDetail({
               setStatus("idle");
               return;
             }
-            setPendingDeepDive(result);
+            setPendingStrategyRun(result);
             setStatus("justAccepted");
             onStatusChange(candidate.id, "accepted");
           });

@@ -6,11 +6,11 @@ import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { buildProfileSummary } from "@/lib/channel-match";
 import { channelLabel } from "@/lib/prospects";
-import type { Strategy } from "@/lib/deep-dive";
+import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { DraftKind } from "@/lib/drafts";
 
-export async function generateDraft(prospectId: string, deepDiveRunId: string, kind: DraftKind) {
+export async function generateDraft(prospectId: string, strategyRunId: string, kind: DraftKind) {
   const supabase = createClient();
   const {
     data: { user },
@@ -20,7 +20,7 @@ export async function generateDraft(prospectId: string, deepDiveRunId: string, k
   const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
   if (!prospect) throw new Error("Prospect not found");
 
-  const { data: run } = await supabase.from("deep_dive_runs").select("*").eq("id", deepDiveRunId).single();
+  const { data: run } = await supabase.from("strategy_runs").select("*").eq("id", strategyRunId).single();
   if (!run || !run.approved_strategy) {
     throw new Error("Strategy must be approved before drafting outreach content.");
   }
@@ -88,7 +88,7 @@ Contact: ${prospect.contact_name || "(no named contact)"}${prospect.contact_emai
 
   const { error } = await supabase.from("drafts").insert({
     prospect_id: prospectId,
-    deep_dive_run_id: deepDiveRunId,
+    strategy_run_id: strategyRunId,
     kind,
     subject: isEmail ? result.subject || "" : null,
     content: result.content || "",

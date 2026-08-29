@@ -7,17 +7,17 @@ import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { loadApprovedIntelligence } from "@/lib/prospect-intelligence";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
-import type { Strategy, OrganizationIntel, DeepDiveRun } from "@/lib/deep-dive";
+import type { Strategy, OrganizationIntel, StrategyRun } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 
 // The heavy-lifting call. Triggered by the DESTINATION page (the
-// prospect's own DeepDivePanel) on mount, not by whatever page
+// prospect's own StrategyPanel) on mount, not by whatever page
 // navigated there -- a component that's about to unmount (like the
 // candidates list right before router.push) risks the browser
 // cancelling its in-flight request, which would silently kill the
 // research with no error and no result. started_at acts as a lock so
 // a page refresh mid-run doesn't fire a duplicate.
-export async function runDeepDive(runId: string, prospectId: string) {
+export async function runStrategy(runId: string, prospectId: string) {
   const supabase = createClient();
   const {
     data: { user },
@@ -25,7 +25,7 @@ export async function runDeepDive(runId: string, prospectId: string) {
   if (!user) return;
 
   const { data: claimed } = await supabase
-    .from("deep_dive_runs")
+    .from("strategy_runs")
     .update({ started_at: new Date().toISOString() })
     .eq("id", runId)
     .is("started_at", null)
@@ -57,10 +57,10 @@ export async function runDeepDive(runId: string, prospectId: string) {
     // see lib/ai/funder-search.ts. Same prompt/model/tool config as
     // before this was extracted; behavior-preserving refactor only.
     const { findings, stopReason } = await searchFunderWeb(prospect);
-    console.log(`[deep-dive] search call resolved, stop_reason=${stopReason}`);
+    console.log(`[strategy] search call resolved, stop_reason=${stopReason}`);
 
     await supabase
-      .from("deep_dive_runs")
+      .from("strategy_runs")
       .update({
         status: "analyzing",
         status_message: "Reviewing findings and checking fit against your organization profile...",
@@ -93,7 +93,7 @@ export async function runDeepDive(runId: string, prospectId: string) {
       max_tokens: 2000,
       tools: [
         {
-          name: "submit_deep_dive_results",
+          name: "submit_strategy_results",
           description: "Submit the extracted funder intelligence and proposed strategy for this prospect.",
           input_schema: {
             type: "object",
@@ -174,7 +174,7 @@ export async function runDeepDive(runId: string, prospectId: string) {
           },
         },
       ],
-      tool_choice: { type: "tool", name: "submit_deep_dive_results" },
+      tool_choice: { type: "tool", name: "submit_strategy_results" },
       messages: [
         {
           role: "user",
@@ -257,7 +257,7 @@ ${
 
     if (!hasSubstance) {
       await supabase
-        .from("deep_dive_runs")
+        .from("strategy_runs")
         .update({
           status: "error",
           status_message: "Research didn't turn up enough to propose a strategy",
@@ -267,7 +267,7 @@ ${
         .eq("id", runId);
     } else {
       await supabase
-        .from("deep_dive_runs")
+        .from("strategy_runs")
         .update({
           status: "ready_for_review",
           status_message: "Strategy ready for review",
@@ -285,7 +285,7 @@ ${
     }
   } catch (err) {
     await supabase
-      .from("deep_dive_runs")
+      .from("strategy_runs")
       .update({
         status: "error",
         status_message: "Research failed",
@@ -297,7 +297,7 @@ ${
   revalidatePath(`/prospects/${prospectId}`);
 }
 
-export async function retryDeepDive(prospectId: string) {
+export async function retryStrategy(prospectId: string) {
   const supabase = createClient();
   const {
     data: { user },
@@ -308,7 +308,7 @@ export async function retryDeepDive(prospectId: string) {
   if (!prospect) throw new Error("Prospect not found");
 
   const { data: run, error } = await supabase
-    .from("deep_dive_runs")
+    .from("strategy_runs")
     .insert({
       prospect_id: prospectId,
       status: "researching",
@@ -317,7 +317,7 @@ export async function retryDeepDive(prospectId: string) {
     })
     .select("id")
     .single();
-  if (error || !run) throw new Error(error?.message ?? "Failed to start deep dive");
+  if (error || !run) throw new Error(error?.message ?? "Failed to start strategy run");
 
   revalidatePath(`/prospects/${prospectId}`);
   return run.id as string;
@@ -336,7 +336,7 @@ export async function approveStrategy(
   if (!user) redirect("/login");
 
   const { error } = await supabase
-    .from("deep_dive_runs")
+    .from("strategy_runs")
     .update({
       approved_strategy: approvedStrategy,
       approved_by: user.id,

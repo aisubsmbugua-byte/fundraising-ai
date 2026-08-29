@@ -74,7 +74,7 @@ export type Prospect = {
   ein: string | null;
   legal_name: string | null;
   aliases: string[] | null;
-  // Funder intelligence -- populated from AI deep-dive research when
+  // Funder intelligence -- populated from AI research when
   // a human approves the strategy, not hand-entered.
   location: string | null;
   funder_type: string | null;

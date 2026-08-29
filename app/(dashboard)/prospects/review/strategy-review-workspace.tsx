@@ -3,15 +3,15 @@
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { channelLabel, type Prospect } from "@/lib/prospects";
-import DeepDivePanel from "../[id]/deep-dive-panel";
+import StrategyPanel from "../[id]/strategy-panel";
 import { spacing, colors, radiusSm } from "@/lib/ui";
-import type { DeepDiveRun } from "@/lib/deep-dive";
+import type { StrategyRun } from "@/lib/strategy";
 
-type Item = { prospect: Prospect; run: DeepDiveRun };
+type Item = { prospect: Prospect; run: StrategyRun };
 
 export default function StrategyReviewWorkspace({ items }: { items: Item[] }) {
   // Approving is tracked locally so the item drops out of the queue
-  // immediately (no full reload) -- DeepDivePanel's onApproved fires
+  // immediately (no full reload) -- StrategyPanel's onApproved fires
   // right after approveStrategy succeeds.
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -106,7 +106,7 @@ export default function StrategyReviewWorkspace({ items }: { items: Item[] }) {
               {channelLabel(selected.prospect.channel)}
               {selected.prospect.organization ? ` · ${selected.prospect.organization}` : ""}
             </div>
-            <DeepDivePanel
+            <StrategyPanel
               key={selected.prospect.id}
               prospectId={selected.prospect.id}
               initialRun={selected.run}

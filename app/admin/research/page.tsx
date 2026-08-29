@@ -204,7 +204,7 @@ export default async function AdminResearchPage() {
       <h1 style={{ fontSize: typeScale.pageTitle }}>Research Agent</h1>
       <p style={{ color: colors.textMuted, fontSize: 14 }}>
         Superadmin-only, dark evaluation tool for Build 1&apos;s Research Agent -- runs the extraction-only path in
-        parallel to the live deep-dive workflow and never touches it. See{" "}
+        parallel to the live strategy workflow and never touches it. See{" "}
         <code style={{ fontSize: 13 }}>docs/decisions/0002-research-agent.md</code>.
       </p>
 

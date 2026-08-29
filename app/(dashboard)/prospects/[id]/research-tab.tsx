@@ -1,4 +1,4 @@
-import type { DeepDiveRun } from "@/lib/deep-dive";
+import type { StrategyRun } from "@/lib/strategy";
 import type { ProspectIntelligence, IntelligenceReviewState } from "@/lib/prospect-intelligence";
 import { spacing, colors, sectionStyle, chipStyle } from "@/lib/ui";
 import EntityResolver from "./entity-resolver";
@@ -23,16 +23,16 @@ const REVIEW_STATE: Record<IntelligenceReviewState, { label: string; tone: "teal
 export default function ResearchTab({
   prospectId,
   intelligence,
-  deepDiveRun,
+  strategyRun,
 }: {
   prospectId: string;
   intelligence: ProspectIntelligence | null;
-  deepDiveRun: DeepDiveRun | null;
+  strategyRun: StrategyRun | null;
 }) {
   // Kept, but collapsed and labelled: it predates entity checking and
   // verification, so presenting it beside verified intelligence without that
   // caveat would imply a standard it was never held to.
-  const legacy = deepDiveRun?.findings ? (
+  const legacy = strategyRun?.findings ? (
     <details style={{ marginTop: spacing.md }}>
       <summary style={{ fontSize: 13, color: colors.textMuted, cursor: "pointer" }}>
         Legacy research (from the earlier deep-dive)
@@ -41,7 +41,7 @@ export default function ResearchTab({
         Unstructured findings from the original deep-dive, kept for prospects researched before structured
         intelligence existed. It has not been entity-checked or verified against its sources.
       </p>
-      <p style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap", marginTop: spacing.sm }}>{deepDiveRun.findings}</p>
+      <p style={{ fontSize: 13, color: colors.text, whiteSpace: "pre-wrap", marginTop: spacing.sm }}>{strategyRun.findings}</p>
     </details>
   ) : null;
 
@@ -51,7 +51,7 @@ export default function ResearchTab({
         <div style={sectionStyle}>
           <h3 style={{ fontSize: 14, margin: 0 }}>No structured research yet</h3>
           <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
-            {deepDiveRun?.findings
+            {strategyRun?.findings
               ? "This prospect has legacy deep-dive findings only. Structured intelligence appears once research has been run for it."
               : "Structured intelligence appears once research has been run for this prospect."}
           </p>

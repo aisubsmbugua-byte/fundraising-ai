@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export const DEEP_DIVE_STATUSES = ["researching", "analyzing", "ready_for_review", "error"] as const;
-export type DeepDiveStatus = (typeof DEEP_DIVE_STATUSES)[number];
+export const STRATEGY_RUN_STATUSES = ["researching", "analyzing", "ready_for_review", "error"] as const;
+export type StrategyRunStatus = (typeof STRATEGY_RUN_STATUSES)[number];
 
 export type Strategy = {
   outreach_approach: string;
@@ -28,10 +28,10 @@ export type OrganizationIntel = {
   focus_areas: string[];
 };
 
-export type DeepDiveRun = {
+export type StrategyRun = {
   id: string;
   prospect_id: string;
-  status: DeepDiveStatus;
+  status: StrategyRunStatus;
   status_message: string | null;
   started_at: string | null;
   findings: string | null;
@@ -55,16 +55,16 @@ export type DeepDiveRun = {
 
 // Shared by the sidebar "Strategies to Review" badge, the
 // /prospects/review queue, and the overnight auto-search queue-depth
-// check -- one prospect can have multiple deep_dive_runs (e.g. via
-// "Run New Deep Dive"), and only the latest one per prospect counts.
-// No "latest per prospect" query built into deep_dive_runs, so
+// check -- one prospect can have multiple strategy_runs (e.g. via
+// "Regenerate strategy"), and only the latest one per prospect counts.
+// No "latest per prospect" query built into strategy_runs, so
 // dedupe newest-first in JS; cheap at this app's scale. organizationId
 // is only needed when called with the admin client (the overnight
 // cron route, which has no auth.uid() for RLS to filter by) -- the
 // normal session-client callers leave it unset and rely on RLS.
 export async function countStrategiesReadyForReview(supabase: SupabaseClient, organizationId?: string): Promise<number> {
   let query = supabase
-    .from("deep_dive_runs")
+    .from("strategy_runs")
     .select("prospect_id, status, approved_strategy, created_at")
     .order("created_at", { ascending: false });
   if (organizationId) query = query.eq("organization_id", organizationId);

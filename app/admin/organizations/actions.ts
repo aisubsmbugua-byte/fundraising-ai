@@ -58,7 +58,7 @@ const ORG_SCOPED_TABLES = [
   "org_profile",
   "channel_match_runs",
   "candidates",
-  "deep_dive_runs",
+  "strategy_runs",
   "org_documents",
   "drafts",
   "discovery_search_runs",

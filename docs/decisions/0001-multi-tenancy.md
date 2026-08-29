@@ -75,7 +75,7 @@ production, which was already breaking login for more than a couple of users.
 - **Cross-table FK integrity is an accepted gap, not closed.** Seven columns
   reference other org-scoped tables with no same-org check constraint:
   `stage_changes.prospect_id`, `screening_results.prospect_id`,
-  `deep_dive_runs.prospect_id`, `drafts.prospect_id`, `drafts.deep_dive_run_id`,
+  `strategy_runs.prospect_id`, `drafts.prospect_id`, `drafts.strategy_run_id`,
   `contacts.source_prospect_id`, `contacts.source_candidate_id`,
   `evidence_items.source_document_id`. Each gets its own row's
   `organization_id` from the inserting user's own org via

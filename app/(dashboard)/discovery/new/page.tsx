@@ -42,7 +42,7 @@ export default function NewCandidatePage() {
         </label>
 
         <div style={{ fontSize: 13, fontWeight: 600, marginTop: spacing.sm }}>
-          Funder intelligence (optional — fill in what you already know; the deep-dive fills gaps
+          Funder intelligence (optional — fill in what you already know; research fills gaps
           later, never overwrites what you enter here)
         </div>
         <label style={labelStyle}>

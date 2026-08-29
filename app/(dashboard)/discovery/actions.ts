@@ -198,13 +198,13 @@ export async function acceptCandidate(candidateId: string) {
   console.log(`[accept-candidate] candidate status updated at +${Date.now() - t0}ms`);
 
   // Accepting is a commitment to pursue this prospect -- create the
-  // deep-dive run row now (fast, just an insert). The actual research
+  // strategy run row now (fast, just an insert). The actual research
   // is triggered by the caller (CandidateActions), fire-and-forget,
   // right after this returns -- the Discovery page stays mounted
   // (Accept no longer navigates away), so there's no unmounting-
   // component risk of the browser cancelling that request.
   const { data: run, error: runError } = await supabase
-    .from("deep_dive_runs")
+    .from("strategy_runs")
     .insert({
       prospect_id: prospect.id,
       status: "researching",
@@ -213,8 +213,8 @@ export async function acceptCandidate(candidateId: string) {
     })
     .select("id")
     .single();
-  if (runError || !run) throw new Error(runError?.message ?? "Failed to start deep dive");
-  console.log(`[accept-candidate] deep_dive_run inserted at +${Date.now() - t0}ms`);
+  if (runError || !run) throw new Error(runError?.message ?? "Failed to start strategy run");
+  console.log(`[accept-candidate] strategy_run inserted at +${Date.now() - t0}ms`);
 
   revalidatePath("/discovery");
   revalidatePath("/pipeline");

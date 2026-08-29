@@ -25,7 +25,7 @@ import {
   type Prospect,
   type HealthStatus,
 } from "@/lib/prospects";
-import { countStrategiesReadyForReview } from "@/lib/deep-dive";
+import { countStrategiesReadyForReview } from "@/lib/strategy";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import type { DiscoverySearchRun } from "@/lib/discovery-search";
 import type { Candidate } from "@/lib/candidates";

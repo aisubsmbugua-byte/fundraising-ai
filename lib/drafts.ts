@@ -14,7 +14,7 @@ export type DraftStatus = "draft" | "approved";
 export type Draft = {
   id: string;
   prospect_id: string;
-  deep_dive_run_id: string | null;
+  strategy_run_id: string | null;
   kind: DraftKind;
   subject: string | null;
   content: string;

@@ -4,7 +4,7 @@ import type { EvidenceItem } from "@/lib/evidence";
 import { spacing, colors, type as typeScale, radiusSm, cardStyle } from "@/lib/ui";
 import EvidenceWorkspace from "./evidence-workspace";
 
-type DeepDiveRunEvidence = { evidence_item_ids: string[] | null; approved_strategy: unknown | null };
+type StrategyRunEvidence = { evidence_item_ids: string[] | null; approved_strategy: unknown | null };
 type OrgDocument = { id: string; file_name: string };
 
 export default async function EvidencePage() {
@@ -12,7 +12,7 @@ export default async function EvidencePage() {
   const [{ data: items, error }, { data: documents }, { data: runs }] = await Promise.all([
     supabase.from("evidence_items").select("*").order("created_at", { ascending: false }).returns<EvidenceItem[]>(),
     supabase.from("org_documents").select("id, file_name").order("uploaded_at", { ascending: false }).returns<OrgDocument[]>(),
-    supabase.from("deep_dive_runs").select("evidence_item_ids, approved_strategy").returns<DeepDiveRunEvidence[]>(),
+    supabase.from("strategy_runs").select("evidence_item_ids, approved_strategy").returns<StrategyRunEvidence[]>(),
   ]);
 
   if (error) {
