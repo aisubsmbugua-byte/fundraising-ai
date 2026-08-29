@@ -3,6 +3,7 @@ import {
   RESEARCH_CLAIM_KEYS,
   isFinancialClaimKey,
   NO_REPORTING_PERIOD,
+  UNSTATED_REPORTING_PERIOD,
   type ResearchClaimType,
   type ResearchConfidence,
   type ResearchEvidenceKind,
@@ -266,7 +267,7 @@ export async function extractResearchClaims({
                     reporting_period: {
                       type: "string",
                       description:
-                        `The fiscal or tax year this fact covers, e.g. "FY2024" or "Tax Year 2023". Required on EVERY claim. If the fact is not tied to a time period (a legal name, a location, a focus area), answer exactly "${NO_REPORTING_PERIOD}". If it IS a financial figure but the evidence states no year, also answer "${NO_REPORTING_PERIOD}" -- never guess or infer a year the evidence does not state.`,
+                        `The fiscal or tax year this fact covers, e.g. "FY2024" or "Tax Year 2023". Required on EVERY claim, with exactly three possible answers. (1) The period, when the evidence states one. (2) "${UNSTATED_REPORTING_PERIOD}" when the fact DOES vary by period -- any financial figure, grant count or grant size -- but the evidence gives no year; never guess or infer one. (3) "${NO_REPORTING_PERIOD}" only when the fact genuinely does not vary by time, such as a legal name, a location or a focus area. A financial figure is never "${NO_REPORTING_PERIOD}": assets and giving change every year, so the honest answer is "${UNSTATED_REPORTING_PERIOD}".`,
                     },
                   },
                   required: ["claim_key", "claim_type", "claim", "evidence_ids", "supports_directly", "confidence", "reporting_period"],
@@ -384,13 +385,16 @@ ${findings || "(no findings)"}`,
     // measured 52-80% across repeated runs when it was an instruction, and
     // this is the same class of model-obedience dependency the entity work
     // removed. Applied in extraction so evaluation replays see it too.
-    .map((c) => (c.reporting_period === NO_REPORTING_PERIOD && !isFinancialClaimKey(c.claim_key) ? { ...c, reporting_period: undefined } : c))
     .map((c) => {
-      const undated = !c.reporting_period || c.reporting_period === NO_REPORTING_PERIOD;
+      const undated = !c.reporting_period || c.reporting_period === NO_REPORTING_PERIOD || c.reporting_period === UNSTATED_REPORTING_PERIOD;
       if (!isFinancialClaimKey(c.claim_key) || !undated) return c;
       return {
         ...c,
-        reporting_period: undefined,
+        // Recorded as "unstated", never "not_time_bound" and never blank: the
+        // figure genuinely varies by period and the evidence simply gave
+        // none. Collapsing that into a missing field or a "no period applies"
+        // label would hide a real gap behind something that reads as fine.
+        reporting_period: UNSTATED_REPORTING_PERIOD,
         confidence: "low" as ResearchConfidence,
         confidence_reason: c.confidence_reason
           ? `${c.confidence_reason}; reporting period unstated`

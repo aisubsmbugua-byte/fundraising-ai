@@ -292,12 +292,29 @@ export function isFinancialClaimKey(claimKey: string): boolean {
   return FINANCIAL_CLAIM_KEYS.has(claimKey);
 }
 
-// The value the model must give when a fact genuinely has no reporting
-// period. reporting_period is a REQUIRED field precisely so that "no period"
-// is a deliberate answer rather than a silent omission -- omission was
-// indistinguishable from forgetting, and compliance measured 52-80% across
-// repeated runs on identical evidence when it was optional.
+// reporting_period is a REQUIRED field so that "no period" is a deliberate
+// answer rather than a silent omission -- omission was indistinguishable
+// from forgetting, and compliance measured 52-80% across repeated runs on
+// identical evidence when the field was optional.
+//
+// Three answers are possible, and the distinction matters for audit:
+//   "Tax Year 2024"   the evidence states the period
+//   "unstated"        the fact DOES vary by period, but the evidence gives
+//                     none. The figure is real and unusable as-is.
+//   "not_time_bound"  the fact genuinely does not vary by time -- a legal
+//                     name, a location, a focus area.
+//
+// A financial figure can never legitimately be not_time_bound: assets,
+// giving and grant sizes all move year to year, so "no period applies" is
+// never true of them, only "no period was stated". Collapsing the two would
+// hide a real gap behind a label that reads as fine.
 export const NO_REPORTING_PERIOD = "not_time_bound";
+export const UNSTATED_REPORTING_PERIOD = "unstated";
+
+// Whether a stored reporting_period actually pins the fact to a period.
+export function hasStatedPeriod(reportingPeriod: string | null | undefined): boolean {
+  return !!reportingPeriod && reportingPeriod !== NO_REPORTING_PERIOD && reportingPeriod !== UNSTATED_REPORTING_PERIOD;
+}
 
 export const RESEARCH_TRIAGE_CLAIM_KEYS = [
   // Who they are

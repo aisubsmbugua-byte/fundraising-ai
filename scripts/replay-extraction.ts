@@ -25,7 +25,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { extractResearchClaims, EXCLUDED_ENTITY_STATUSES, type EvidenceFragment } from "../lib/ai/research-extract";
-import { claimKeysForDepth, isFinancialClaimKey, type ResearchDepth, type ResearchEntityValidationStatus } from "../lib/research";
+import { claimKeysForDepth, hasStatedPeriod, isFinancialClaimKey, NO_REPORTING_PERIOD, type ResearchDepth, type ResearchEntityValidationStatus } from "../lib/research";
 import { estimateCostUsd } from "../lib/ai/model-select";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -122,7 +122,7 @@ async function main() {
     return;
   }
 
-  const rows: { claims: number; found: number; high: number; dated: string; badIds: number; cost: number; undatedButTrusted: number }[] = [];
+  const rows: { claims: number; found: number; high: number; dated: string; badIds: number; cost: number; undatedButTrusted: number; wronglyTimeless: number }[] = [];
 
   for (let i = 0; i < repeat; i++) {
     const result = await extractResearchClaims({
@@ -144,13 +144,16 @@ async function main() {
     // The guarantee that matters is not that every figure is dated -- some
     // evidence genuinely states no year -- but that an UNDATED financial
     // figure can never be presented as trustworthy.
-    const undatedButTrusted = financial.filter((c) => !c.reporting_period && c.confidence !== "low").length;
-    const dated = financial.filter((c) => c.reporting_period).length;
+    const undatedButTrusted = financial.filter((c) => !hasStatedPeriod(c.reporting_period) && c.confidence !== "low").length;
+    // A financial figure can never legitimately be "no period applies".
+    const wronglyTimeless = financial.filter((c) => c.reporting_period === NO_REPORTING_PERIOD).length;
+    const dated = financial.filter((c) => hasStatedPeriod(c.reporting_period)).length;
     const high = result.claims.filter((c) => c.confidence === "high").length;
     const cost = estimateCostUsd(result.model, result.usage.inputTokens, result.usage.outputTokens);
 
     rows.push({
       undatedButTrusted,
+      wronglyTimeless,
       claims: result.claims.length,
       found: result.coverage.filter((c) => c.status === "found").length,
       high,
@@ -179,8 +182,10 @@ async function main() {
 
   const totalBad = rows.reduce((n, r) => n + r.badIds, 0);
   const totalUndatedTrusted = rows.reduce((n, r) => n + r.undatedButTrusted, 0);
+  const totalWronglyTimeless = rows.reduce((n, r) => n + r.wronglyTimeless, 0);
   console.log(`\n  ${totalBad === 0 ? "PASS" : "FAIL"}: every cited evidence_id resolved to a real fragment (${totalBad} invalid)`);
   console.log(`  ${totalUndatedTrusted === 0 ? "PASS" : "FAIL"}: no undated financial figure above low confidence (${totalUndatedTrusted} violations)`);
+  console.log(`  ${totalWronglyTimeless === 0 ? "PASS" : "FAIL"}: no financial figure labelled "not_time_bound" (${totalWronglyTimeless} violations)`);
   console.log(`  mean cost $${(rows.reduce((a, r) => a + r.cost, 0) / rows.length).toFixed(4)} per extraction`);
 }
 
