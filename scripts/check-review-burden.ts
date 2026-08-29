@@ -211,12 +211,20 @@ async function main() {
   }
 
   if (reports.length > 1) {
-    // The headline ratio counts only runs that were actually verified. A run
-    // verification never ran on contributes an all-unchecked queue that says
-    // nothing about where the human gate belongs, and averaging it in would
-    // understate how much of a REAL review queue is genuine signal.
-    const verified = reports.filter((r) => r.verificationState === "complete");
-    const excluded = reports.filter((r) => r.verificationState !== "complete");
+    // The headline ratio counts only runs that were actually verified -- a
+    // run verification never touched contributes an all-unchecked queue that
+    // says nothing about where the human gate belongs.
+    //
+    // "Actually verified" is measured from the claims, not from
+    // verification_state. That column arrived in migration 0050, so runs
+    // predating it read null while carrying a full set of verdicts; trusting
+    // the column dropped a completely verified run out of the sample and left
+    // n=1. What a run DID is in its rows, not in a field describing them.
+    const wasVerified = (r: RunReport) =>
+      r.verificationState === "complete" ||
+      (r.material > 0 && r.causes.never_checked_run_skipped === 0 && r.causes.never_checked_run_failed === 0 && r.causes.never_checked_unexpected === 0);
+    const verified = reports.filter(wasVerified);
+    const excluded = reports.filter((r) => !wasVerified(r));
 
     const tally = (set: RunReport[]) => {
       const sum = (f: (r: RunReport) => number) => set.reduce((a, r) => a + f(r), 0);
