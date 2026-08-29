@@ -436,7 +436,15 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     // returned successfully. v11 fetched the grant schedule, cited nothing
     // from it, produced zero named grants -- and was marked complete. A page
     // opened and taken nothing from is not a source the dossier read.
-    const readUrls = new Set(allFragments.filter((f) => f.kind === "fetched_page_excerpt").map((f) => f.url));
+    // ...and it must be OUR entity's page. v12 read two filings belonging to a
+    // different organization (EIN 20-5145644); counting those would mark the
+    // dossier complete on the strength of someone else's filing. Excluded
+    // sources are stored for audit but cannot satisfy a source class.
+    const readUrls = new Set(
+      allFragments
+        .filter((f) => f.kind === "fetched_page_excerpt" && !EXCLUDED_ENTITY_STATUSES.has(f.entityStatus))
+        .map((f) => f.url)
+    );
     const grantSchedulePresent = indexedSources.some((s) => isGrantSchedulePage(s.url));
     const grantScheduleFetched = Array.from(readUrls).some((u) => isGrantSchedulePage(u));
     const filingRead = Array.from(readUrls).some((u) => classifySourceType(u, prospect.website) === "irs_filing");
