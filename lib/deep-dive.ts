@@ -44,6 +44,9 @@ export type DeepDiveRun = {
   approved_by: string | null;
   approved_at: string | null;
   approved_strategy: Strategy | null;
+  // Null means the strategy predates approved intelligence: built from
+  // unstructured legacy research, never checked against reviewed claims.
+  approved_intelligence_run_id: string | null;
   // Verified + approved evidence_items the AI actually cited when
   // proposing this strategy. Null on runs from before the Evidence
   // Library existed.

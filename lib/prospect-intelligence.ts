@@ -35,6 +35,7 @@ export type IntelligenceClaim = {
   periodUnverified: boolean;
   reviewState: IntelligenceReviewState;
   reviewReason: string | null;
+  decision: { decision: string; note: string | null } | null;
   sources: { url: string; title: string | null; citedText: string | null }[];
 };
 
@@ -103,6 +104,16 @@ export async function loadProspectIntelligence(
     supabase.from("research_sources").select("url, title, source_ein, entity_validation_status").eq("research_run_id", run.id),
   ]);
 
+  const { data: approvals } = await supabase
+    .from("research_claim_approvals")
+    .select("claim_id, decision, note, created_at")
+    .eq("research_run_id", run.id)
+    .order("created_at", { ascending: false });
+  const decisionByClaim = new Map<string, { decision: string; note: string | null }>();
+  for (const a of approvals ?? []) {
+    if (!decisionByClaim.has(a.claim_id as string)) decisionByClaim.set(a.claim_id as string, { decision: a.decision as string, note: (a.note as string | null) ?? null });
+  }
+
   // Most recent verdict per claim -- history is kept, the current judgement shown.
   const verdictByClaim = new Map<string, { verdict: string; period_verdict: string | null; reason: string | null }>();
   for (const v of verifications ?? []) {
@@ -164,6 +175,7 @@ export async function loadProspectIntelligence(
       periodUnverified: verdict?.period_verdict === "unverified",
       reviewState,
       reviewReason: verdict?.reason ?? (c.confidence_reason as string | null) ?? null,
+      decision: decisionByClaim.get(c.id as string) ?? null,
       sources: sourcesByClaim.get(c.id as string) ?? [],
     };
   });
@@ -214,5 +226,113 @@ export async function loadProspectIntelligence(
       fetchFailures: (run.fetch_failures as number | null) ?? null,
       missingSourceClasses: ((run.missing_source_classes as string[] | null) ?? []),
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The approved intelligence payload.
+//
+// This is the ONLY thing an automated consumer may read. Strategy must never
+// query research_claims and decide for itself what is safe: the policy for
+// what counts as usable lives here, in one place, and is therefore testable
+// and changeable in one place. A downstream agent applying its own judgement
+// would mean the rule "unsupported claims must not be used" exists in as many
+// versions as there are consumers.
+//
+// A claim qualifies when it was verified against its evidence, OR when a
+// person explicitly approved it despite that. Nothing else passes: not
+// unchecked claims, not partly supported ones a reviewer never saw, and never
+// anything from a run whose identity was unresolved.
+
+export type ApprovedClaim = {
+  claimKey: string;
+  claim: string;
+  reportingPeriod: string | null;
+  // True when a person accepted this over the evidence -- their note travels
+  // with it so a downstream reader knows it rests on human knowledge.
+  humanOverride: boolean;
+  overrideNote: string | null;
+  sources: { url: string; title: string | null }[];
+};
+
+export type ApprovedIntelligence = {
+  researchRunId: string;
+  version: number;
+  confirmedEin: string | null;
+  claims: ApprovedClaim[];
+};
+
+export async function loadApprovedIntelligence(
+  supabase: SupabaseClient,
+  prospectId: string
+): Promise<ApprovedIntelligence | null> {
+  const { data: run } = await supabase
+    .from("research_runs")
+    .select("id, version, confirmed_ein, dossier_confirmed")
+    .eq("prospect_id", prospectId)
+    .eq("status", "ready")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Unresolved identity is disqualifying outright. Research about an
+  // organization we could not identify has nothing to contribute to a
+  // strategy for this one, however well-supported its individual claims are.
+  if (!run || !run.dossier_confirmed) return null;
+
+  const [{ data: claims }, { data: verifications }, { data: approvals }, { data: links }] = await Promise.all([
+    supabase.from("research_claims").select("id, claim_key, claim, reporting_period").eq("research_run_id", run.id),
+    supabase.from("research_claim_verifications").select("claim_id, verdict, created_at").eq("research_run_id", run.id).order("created_at", { ascending: false }),
+    supabase.from("research_claim_approvals").select("claim_id, decision, note, corrected_claim, created_at").eq("research_run_id", run.id).order("created_at", { ascending: false }),
+    supabase.from("research_claim_sources").select("claim_id, research_sources(url, title)").eq("research_run_id", run.id),
+  ]);
+
+  const verdictByClaim = new Map<string, string>();
+  for (const v of verifications ?? []) if (!verdictByClaim.has(v.claim_id as string)) verdictByClaim.set(v.claim_id as string, v.verdict as string);
+
+  const decisionByClaim = new Map<string, { decision: string; note: string | null; corrected: string | null }>();
+  for (const a of approvals ?? []) {
+    if (decisionByClaim.has(a.claim_id as string)) continue;
+    decisionByClaim.set(a.claim_id as string, {
+      decision: a.decision as string,
+      note: (a.note as string | null) ?? null,
+      corrected: (a.corrected_claim as string | null) ?? null,
+    });
+  }
+
+  const sourcesByClaim = new Map<string, { url: string; title: string | null }[]>();
+  for (const l of links ?? []) {
+    const src = (Array.isArray(l.research_sources) ? l.research_sources[0] : l.research_sources) as { url: string; title: string | null } | undefined;
+    if (!src) continue;
+    const list = sourcesByClaim.get(l.claim_id as string) ?? [];
+    if (!list.some((x) => x.url === src.url)) list.push({ url: src.url, title: src.title });
+    sourcesByClaim.set(l.claim_id as string, list);
+  }
+
+  const approved: ApprovedClaim[] = [];
+  for (const c of claims ?? []) {
+    const decision = decisionByClaim.get(c.id as string);
+    // An explicit exclusion always wins, even over a clean verdict: a person
+    // who has seen a claim and rejected it outranks the check.
+    if (decision && !["approved", "approved_with_note", "corrected"].includes(decision.decision)) continue;
+
+    const verified = verdictByClaim.get(c.id as string) === "supported";
+    if (!verified && !decision) continue;
+
+    approved.push({
+      claimKey: c.claim_key as string,
+      claim: decision?.corrected || (c.claim as string),
+      reportingPeriod: (c.reporting_period as string | null) ?? null,
+      humanOverride: !verified,
+      overrideNote: decision?.note ?? null,
+      sources: sourcesByClaim.get(c.id as string) ?? [],
+    });
+  }
+
+  return {
+    researchRunId: run.id as string,
+    version: run.version as number,
+    confirmedEin: (run.confirmed_ein as string | null) ?? null,
+    claims: approved,
   };
 }

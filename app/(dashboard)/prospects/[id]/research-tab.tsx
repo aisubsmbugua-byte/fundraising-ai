@@ -3,6 +3,7 @@ import type { ProspectIntelligence, IntelligenceReviewState } from "@/lib/prospe
 import { spacing, colors, sectionStyle, chipStyle } from "@/lib/ui";
 import EntityResolver from "./entity-resolver";
 import VerifyRetry from "./verify-retry";
+import { ApproveVerified, ClaimDecision } from "./claim-decision";
 
 // How each review state reads to a person, and what they should do about it.
 // The wording matters more than the colour: "partial" on its own tells a
@@ -64,6 +65,12 @@ export default function ResearchTab({
   const verifying = intelligence.verificationState === "pending" || intelligence.verificationState === "in_progress";
   const verifyFailed = intelligence.verificationState === "failed";
   const gaps = intelligence.sections.filter((s) => s.missing);
+  const allClaims = intelligence.sections.flatMap((s) => s.claims);
+  // Only verified claims can be approved in bulk. Everything else is an
+  // exception a person decides on individually -- sweeping those along is
+  // precisely how unchecked facts reach an ask.
+  const verifiedCount = allClaims.filter((c) => c.reviewState === "verified" && !c.decision).length;
+  const exceptionCount = allClaims.filter((c) => c.reviewState !== "verified" && !c.decision).length;
 
   return (
     <div style={{ display: "grid", gap: spacing.md }}>
@@ -94,6 +101,17 @@ export default function ResearchTab({
         </p>
         {verifyFailed && <div style={{ marginTop: spacing.xs }}><VerifyRetry runId={intelligence.runId} /></div>}
       </div>
+
+      {!blocked && !verifying && (verifiedCount > 0 || exceptionCount > 0) && (
+        <div style={sectionStyle}>
+          <h3 style={{ fontSize: 14, margin: 0 }}>Approve intelligence</h3>
+          <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+            Only approved intelligence reaches Strategy and outreach. Verified claims can be approved together;
+            anything the evidence does not fully support needs a decision of its own.
+          </p>
+          <ApproveVerified runId={intelligence.runId} verifiedCount={verifiedCount} exceptionCount={exceptionCount} />
+        </div>
+      )}
 
       <EntityResolver
         prospectId={prospectId}
@@ -150,6 +168,9 @@ export default function ResearchTab({
                       <span style={chipStyle(state.tone)}>{state.label}</span>
                       <span style={{ fontSize: 12, color: colors.textMuted }}>{c.reviewReason || state.hint}</span>
                     </div>
+                    {!blocked && !verifying && (
+                      <ClaimDecision runId={intelligence.runId} claimId={c.id} decided={c.decision} />
+                    )}
                     {c.sources.length > 0 && (
                       <details style={{ marginTop: 3 }}>
                         <summary style={{ fontSize: 12, color: colors.textFaint, cursor: "pointer" }}>

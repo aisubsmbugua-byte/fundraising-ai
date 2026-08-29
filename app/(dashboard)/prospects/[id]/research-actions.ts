@@ -32,6 +32,7 @@ import {
   type ResearchEntityValidationStatus,
   type ResearchKeyCoverageStatus,
   type ResearchSourceType,
+  type ResearchApprovalDecision,
 } from "@/lib/research";
 
 // Bump these when the extraction prompt or the tool's input schema shape
@@ -642,5 +643,96 @@ export async function retryVerification(runId: string): Promise<{ error: string 
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Verification failed" };
+  }
+}
+
+// --- Approval -------------------------------------------------------------
+//
+// Two layers, because reviewing 30 claims individually is a tax nobody pays
+// and blanket-approving everything is how unchecked facts reach an ask.
+// Bulk-approving covers only what was VERIFIED; everything else is an
+// exception a person handles deliberately.
+
+// Approves every claim Stage 5 confirmed against its evidence. Deliberately
+// cannot touch partly-supported, interpretation, evidence-not-captured or
+// conflicting claims: those are exactly the ones a person needs to look at,
+// and sweeping them along is the failure this design exists to prevent.
+export async function approveVerifiedIntelligence(runId: string): Promise<{ error: string } | { success: true; approved: number }> {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not signed in" };
+
+    const { data: verifications } = await supabase
+      .from("research_claim_verifications")
+      .select("claim_id, verdict, created_at")
+      .eq("research_run_id", runId)
+      .order("created_at", { ascending: false });
+
+    const latest = new Map<string, string>();
+    for (const v of verifications ?? []) if (!latest.has(v.claim_id as string)) latest.set(v.claim_id as string, v.verdict as string);
+    const verifiedIds = Array.from(latest.entries())
+      .filter(([, verdict]) => verdict === "supported")
+      .map(([claimId]) => claimId);
+    if (verifiedIds.length === 0) return { success: true, approved: 0 };
+
+    const { data: already } = await supabase.from("research_claim_approvals").select("claim_id").eq("research_run_id", runId);
+    const decided = new Set((already ?? []).map((a) => a.claim_id as string));
+    const toApprove = verifiedIds.filter((id) => !decided.has(id));
+    if (toApprove.length === 0) return { success: true, approved: 0 };
+
+    const { error } = await supabase.from("research_claim_approvals").insert(
+      toApprove.map((claimId) => ({ research_run_id: runId, claim_id: claimId, decision: "approved", decided_by: user.id }))
+    );
+    if (error) return { error: error.message };
+
+    revalidatePath("/prospects", "layout");
+    return { success: true, approved: toApprove.length };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not approve" };
+  }
+}
+
+// Records a decision on one claim a person actually looked at.
+export async function decideClaim(
+  runId: string,
+  claimId: string,
+  decision: ResearchApprovalDecision,
+  note: string,
+  correctedClaim?: string
+): Promise<{ error: string } | { success: true }> {
+  try {
+    // Accepting a claim the evidence does not support is a person overriding
+    // the system on their own knowledge. That is legitimate, and the reason
+    // must outlive them -- otherwise nobody later can tell judgement from haste.
+    if (decision === "approved_with_note" && !note.trim()) {
+      return { error: "Approving a claim the evidence does not support needs a short note saying why." };
+    }
+    if (decision === "corrected" && !correctedClaim?.trim()) {
+      return { error: "Correcting a claim needs the corrected wording." };
+    }
+
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not signed in" };
+
+    const { error } = await supabase.from("research_claim_approvals").insert({
+      research_run_id: runId,
+      claim_id: claimId,
+      decision,
+      note: note.trim() || null,
+      corrected_claim: correctedClaim?.trim() || null,
+      decided_by: user.id,
+    });
+    if (error) return { error: error.message };
+
+    revalidatePath("/prospects", "layout");
+    return { success: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not record that decision" };
   }
 }

@@ -299,6 +299,22 @@ export default async function ProspectDetailPage({
               {activeTab === "research" && (
                 <ResearchTab prospectId={prospect.id} intelligence={intelligence} deepDiveRun={deepDiveRun ?? null} />
               )}
+              {activeTab === "strategy" && deepDiveRun?.strategy && !deepDiveRun.approved_intelligence_run_id && (
+                <div
+                  style={{
+                    padding: spacing.sm,
+                    border: `1px solid ${colors.border}`,
+                    borderLeft: `3px solid #b8860b`,
+                    borderRadius: 6,
+                    fontSize: 12.5,
+                    color: colors.textMuted,
+                    marginBottom: spacing.md,
+                  }}
+                >
+                  Created from legacy research. This strategy has not been checked against approved Prospect
+                  Intelligence — regenerate it once the research below is reviewed and approved.
+                </div>
+              )}
               {activeTab === "strategy" && (
                 <>
                   <MoveStageControl prospectId={prospect.id} prospectName={prospect.name} currentStage={prospect.stage} />

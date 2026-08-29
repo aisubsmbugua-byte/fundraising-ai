@@ -258,6 +258,19 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
 // dossier-level money before that point means paying full price for every
 // candidate that surfaces, most of which are never pursued.
+// What a person decided about a claim they were shown.
+//
+// approved_with_note is the important one: a reviewer accepting a claim the
+// evidence does not support is overriding the system on their own knowledge,
+// which is legitimate and must be recorded with a reason -- otherwise the
+// override outlives the reasoning and nobody later can tell whether it was
+// judgement or haste.
+export const RESEARCH_APPROVAL_DECISIONS = ["approved", "approved_with_note", "corrected", "excluded", "research_requested"] as const;
+export type ResearchApprovalDecision = (typeof RESEARCH_APPROVAL_DECISIONS)[number];
+
+// Decisions that let a claim reach an automated consumer.
+export const APPROVED_FOR_DOWNSTREAM = new Set<ResearchApprovalDecision>(["approved", "approved_with_note", "corrected"]);
+
 // Stage 5 lifecycle for a run. A verification failure must leave the
 // research intact and retryable -- losing a dossier because a check failed
 // would be worse than not checking it.

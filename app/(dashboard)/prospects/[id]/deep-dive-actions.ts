@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
+import { loadApprovedIntelligence } from "@/lib/prospect-intelligence";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
 import type { Strategy, OrganizationIntel, DeepDiveRun } from "@/lib/deep-dive";
@@ -65,6 +66,26 @@ export async function runDeepDive(runId: string, prospectId: string) {
         status_message: "Reviewing findings and checking fit against your organization profile...",
       })
       .eq("id", runId);
+
+    // Approved intelligence, when it exists, is the ONLY structured research
+    // Strategy is given -- and it arrives pre-filtered. This action never
+    // queries research_claims itself and never decides what is safe: that
+    // policy lives in loadApprovedIntelligence, in one place, so it can be
+    // changed and tested once rather than re-implemented per consumer.
+    //
+    // It returns null when identity was never resolved, so a strategy can
+    // never be built on research that may describe a different organization.
+    const approved = await loadApprovedIntelligence(supabase, prospectId);
+    const approvedBlock = approved
+      ? `\nApproved intelligence about this funder (human-reviewed; prefer this over the raw findings where they differ):\n${approved.claims
+          .map(
+            (c) =>
+              `- ${c.claim}${c.reportingPeriod ? ` (${c.reportingPeriod})` : ""}${
+                c.humanOverride ? ` [accepted by a reviewer despite limited evidence${c.overrideNote ? `: ${c.overrideNote}` : ""}]` : ""
+              }`
+          )
+          .join("\n")}\n`
+      : "";
 
     const strategyResponse = await anthropic.messages.create(
       {
@@ -158,7 +179,7 @@ export async function runDeepDive(runId: string, prospectId: string) {
         {
           role: "user",
           content: `Based on the research findings below about "${prospect.name}", extract structured funder intelligence and propose a strategy for pursuing this funder.
-
+${approvedBlock}
 Research findings:
 ${findings || "(no findings)"}
 
@@ -252,6 +273,10 @@ ${
           status_message: "Strategy ready for review",
           findings,
           strategy: safeStrategy,
+          // Which approved intelligence this was built from. Null means it
+          // was generated from unstructured legacy research and has not been
+          // checked against anything a person approved -- the UI says so.
+          approved_intelligence_run_id: approved?.researchRunId ?? null,
           organization_intel: mergedIntel,
           model: DRAFT_MODEL,
           evidence_item_ids: evidenceItemIds,
