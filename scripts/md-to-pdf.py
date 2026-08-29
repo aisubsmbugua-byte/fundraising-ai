@@ -12,6 +12,10 @@ rules, and inline **bold** / `code`. It is not a general markdown engine,
 and it says so by failing visibly on anything else rather than silently
 dropping it.
 
+Output goes to ~/Downloads by default. That is where these get picked up to
+attach to a chat or an email; a path inside the project tree is not somewhere
+anyone browses, and a brief nobody can find has not been delivered.
+
 Usage: python3 scripts/md-to-pdf.py docs/reviews/0001-review-burden.md [out.pdf]
 """
 
@@ -221,6 +225,13 @@ if __name__ == "__main__":
     if not src.exists():
         print(f"No such file: {src}")
         sys.exit(1)
-    out = Path(sys.argv[2]) if len(sys.argv) > 2 else src.with_suffix(".pdf")
+    if len(sys.argv) > 2:
+        out = Path(sys.argv[2]).expanduser()
+    else:
+        # Title-cased from the filename, dropping any numeric prefix:
+        # "0001-review-burden.md" -> "~/Downloads/Review Burden.pdf".
+        stem = re.sub(r"^\d+[-_]", "", src.stem).replace("-", " ").replace("_", " ")
+        out = Path.home() / "Downloads" / f"{stem.title()}.pdf"
+    out.parent.mkdir(parents=True, exist_ok=True)
     convert(src, out)
     print(f"Wrote {out} ({out.stat().st_size // 1024} KB)")
