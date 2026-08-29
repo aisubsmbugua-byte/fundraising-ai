@@ -288,6 +288,21 @@ export const RESEARCH_VERIFICATION_VERDICTS = [
 ] as const;
 export type ResearchVerificationVerdict = (typeof RESEARCH_VERIFICATION_VERDICTS)[number];
 
+// Whether a financial claim's reporting period is actually established by
+// its evidence, judged separately from whether the AMOUNT is.
+//
+//   stated          the evidence names the period for this figure
+//   unverified      the figure is there but its period is inferred -- from a
+//                   nearby heading, table position or page order -- rather
+//                   than stated. The amount may still be sound.
+//   not_applicable  the claim is not a time-varying figure
+//
+// Separate because a claim whose amount is supported and whose year is
+// guessed is not the same as one that is simply wrong, and treating them
+// alike either discards a good figure or publishes a bad date.
+export const RESEARCH_PERIOD_VERDICTS = ["stated", "unverified", "not_applicable"] as const;
+export type ResearchPeriodVerdict = (typeof RESEARCH_PERIOD_VERDICTS)[number];
+
 // What Stage 5 checks. Verification costs a model call, so it is pointed at
 // the claims a fundraiser would actually act on or be embarrassed by --
 // identity, eligibility, restrictions, financial capacity, application

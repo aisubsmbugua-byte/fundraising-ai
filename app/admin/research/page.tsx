@@ -125,7 +125,7 @@ export default async function AdminResearchPage() {
 
   const { data: verifications } = await supabase
     .from("research_claim_verifications")
-    .select("claim_id, research_run_id, verdict, reason, created_at")
+    .select("claim_id, research_run_id, verdict, period_verdict, reason, created_at")
     .in("research_run_id", runIds)
     .order("created_at", { ascending: false });
 
@@ -371,6 +371,9 @@ export default async function AdminResearchPage() {
                             <span style={chipStyle(VERDICT_TONE[verdict.verdict as string] ?? "neutral")}>
                               {(verdict.verdict as string).replace(/_/g, " ")}
                             </span>
+                            {verdict.period_verdict === "unverified" && (
+                              <span style={{ ...chipStyle("amber"), marginLeft: 4 }}>period unverified</span>
+                            )}
                             {verdict.reason && (
                               <span style={{ marginLeft: spacing.xs, fontSize: 12, color: colors.textMuted }}>{verdict.reason as string}</span>
                             )}

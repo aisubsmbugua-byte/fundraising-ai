@@ -322,6 +322,8 @@ Confidence must follow this rubric, not intuition:
 - low: indirect or inferred, only one weak source, or sources disagree.
 A claim that required inference must be claim_type "hypothesis" and confidence no higher than "medium" -- never mark an inferred claim "high". Whenever confidence is not "high", you must give a confidence_reason.
 
+Assign a reporting period ONLY when the cited evidence explicitly states it for that figure. Do not infer a period from a nearby heading, a table's position, page order, or surrounding content -- financial tables routinely place several years' figures beside one another, so adjacency is not attribution. If you cannot bind the figure to a period from the evidence itself, answer "unstated" rather than choosing the year that looks closest.
+
 Reporting periods are mandatory on financial claims. Every figure (revenue, expenses, assets, charitable disbursements, grants paid, grant counts, grant size range, median grant size) must carry the fiscal or tax year it covers in reporting_period. Do not blend years into one claim, and do not describe a figure as "most recent" without naming its year. If two years appear for the same fact, prefer the most recent and say which year it is; if the evidence states no year at all, leave reporting_period out, lower the confidence, and say "reporting period unstated" in confidence_reason rather than inferring one.
 
 Distinguish not_public from not_found honestly in coverage: not_public means the evidence positively indicates this isn't disclosed (e.g. a filing states there is no public application process), while not_found means you simply didn't locate it. If you are inferring non-disclosure rather than reading it, that is not_found.

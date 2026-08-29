@@ -564,6 +564,7 @@ export async function verifyRunClaims(runId: string) {
         research_run_id: runId,
         claim_id: v.claimId,
         verdict: v.verdict,
+        period_verdict: v.periodVerdict,
         reason: v.reason || null,
         model: result.model,
         evidence_count: v.evidenceCount,

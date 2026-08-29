@@ -1,0 +1,18 @@
+-- Judge a financial claim's AMOUNT and its REPORTING PERIOD separately.
+--
+-- Stage 5 found the failure this exists for: four claims where the figure was
+-- correct but its fiscal year had been inferred from table adjacency rather
+-- than stated -- "the table appears adjacent to FY2024 data blocks but does
+-- not unambiguously label it". Such a claim is dated, so it passes every
+-- deterministic check we have, at high confidence, while the year may be
+-- wrong. A wrong year on an assets figure is exactly the error that would
+-- embarrass someone mid-ask.
+--
+-- Collapsing that into a single verdict loses the useful half: the amount is
+-- genuinely supported and worth keeping. Recorded separately, a claim can be
+-- "amount supported, period unverified" -- overall partially supported --
+-- which retains the figure without presenting its year as established.
+--
+-- stated | unverified | not_applicable. Null on rows written before this, and
+-- on non-financial claims where the distinction does not arise.
+alter table research_claim_verifications add column period_verdict text;

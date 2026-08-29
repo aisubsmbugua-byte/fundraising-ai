@@ -1,5 +1,11 @@
 import { resolveModel } from "@/lib/ai/model-select";
-import { RESEARCH_VERIFICATION_VERDICTS, type ResearchVerificationVerdict } from "@/lib/research";
+import {
+  isFinancialClaimKey,
+  RESEARCH_PERIOD_VERDICTS,
+  RESEARCH_VERIFICATION_VERDICTS,
+  type ResearchPeriodVerdict,
+  type ResearchVerificationVerdict,
+} from "@/lib/research";
 
 export type ClaimToVerify = {
   claimId: string;
@@ -14,6 +20,8 @@ export type ClaimToVerify = {
 export type ClaimVerdict = {
   claimId: string;
   verdict: ResearchVerificationVerdict;
+  // Only meaningful for financial claims -- see RESEARCH_PERIOD_VERDICTS.
+  periodVerdict: ResearchPeriodVerdict | null;
   reason: string;
   evidenceCount: number;
 };
@@ -85,6 +93,12 @@ export async function verifyResearchClaims({
                         description:
                           "supported: the evidence states this, and the claim does not add to it. partially_supported: the evidence backs part of it but the claim generalises, adds a qualifier the evidence lacks, or states as a standing policy what the evidence shows only as one instance. unsupported: the evidence does not establish the claim, including when it is merely consistent with it. contradicted: the evidence says otherwise.",
                       },
+                      period_verdict: {
+                        type: "string",
+                        enum: [...RESEARCH_PERIOD_VERDICTS],
+                        description:
+                          "For a financial figure ONLY, judged separately from the amount. stated: the evidence names the period for this figure. unverified: the figure is present but its period is inferred from a nearby heading, table position or page order rather than stated for that figure. not_applicable: the claim is not a time-varying figure.",
+                      },
                       reason: {
                         type: "string",
                         description:
@@ -116,6 +130,10 @@ Be strict about scope and degree, which is where wording usually fails:
 - "Does not accept unsolicited applications" is not supported by evidence that merely fails to mention an application process.
 - If the evidence is merely CONSISTENT with the claim rather than stating it, that is unsupported, not supported.
 
+For a financial figure -- an amount, a count, a range, a median -- judge the AMOUNT and the REPORTING PERIOD as two separate questions, and answer period_verdict as well as verdict.
+
+A period counts as stated only when the evidence names it FOR THAT FIGURE. It does not count when the year appears in a nearby heading, elsewhere in a table, or merely close by on the page: financial tables routinely place several years' figures next to one another, so adjacency is not attribution. If the amount is supported but its period is only inferred that way, the verdict is partially_supported with period_verdict "unverified" -- the figure is worth keeping, the year is not established.
+
 If a claim cites no evidence at all, it is unsupported.
 
 ${numbered}`,
@@ -137,9 +155,15 @@ ${numbered}`,
     .map((v) => {
       const claim = claims[v.index as number];
       if (!claim) return null;
+      const rawPeriod = typeof v.period_verdict === "string" ? v.period_verdict : null;
+      const validPeriod = new Set<string>(RESEARCH_PERIOD_VERDICTS);
       return {
         claimId: claim.claimId,
         verdict: v.verdict as ResearchVerificationVerdict,
+        // Only recorded for financial claims: elsewhere the distinction does
+        // not arise, and storing "not_applicable" on every identity claim
+        // would be noise rather than signal.
+        periodVerdict: isFinancialClaimKey(claim.claimKey) && rawPeriod && validPeriod.has(rawPeriod) ? (rawPeriod as ResearchPeriodVerdict) : null,
         reason: typeof v.reason === "string" ? v.reason : "",
         evidenceCount: claim.evidence.length,
       };
