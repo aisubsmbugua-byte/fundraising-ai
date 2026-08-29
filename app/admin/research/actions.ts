@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
-import { startResearch, retryResearch, runResearch } from "@/app/(dashboard)/prospects/[id]/research-actions";
+import { startResearch, retryResearch, runResearch, verifyRunClaims } from "@/app/(dashboard)/prospects/[id]/research-actions";
 import type { ResearchDepth, ResearchEvalVerdict, ResearchVerificationStatus } from "@/lib/research";
 
 type ActionResult = { error: string } | { success: true };
@@ -74,5 +74,21 @@ export async function setClaimVerificationStatus(
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to update verification status" };
+  }
+}
+
+// Stage 5 trigger. Returns rather than throws for the same reason
+// triggerResearch does: Next.js redacts a thrown Server Action error's
+// message in production, and the useful failures here are ones the operator
+// needs to read -- above all "this run's entity was never confirmed".
+export async function triggerVerification(
+  runId: string
+): Promise<{ error: string } | { success: true; verified: number; verdicts: Record<string, number> }> {
+  try {
+    const result = await verifyRunClaims(runId);
+    revalidatePath("/admin/research");
+    return { success: true, ...result };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Verification failed" };
   }
 }

@@ -271,6 +271,63 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // application.* mechanics beyond whether you can apply at all. Those matter
 // when writing the ask, not when deciding whether to pursue -- and they live
 // on guidelines pages that screen depth genuinely cannot fetch.
+// Stage 5 verdicts: does the claim's WORDING follow from the evidence it
+// cites? Deliberately distinct from the entity and evidence guarantees --
+// "the evidence is real and describes the right organization" and "the claim
+// says what the evidence says" are different questions, and conflating them
+// is what made earlier verification work unreliable.
+export const RESEARCH_VERIFICATION_VERDICTS = [
+  "supported",
+  // The evidence backs part of it -- the claim generalises, adds a qualifier
+  // the evidence does not carry, or states as policy what the evidence shows
+  // as a single instance. The most common real failure, and invisible unless
+  // it has its own verdict.
+  "partially_supported",
+  "unsupported",
+  "contradicted",
+] as const;
+export type ResearchVerificationVerdict = (typeof RESEARCH_VERIFICATION_VERDICTS)[number];
+
+// What Stage 5 checks. Verification costs a model call, so it is pointed at
+// the claims a fundraiser would actually act on or be embarrassed by --
+// identity, eligibility, restrictions, financial capacity, application
+// access, recent giving. Focus areas, funder type and geography are
+// deliberately excluded: they are numerous, low-stakes, and a wrong one
+// costs a wasted conversation rather than a wasted application.
+export const MATERIAL_CLAIM_KEYS = new Set<string>([
+  // Identity -- wrong here invalidates everything downstream
+  "identity.legal_name",
+  "identity.ein",
+  "identity.location",
+  "identity.website",
+  // Eligibility -- whether we can apply at all
+  "application.eligible_org_types",
+  "application.foreign_org_eligibility",
+  "application.fiscal_sponsorship_rules",
+  "application.mission_alignment_requirement",
+  // Restrictions -- what would disqualify us
+  "application.excluded_recipients",
+  "application.prohibited_activities",
+  // Financial capacity -- whether an ask of our size is plausible
+  "funding.total_assets",
+  "funding.total_annual_giving",
+  "funding.charitable_disbursements",
+  "funding.grant_size_range",
+  "funding.median_grant_size",
+  // Application access -- how and when to approach
+  "application.accepts_unsolicited",
+  "application.invitation_mechanism",
+  "application.submission_method",
+  "application.deadline",
+  // Recent giving -- evidence of actual behaviour
+  "funding.recent_grants",
+  "funding.grant_count_annual",
+]);
+
+export function isMaterialClaimKey(claimKey: string): boolean {
+  return MATERIAL_CLAIM_KEYS.has(claimKey);
+}
+
 // Claim keys whose value is meaningless without the period it covers. A
 // funder's assets, giving and grant sizes all move year to year, so "total
 // assets $167M" with no year attached cannot be checked, compared, or safely

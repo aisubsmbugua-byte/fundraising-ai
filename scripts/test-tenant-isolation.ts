@@ -144,6 +144,13 @@ async function main() {
       .single();
     if (evidenceAError || !evidenceA) throw new Error(`Org A evidence insert failed: ${evidenceAError?.message}`);
 
+    const { data: verificationA, error: verificationAError } = await clientA
+      .from("research_claim_verifications")
+      .insert({ research_run_id: runA.id, claim_id: claimA.id, verdict: "supported", reason: "[test]", model: "test-model", evidence_count: 1 })
+      .select("id")
+      .single();
+    if (verificationAError || !verificationA) throw new Error(`Org A verification insert failed: ${verificationAError?.message}`);
+
     const { data: claimSourceA, error: claimSourceAError } = await clientA
       .from("research_claim_sources")
       .insert({ claim_id: claimA.id, source_id: sourceA.id, evidence_id: evidenceA.id, research_run_id: runA.id, cited_text: "[test]" })
@@ -174,6 +181,9 @@ async function main() {
 
     const { data: readEvidence } = await clientB.from("research_evidence").select("id").eq("id", evidenceA.id);
     check("Org B cannot SELECT Org A's research_evidence row by id", (readEvidence?.length ?? 0) === 0);
+
+    const { data: readVerification } = await clientB.from("research_claim_verifications").select("id").eq("id", verificationA.id);
+    check("Org B cannot SELECT Org A's research_claim_verifications row by id", (readVerification?.length ?? 0) === 0);
 
     // --- Org B must not be able to insert a child row against Org A's run (the trigger) ---
     const { error: crossClaimError } = await clientB.from("research_claims").insert({
@@ -245,6 +255,19 @@ async function main() {
     check(
       "Org B cannot INSERT a research_evidence row against its own run pointing at Org A's source (source-run-match trigger)",
       !!crossEvidenceSourceRunError
+    );
+
+    const { error: crossVerificationError } = await clientB.from("research_claim_verifications").insert({
+      research_run_id: runBEarly!.id,
+      claim_id: claimA.id,
+      verdict: "supported",
+      reason: "[test] cross-tenant",
+      model: "test-model",
+      evidence_count: 0,
+    });
+    check(
+      "Org B cannot INSERT a research_claim_verifications row against its own run pointing at Org A's claim (claim-run-match trigger)",
+      !!crossVerificationError
     );
 
     // --- Org B must not be able to update Org A's row ---

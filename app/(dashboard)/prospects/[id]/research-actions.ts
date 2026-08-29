@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
 import { estimateCostUsd } from "@/lib/ai/model-select";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
+import { verifyResearchClaims } from "@/lib/ai/research-verify";
 import {
   extractResearchClaims,
   buildIndexedSources,
@@ -19,6 +20,7 @@ import {
   ENTITY_CLASSIFICATION_VERSION,
   defaultDepthForStage,
   claimKeysForDepth,
+  isMaterialClaimKey,
   type ResearchDepth,
   deriveEntityNameToken,
   resolveRunEntity,
@@ -487,4 +489,90 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       })
       .eq("id", runId);
   }
+}
+
+// Stage 5: verify that material claims say what their evidence says.
+//
+// A separate action rather than part of runResearch, for three reasons: a
+// research run already sits close to its function-duration ceiling, the cost
+// of verification should be visible on its own rather than folded into a
+// run's figure, and a claim set may need re-verifying (a new model, a revised
+// prompt) without re-researching.
+//
+// Only runs on a confirmed dossier. Verifying claims about an entity we could
+// not identify would be checking whether the wording matches evidence that
+// may describe the wrong organization -- a precise answer to the wrong
+// question, and the more dangerous for looking rigorous.
+export async function verifyRunClaims(runId: string) {
+  await requireSuperadmin();
+  const supabase = createClient();
+
+  const { data: run } = await supabase
+    .from("research_runs")
+    .select("id, prospect_id, status, dossier_confirmed, prospects(name)")
+    .eq("id", runId)
+    .single();
+  if (!run) throw new ResearchError("run_not_found", "Research run not found");
+  if (run.status !== "ready") throw new ResearchError("run_not_ready", "Only a completed run can be verified");
+  if (!run.dossier_confirmed) {
+    throw new ResearchError(
+      "identity_unresolved",
+      "This run's entity was never confirmed, so its claims cannot be meaningfully verified. Confirm the EIN and re-run first."
+    );
+  }
+  const prospect = run.prospects as unknown as { name: string };
+
+  const { data: claims } = await supabase
+    .from("research_claims")
+    .select("id, claim_key, claim, reporting_period")
+    .eq("research_run_id", runId);
+
+  const material = (claims ?? []).filter((c) => isMaterialClaimKey(c.claim_key));
+  if (material.length === 0) return { verified: 0, verdicts: {} as Record<string, number> };
+
+  // Each claim's own cited evidence, and nothing else -- this is what the
+  // verifier is given.
+  const { data: links } = await supabase
+    .from("research_claim_sources")
+    .select("claim_id, cited_text")
+    .in(
+      "claim_id",
+      material.map((c) => c.id)
+    );
+  const evidenceByClaim = new Map<string, string[]>();
+  for (const l of links ?? []) {
+    if (!l.cited_text) continue;
+    evidenceByClaim.set(l.claim_id as string, [...(evidenceByClaim.get(l.claim_id as string) ?? []), l.cited_text as string]);
+  }
+
+  const result = await verifyResearchClaims({
+    prospectName: prospect.name,
+    claims: material.map((c) => ({
+      claimId: c.id as string,
+      claimKey: c.claim_key as string,
+      claim: c.claim as string,
+      reportingPeriod: (c.reporting_period as string | null) ?? null,
+      evidence: evidenceByClaim.get(c.id as string) ?? [],
+    })),
+  }).catch((err) => {
+    throw new ResearchError("verification_failed", err instanceof Error ? err.message : "Verification call failed");
+  });
+
+  if (result.verdicts.length > 0) {
+    const { error } = await supabase.from("research_claim_verifications").insert(
+      result.verdicts.map((v) => ({
+        research_run_id: runId,
+        claim_id: v.claimId,
+        verdict: v.verdict,
+        reason: v.reason || null,
+        model: result.model,
+        evidence_count: v.evidenceCount,
+      }))
+    );
+    if (error) throw new ResearchError("verification_insert_failed", error.message);
+  }
+
+  const counts: Record<string, number> = {};
+  for (const v of result.verdicts) counts[v.verdict] = (counts[v.verdict] ?? 0) + 1;
+  return { verified: result.verdicts.length, verdicts: counts };
 }

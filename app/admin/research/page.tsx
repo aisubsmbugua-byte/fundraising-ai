@@ -3,6 +3,7 @@ import { colors, spacing, cardStyle, chipStyle, type as typeScale } from "@/lib/
 import ResearchPanel from "./research-panel";
 import ClaimReview from "./claim-review";
 import ConfirmEin from "./confirm-ein";
+import VerifyButton from "./verify-button";
 
 // Live data every load -- runs and claims change as soon as a research
 // call finishes, same reasoning as /admin/organizations.
@@ -21,6 +22,16 @@ const STATUS_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   researching: "amber",
   extracting: "amber",
   error: "red",
+};
+
+// Stage 5 verdicts. partially_supported is amber rather than red on purpose:
+// it means the evidence is real and relevant but the claim overreached, which
+// a reviewer fixes by rewording rather than by discarding.
+const VERDICT_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
+  supported: "teal",
+  partially_supported: "amber",
+  unsupported: "red",
+  contradicted: "red",
 };
 
 const COVERAGE_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
@@ -112,6 +123,12 @@ export default async function AdminResearchPage() {
     .select("id, research_run_id, url, title, source_type, page_age, entity_validation_status, source_ein, retrieved_at")
     .in("research_run_id", runIds);
 
+  const { data: verifications } = await supabase
+    .from("research_claim_verifications")
+    .select("claim_id, research_run_id, verdict, reason, created_at")
+    .in("research_run_id", runIds)
+    .order("created_at", { ascending: false });
+
   const { data: claimSources } = await supabase
     .from("research_claim_sources")
     .select("id, claim_id, cited_text, supports_directly, citation_consistency, research_sources(url, title, source_type, retrieved_at)")
@@ -136,6 +153,19 @@ export default async function AdminResearchPage() {
     const list = sourcesByRun.get(s.research_run_id) ?? [];
     list.push(s);
     sourcesByRun.set(s.research_run_id, list);
+  }
+
+  // Most recent verdict per claim -- the table keeps history so a re-verify
+  // can be compared, but the UI shows the current judgement.
+  const verdictByClaim = new Map<string, NonNullable<typeof verifications>[number]>();
+  for (const v of verifications ?? []) {
+    if (!verdictByClaim.has(v.claim_id as string)) verdictByClaim.set(v.claim_id as string, v);
+  }
+  const verdictCountsByRun = new Map<string, Record<string, number>>();
+  for (const v of verifications ?? []) {
+    const counts = verdictCountsByRun.get(v.research_run_id as string) ?? {};
+    counts[v.verdict as string] = (counts[v.verdict as string] ?? 0) + 1;
+    verdictCountsByRun.set(v.research_run_id as string, counts);
   }
 
   const sourcesByClaim = new Map<string, NonNullable<typeof claimSources>>();
@@ -218,6 +248,14 @@ export default async function AdminResearchPage() {
                     <span> · no website on file</span>
                   )}
                 </div>
+              )}
+
+              {run.status === "ready" && (
+                <VerifyButton
+                  runId={run.id}
+                  disabled={!run.dossier_confirmed}
+                  disabledReason="This run's entity was never confirmed, so verifying its claims would check wording against evidence that may describe another organization."
+                />
               )}
 
               <ConfirmEin
@@ -316,6 +354,7 @@ export default async function AdminResearchPage() {
                 <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md }}>
                   {runClaims.map((claim) => {
                     const linkedSources = sourcesByClaim.get(claim.id) ?? [];
+                    const verdict = verdictByClaim.get(claim.id);
                     return (
                       <div key={claim.id} style={{ fontSize: 13.5, borderTop: `1px solid ${colors.border}`, paddingTop: spacing.sm }}>
                         <div>
@@ -327,6 +366,16 @@ export default async function AdminResearchPage() {
                             {claim.confidence_reason ? `: ${claim.confidence_reason}` : ""})
                           </span>
                         </div>
+                        {verdict && (
+                          <div style={{ marginTop: 2 }}>
+                            <span style={chipStyle(VERDICT_TONE[verdict.verdict as string] ?? "neutral")}>
+                              {(verdict.verdict as string).replace(/_/g, " ")}
+                            </span>
+                            {verdict.reason && (
+                              <span style={{ marginLeft: spacing.xs, fontSize: 12, color: colors.textMuted }}>{verdict.reason as string}</span>
+                            )}
+                          </div>
+                        )}
                         <div style={{ fontSize: 12, color: colors.textFaint, marginTop: 2 }}>
                           {linkedSources.length > 0 ? (
                             <div style={{ display: "grid", gap: 2 }}>
