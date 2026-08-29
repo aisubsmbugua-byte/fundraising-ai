@@ -291,5 +291,51 @@ check("ambiguous filings -> NOT a confirmed dossier", isConfirmedDossier({ entit
 check("unresolved -> NOT a confirmed dossier", isConfirmedDossier({ entity_resolution_method: "unresolved" }), false);
 check("a pre-Stage-1 run -> NOT a confirmed dossier", isConfirmedDossier({ entity_resolution_method: null }), false);
 
+
+// ---------------------------------------------------------------------------
+console.log("\n--- Name and corroboration must converge (Servants Heart v6) ---");
+
+// The worst failure this rule has produced. The prospect is "Servants Heart
+// Foundation Inc"; a DIFFERENT charity is named exactly "Servants Heart
+// Foundation", so it scored a perfect name match, won outright, was confirmed
+// with dossier_confirmed true, and the real entity's own sources were then
+// discarded as belonging to someone else. 56 evidence fragments were thrown
+// away and the dossier described the wrong organization.
+check(
+  "closest name match with LEAST corroboration must not win",
+  resolveRunEntity({
+    storedEin: null,
+    prospectName: "Servants Heart Foundation",
+    prospectWebsite: null,
+    nameToken: servantsToken,
+    sources: [
+      // Perfect name match, but only one source vouches for it.
+      { url: "https://projects.propublica.org/nonprofits/organizations/200526547", title: "Servants Heart Foundation - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+      // One extra word, but corroborated twice -- this is the real prospect.
+      { url: "https://www.guidestar.org/profile/58-2218044", title: "Servants Heart Foundation Inc - GuideStar Profile", texts: [], sourceType: "irs_filing" },
+      { url: "https://projects.propublica.org/nonprofits/organizations/582218044", title: "Servants Heart Foundation Inc - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+    ],
+  }),
+  { ein: null, method: "ambiguous_filings" }
+);
+
+// Convergence: the closest name is ALSO the best corroborated, so it stands.
+// This is the Maclellan family cluster, which must keep resolving.
+check(
+  "when both signals agree, identity still resolves",
+  resolveRunEntity({
+    storedEin: null,
+    prospectName: "Maclellan Foundation",
+    prospectWebsite: "https://www.maclellan.net",
+    nameToken: maclellanToken,
+    sources: [
+      { url: "https://projects.propublica.org/nonprofits/organizations/626041468", title: "The Maclellan Foundation Inc - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+      { url: "https://www.guidestar.org/profile/62-6041468", title: "The Maclellan Foundation Inc - GuideStar Profile", texts: [], sourceType: "irs_filing" },
+      { url: "https://projects.propublica.org/nonprofits/organizations/237159802", title: "Robert L And Kathrina H Maclellan Foundation - Full Filing - Nonprofit Explorer", texts: [], sourceType: "irs_filing" },
+    ],
+  }),
+  { ein: MACLELLAN_EIN, method: "authoritative_filing" }
+);
+
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);

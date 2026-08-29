@@ -592,7 +592,26 @@ export function resolveRunEntity({
   //    while two equally-close competitors stay unresolved, e.g.
   //      "Servants Heart Foundation Inc"   -> 1 extra word
   //      "Servants Heart Family Foundation" -> 1 extra word  (tie -> ask a human)
+  //    Two independent signals must AGREE, or identity is not established.
+  //
+  //    Name distance alone is not safe, and this rule has now been wrong
+  //    three times: too strict on a family cluster, tied on identically
+  //    named entities, and -- worst -- confidently WRONG when a different
+  //    organization happened to carry the shorter name. The real prospect
+  //    was "Servants Heart Foundation Inc"; an unrelated charity is named
+  //    exactly "Servants Heart Foundation", so it scored a perfect match,
+  //    won outright, and the correct entity's own sources were then
+  //    discarded as belonging to someone else.
+  //
+  //    Corroboration alone is not safe either -- that is mention-counting,
+  //    which elevated the wrong entity before name gating was added.
+  //
+  //    So: the closest name match must ALSO be the best-corroborated
+  //    candidate. When the two signals point at different organizations that
+  //    is genuine ambiguity, and the honest answer is to refuse and ask,
+  //    which costs a trust label rather than a wrong dossier.
   const bestDistanceByEin = new Map<string, number>();
+  const sourceCountByEin = new Map<string, number>();
   for (const s of sources) {
     if (s.sourceType !== "irs_filing") continue;
     // The title counts toward the name check as well as the captured text --
@@ -602,18 +621,28 @@ export function resolveRunEntity({
     // The source's own stated name -- its title, else its first captured text.
     const distance = nameMatchDistance(prospectName, s.title ?? s.texts[0] ?? null);
     if (distance === null) continue;
-    for (const ein of sourceEinCandidates(s.url, s.texts)) {
+    for (const ein of new Set(sourceEinCandidates(s.url, s.texts))) {
       const prev = bestDistanceByEin.get(ein);
       if (prev === undefined || distance < prev) bestDistanceByEin.set(ein, distance);
+      sourceCountByEin.set(ein, (sourceCountByEin.get(ein) ?? 0) + 1);
     }
   }
   if (bestDistanceByEin.size === 1) return { ein: Array.from(bestDistanceByEin.keys())[0], method: "authoritative_filing" };
   if (bestDistanceByEin.size > 1) {
     const ranked = Array.from(bestDistanceByEin.entries()).sort((a, b) => a[1] - b[1]);
     const closest = ranked[0][1];
-    const tied = ranked.filter(([, d]) => d === closest);
-    if (tied.length === 1) return { ein: tied[0][0], method: "authoritative_filing" };
-    return { ein: null, method: "ambiguous_filings" };
+    const nameWinners = ranked.filter(([, d]) => d === closest);
+    // Tied on name -- nothing distinguishes them.
+    if (nameWinners.length !== 1) return { ein: null, method: "ambiguous_filings" };
+
+    const nameWinner = nameWinners[0][0];
+    const mostCorroborated = Array.from(sourceCountByEin.entries()).sort((a, b) => b[1] - a[1]);
+    const topCount = mostCorroborated[0][1];
+    const corroborationWinners = mostCorroborated.filter(([, n]) => n === topCount).map(([ein]) => ein);
+
+    // The two signals must converge on the same organization.
+    if (!corroborationWinners.includes(nameWinner)) return { ein: null, method: "ambiguous_filings" };
+    return { ein: nameWinner, method: "authoritative_filing" };
   }
 
   // 3. An EIN stated on the prospect's own official domain.
