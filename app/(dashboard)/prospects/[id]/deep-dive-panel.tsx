@@ -130,7 +130,7 @@ export default function DeepDivePanel({
             }
             style={{ ...buttonSecondary, marginTop: spacing.sm }}
           >
-            {isPending ? "Retrying…" : "Retry Deep Dive"}
+            {isPending ? "Retrying…" : "Retry strategy"}
           </button>
         </div>
       )}
@@ -211,7 +211,7 @@ export default function DeepDivePanel({
                 }
                 style={{ ...buttonSecondary, marginTop: spacing.md }}
               >
-                {isPending ? "Starting…" : "Run New Deep Dive"}
+                {isPending ? "Regenerating…" : "Regenerate strategy"}
               </button>
               <p style={{ fontSize: 11, color: colors.textFaint, marginTop: spacing.xs }}>
                 Useful if your Organization Profile has changed since this was approved, or to pick up
