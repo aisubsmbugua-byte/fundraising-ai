@@ -10,7 +10,7 @@
 // Usage: npx tsx scripts/test-entity-validation.ts
 
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
-import { claimFiguresAppearInEvidence, distinctiveNumbers, isQuantitativeClaimKey } from "../lib/research";
+import { assessDossierCompleteness, claimFiguresAppearInEvidence, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -409,6 +409,49 @@ check("focus areas is not a quantitative claim", isQuantitativeClaimKey("funding
 check("total assets is", isQuantitativeClaimKey("funding.total_assets"), true);
 check("recent grants is -- this is where the defect first appeared", isQuantitativeClaimKey("funding.recent_grants"), true);
 check("identity keys are not", isQuantitativeClaimKey("identity.legal_name"), false);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- Dossier completeness ---");
+
+// A filing's detail page carries the grant schedule; the organization summary
+// page carries totals but never the recipient list. Both are ProPublica URLs.
+check("a full-filing page is a grant schedule", isGrantSchedulePage("https://projects.propublica.org/nonprofits/organizations/582218044/202543159349101244/full"), true);
+check("an organization summary page is not", isGrantSchedulePage("https://projects.propublica.org/nonprofits/organizations/582218044"), false);
+
+check(
+  "everything required was read -> complete",
+  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: true, grantSchedulePresent: true, grantScheduleFetched: true }),
+  { state: "complete", missing: [] }
+);
+
+// The real failure: the schedule was in the results and never opened. That is
+// what cost 20 named grant recipients between two otherwise-identical runs.
+check(
+  "grant schedule seen but not read -> partial",
+  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: true, grantSchedulePresent: true, grantScheduleFetched: false }),
+  { state: "partial", missing: ["grant_schedule"] }
+);
+
+// A funder with no website cannot be incomplete for failing to read one.
+check(
+  "no website on file is not a missing source",
+  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: null, grantSchedulePresent: false, grantScheduleFetched: false }),
+  { state: "complete", missing: [] }
+);
+check(
+  "a website that existed and was not read IS missing",
+  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: false, grantSchedulePresent: false, grantScheduleFetched: false }),
+  { state: "partial", missing: ["official_site"] }
+);
+
+// Identity outranks completeness: reading every required source about the
+// wrong organization is not partial, it is unusable.
+check(
+  "unresolved identity -> blocked, however much was read",
+  assessDossierCompleteness({ dossierConfirmed: false, filingFetched: true, officialSiteFetched: true, grantSchedulePresent: true, grantScheduleFetched: true }),
+  { state: "blocked", missing: [] }
+);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);

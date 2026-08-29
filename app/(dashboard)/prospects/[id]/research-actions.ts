@@ -21,6 +21,8 @@ import {
   defaultDepthForStage,
   claimKeysForDepth,
   isMaterialClaimKey,
+  assessDossierCompleteness,
+  isGrantSchedulePage,
   type ResearchDepth,
   deriveEntityNameToken,
   resolveRunEntity,
@@ -427,6 +429,24 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     const filingFetched = fetchedSources.some((f) => classifySourceType(f.url, prospect.website) === "irs_filing");
     const capturedChars = allFragments.reduce((n, f) => n + f.exactText.length, 0);
 
+    // A grant schedule counts as missing only when one was actually there:
+    // "found the page and never opened it" is the failure worth flagging,
+    // and it is exactly what cost 20 named grant recipients between two runs.
+    const grantSchedulePresent = indexedSources.some((s) => isGrantSchedulePage(s.url));
+    const grantScheduleFetched = fetchedSources.some((f) => isGrantSchedulePage(f.url));
+    // Only a dossier is judged against a dossier's requirements -- an
+    // identity or screen run is not trying to be one.
+    const completeness =
+      depth === "dossier"
+        ? assessDossierCompleteness({
+            dossierConfirmed: isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }),
+            filingFetched,
+            officialSiteFetched,
+            grantSchedulePresent,
+            grantScheduleFetched,
+          })
+        : null;
+
     const excludedCount = allFragments.length - usableFragments.length;
     const statusMessage = extraction.truncated
       ? `Extraction response was truncated (hit the token limit) -- results below are incomplete. Found ${claims.length} fact${claims.length === 1 ? "" : "s"} before truncation; retry likely to find more.`
@@ -441,7 +461,13 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
             ? `Screen: found ${claims.length} fact${claims.length === 1 ? "" : "s"} from search only${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
             : `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
               fetchAvailable ? "" : " (page fetch unavailable this run -- search snippets only)"
-            }${officialSiteFetched === false ? " -- WARNING: the funder's own site was not read, so application rules and eligibility are likely missing" : ""}${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
+            }${
+              completeness && completeness.state !== "complete"
+                ? ` -- ${completeness.state.toUpperCase()}${
+                    completeness.missing.length ? `: did not read ${completeness.missing.map((m) => m.replace(/_/g, " ")).join(", ")}` : ""
+                  }`
+                : ""
+            }${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
           : "Research completed, but found nothing extractable";
 
     await supabase
@@ -469,6 +495,8 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         official_site_fetched: officialSiteFetched,
         filing_fetched: filingFetched,
         captured_chars: capturedChars,
+        completion_state: completeness?.state ?? null,
+        missing_source_classes: completeness?.missing ?? null,
         // Backend state, not a convention: when identity was refused, several
         // competing organizations sit at the same trust level and only the
         // model's reading separates them. Such a run stays as candidate

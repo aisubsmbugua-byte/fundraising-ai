@@ -258,6 +258,54 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
 // dossier-level money before that point means paying full price for every
 // candidate that surfaces, most of which are never pursued.
+// Source classes a private-foundation dossier is expected to have read.
+// Each is required only when it actually exists for that funder -- a prospect
+// with no website cannot be marked incomplete for failing to read one.
+export const RESEARCH_SOURCE_CLASSES = ["authoritative_filing", "grant_schedule", "official_site"] as const;
+export type ResearchSourceClass = (typeof RESEARCH_SOURCE_CLASSES)[number];
+
+export const RESEARCH_COMPLETION_STATES = ["complete", "partial", "blocked"] as const;
+export type ResearchCompletionState = (typeof RESEARCH_COMPLETION_STATES)[number];
+
+// A filing's own detail page -- where the grant schedule lives. ProPublica
+// exposes it as .../organizations/<ein>/<filingId>/full; the summary page for
+// the same organization carries totals but never the recipient list.
+export function isGrantSchedulePage(url: string): boolean {
+  return /propublica\.org\/nonprofits\/organizations\/\d+\/\d+\/full/i.test(url);
+}
+
+// Judges what a dossier actually read, not how much it produced.
+//
+// The distinction that makes this worth storing: a class counts as MISSING
+// only when it was available and not read. A funder with no website is not
+// incomplete for lacking one -- but a funder whose grant schedule appeared in
+// the search results and was never fetched is, and that is precisely the
+// failure that silently cost 20 named grant recipients between two runs.
+export function assessDossierCompleteness({
+  dossierConfirmed,
+  filingFetched,
+  officialSiteFetched,
+  grantSchedulePresent,
+  grantScheduleFetched,
+}: {
+  dossierConfirmed: boolean;
+  filingFetched: boolean;
+  // null when the prospect has no website on file -- nothing to read.
+  officialSiteFetched: boolean | null;
+  grantSchedulePresent: boolean;
+  grantScheduleFetched: boolean;
+}): { state: ResearchCompletionState; missing: ResearchSourceClass[] } {
+  const missing: ResearchSourceClass[] = [];
+  if (!filingFetched) missing.push("authoritative_filing");
+  if (grantSchedulePresent && !grantScheduleFetched) missing.push("grant_schedule");
+  if (officialSiteFetched === false) missing.push("official_site");
+
+  // Identity outranks completeness: reading every required source about the
+  // wrong organization is not a partial dossier, it is an unusable one.
+  if (!dossierConfirmed) return { state: "blocked", missing };
+  return { state: missing.length === 0 ? "complete" : "partial", missing };
+}
+
 // What a screen-depth run is asked to extract.
 //
 // An earlier version of this list held 9 identity/fit keys, justified by the

@@ -35,6 +35,15 @@ const VERDICT_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   contradicted: "red",
 };
 
+// A dossier that finished cleanly can still have missed the one page a
+// fundraiser most wants. partial is amber, not red: the research is usable,
+// it is simply not everything a dossier should contain.
+const COMPLETION_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
+  complete: "teal",
+  partial: "amber",
+  blocked: "red",
+};
+
 const COVERAGE_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
   found: "teal",
   not_public: "neutral",
@@ -99,7 +108,7 @@ export default async function AdminResearchPage() {
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars, completion_state, missing_source_classes"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -221,6 +230,14 @@ export default async function AdminResearchPage() {
                 <span style={chipStyle(STATUS_TONE[run.status] ?? "neutral")}>{run.status}</span>
                 {run.depth && (
                   <span style={{ ...chipStyle(run.depth === "screen" ? "neutral" : "teal"), marginLeft: 4 }}>{run.depth}</span>
+                )}
+                {run.completion_state && (
+                  <span style={{ ...chipStyle(COMPLETION_TONE[run.completion_state] ?? "neutral"), marginLeft: 4 }}>
+                    {run.completion_state}
+                    {(run.missing_source_classes ?? []).length > 0
+                      ? ` — no ${(run.missing_source_classes as string[]).map((m) => m.replace(/_/g, " ")).join(", ")}`
+                      : ""}
+                  </span>
                 )}
               </div>
 
