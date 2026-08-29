@@ -453,5 +453,15 @@ check(
   { state: "blocked", missing: [] }
 );
 
+
+// The v11 case: the schedule was fetched successfully, contributed no
+// captured evidence, produced zero named grants -- and was marked complete.
+// "Read" must mean the page gave us something, not that the request returned.
+check(
+  "a page fetched but contributing no evidence counts as NOT read",
+  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: null, grantSchedulePresent: true, grantScheduleFetched: false }),
+  { state: "partial", missing: ["grant_schedule"] }
+);
+
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);

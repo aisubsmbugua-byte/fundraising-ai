@@ -274,13 +274,16 @@ export function isGrantSchedulePage(url: string): boolean {
   return /propublica\.org\/nonprofits\/organizations\/\d+\/\d+\/full/i.test(url);
 }
 
-// Judges what a dossier actually read, not how much it produced.
+// Judges what a dossier actually took FROM its sources, not how much it
+// produced and not merely what it opened.
 //
-// The distinction that makes this worth storing: a class counts as MISSING
-// only when it was available and not read. A funder with no website is not
-// incomplete for lacking one -- but a funder whose grant schedule appeared in
-// the search results and was never fetched is, and that is precisely the
-// failure that silently cost 20 named grant recipients between two runs.
+// Two distinctions, both learned from real runs. A class counts as MISSING
+// only when it was available and not read -- a funder with no website is not
+// incomplete for lacking one. And "read" means the page CONTRIBUTED CAPTURED
+// EVIDENCE, not that the fetch returned 200: one run fetched the grant
+// schedule successfully, cited nothing from it, produced zero named grants,
+// and was still marked complete. A page opened and taken nothing from is not
+// a source the dossier read.
 export function assessDossierCompleteness({
   dossierConfirmed,
   filingFetched,
@@ -293,6 +296,7 @@ export function assessDossierCompleteness({
   // null when the prospect has no website on file -- nothing to read.
   officialSiteFetched: boolean | null;
   grantSchedulePresent: boolean;
+  // Contributed at least one captured fragment -- not merely fetched.
   grantScheduleFetched: boolean;
 }): { state: ResearchCompletionState; missing: ResearchSourceClass[] } {
   const missing: ResearchSourceClass[] = [];

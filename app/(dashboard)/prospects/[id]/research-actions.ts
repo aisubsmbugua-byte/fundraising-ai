@@ -432,16 +432,37 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     // A grant schedule counts as missing only when one was actually there:
     // "found the page and never opened it" is the failure worth flagging,
     // and it is exactly what cost 20 named grant recipients between two runs.
+    // "Read" means the page contributed captured evidence, not that the fetch
+    // returned successfully. v11 fetched the grant schedule, cited nothing
+    // from it, produced zero named grants -- and was marked complete. A page
+    // opened and taken nothing from is not a source the dossier read.
+    const readUrls = new Set(allFragments.filter((f) => f.kind === "fetched_page_excerpt").map((f) => f.url));
     const grantSchedulePresent = indexedSources.some((s) => isGrantSchedulePage(s.url));
-    const grantScheduleFetched = fetchedSources.some((f) => isGrantSchedulePage(f.url));
+    const grantScheduleFetched = Array.from(readUrls).some((u) => isGrantSchedulePage(u));
+    const filingRead = Array.from(readUrls).some((u) => classifySourceType(u, prospect.website) === "irs_filing");
+    let officialSiteRead: boolean | null = null;
+    if (prospect.website) {
+      try {
+        const host = new URL(prospect.website).hostname.replace(/^www\./, "");
+        officialSiteRead = Array.from(readUrls).some((u) => {
+          try {
+            return new URL(u).hostname.replace(/^www\./, "") === host;
+          } catch {
+            return false;
+          }
+        });
+      } catch {
+        officialSiteRead = null;
+      }
+    }
     // Only a dossier is judged against a dossier's requirements -- an
     // identity or screen run is not trying to be one.
     const completeness =
       depth === "dossier"
         ? assessDossierCompleteness({
             dossierConfirmed: isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }),
-            filingFetched,
-            officialSiteFetched,
+            filingFetched: filingRead,
+            officialSiteFetched: officialSiteRead,
             grantSchedulePresent,
             grantScheduleFetched,
           })
