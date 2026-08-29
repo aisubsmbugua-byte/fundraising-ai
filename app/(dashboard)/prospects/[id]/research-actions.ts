@@ -268,7 +268,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     const usableFragments = usableIndices.map((i) => allFragments[i]);
     const usableRealIds = usableIndices.map((i) => evidenceIds[i]);
 
-    const scopedKeys = claimKeysForDepth(depth);
+    const scopedKeys = claimKeysForDepth(depth, { knownWebsite: !!prospect.website });
     const extraction = await extractResearchClaims({ prospectName: prospect.name, findings, evidence: usableFragments, claimKeys: scopedKeys }).catch((err) => {
       throw new ResearchError("extraction_failed", err instanceof Error ? err.message : "Extraction call failed");
     });

@@ -395,8 +395,22 @@ export const RESEARCH_TRIAGE_CLAIM_KEYS = [
   "people.key_contacts",
 ] as const;
 
-export function claimKeysForDepth(depth: ResearchDepth): { key: string; description: string }[] {
-  const all = RESEARCH_CLAIM_KEYS.map((k) => ({ key: k.key, description: k.description }));
+export function claimKeysForDepth(
+  depth: ResearchDepth,
+  opts: { knownWebsite?: boolean } = {}
+): { key: string; description: string }[] {
+  let all = RESEARCH_CLAIM_KEYS.map((k) => ({ key: k.key, description: k.description }));
+
+  // Never ask the model to "find" the website we handed it. The prospect's
+  // website is passed into the search prompt, so asking for identity.website
+  // when one is already on file is circular: Stage 5 flagged that claim as
+  // UNSUPPORTED on both runs it examined -- high confidence, five evidence
+  // fragments, none of which mentioned a URL. The model was restating input.
+  //
+  // When no website is on file the key stays, because "this funder has no
+  // public website" is then a real finding reached from evidence.
+  if (opts.knownWebsite) all = all.filter((k) => k.key !== "identity.website");
+
   if (depth === "dossier") return all;
   const triage = new Set<string>(RESEARCH_TRIAGE_CLAIM_KEYS);
   return all.filter((k) => triage.has(k.key));
