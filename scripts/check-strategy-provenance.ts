@@ -95,6 +95,12 @@ async function main() {
     return;
   }
   console.log(`\nApproved intelligence available now: v${approved.version}, EIN ${approved.confirmedEin ?? "(none)"}, ${approved.claims.length} claims`);
+  // The gap worth looking at: a person spent a decision on these and the
+  // strategy still never saw them.
+  if (approved.withheld.length) {
+    console.log(`  withheld from strategy despite approval: ${approved.withheld.length}`);
+    for (const w of approved.withheld) console.log(`    ${w.claimKey} -- ${w.reason}`);
+  }
   const overrides = approved.claims.filter((c) => c.humanOverride);
   console.log(`  human overrides (approved against the evidence): ${overrides.length}`);
   for (const c of overrides) console.log(`    ${c.claimKey}: ${c.overrideNote ?? "(no note)"}`);

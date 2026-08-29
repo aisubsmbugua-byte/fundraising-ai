@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { loadApprovedIntelligence } from "@/lib/prospect-intelligence";
+import { hasStatedPeriod } from "@/lib/research";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
 import type { Strategy, OrganizationIntel, StrategyRun } from "@/lib/strategy";
@@ -80,12 +81,22 @@ export async function runStrategy(runId: string, prospectId: string) {
       ? `\nApproved intelligence about this funder (human-reviewed; prefer this over the raw findings where they differ):\n${approved.claims
           .map(
             (c) =>
-              `- ${c.claim}${c.reportingPeriod ? ` (${c.reportingPeriod})` : ""}${
+              // hasStatedPeriod, not a truthiness check: "unstated" and
+              // "not_time_bound" are internal sentinels, and rendering them
+              // raw wrote "(unstated)" into the prompt as though it were a
+              // period the evidence gave.
+              `- ${c.claim}${hasStatedPeriod(c.reportingPeriod) ? ` (${c.reportingPeriod})` : ""}${
                 c.humanOverride ? ` [accepted by a reviewer despite limited evidence${c.overrideNote ? `: ${c.overrideNote}` : ""}]` : ""
               }`
           )
           .join("\n")}\n`
       : "";
+    // Logged, not silent: a withheld claim is one a person approved and the
+    // strategy never saw, and that gap should be findable in the run log
+    // rather than only by reading the gate.
+    if (approved?.withheld.length) {
+      console.log(`[strategy] withheld ${approved.withheld.length} approved claim(s) from the prompt: ${approved.withheld.map((w) => w.claimKey).join(", ")}`);
+    }
 
     const strategyResponse = await anthropic.messages.create(
       {

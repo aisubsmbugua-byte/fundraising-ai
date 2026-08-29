@@ -501,6 +501,38 @@ export function isFinancialClaimKey(claimKey: string): boolean {
   return FINANCIAL_CLAIM_KEYS.has(claimKey);
 }
 
+// Every financial key above promises a figure for ONE period, with the single
+// deliberate exception of multiyear_grant_stats, which exists to span them.
+const PERIOD_BOUND_CLAIM_KEYS = new Set<string>(
+  [...FINANCIAL_CLAIM_KEYS].filter((k) => k !== "funding.multiyear_grant_stats")
+);
+
+// Phrases in which a claim states outright that its own figure aggregates
+// several periods.
+//
+// Found on a real run: "Total grants paid across all years on record: 122
+// grants totaling $3.4M (multi-year cumulative)" was filed under
+// total_annual_giving, whose definition requires a specific named period.
+// The wording was honest; the key was not. A reader gets it right, a
+// consumer reading by key gets a figure roughly 2x the funder's actual
+// annual giving.
+//
+// Deliberately narrow. "Multi-year", "lifetime" and "to date" are NOT here:
+// "makes multi-year grants of $25K-$100K" under grant_size_range is a
+// correct claim about grant terms, and "to date" usually means "as of now"
+// on an assets figure. These phrases say the FIGURE spans periods, not that
+// the funder's grants do -- precision over recall, since the undated rule
+// below already catches the case where no period is claimed at all.
+const CUMULATIVE_FIGURE_LANGUAGE = /\b(cumulative|across all years|all years on record|since inception|combined across|summed across)\b/i;
+
+// True when a claim's own wording contradicts the period its key promises.
+// Kept here beside the vocabulary it checks, so the rule and the key
+// definitions cannot drift apart.
+export function claimSpansMultiplePeriods(claimKey: string, claim: string): boolean {
+  if (!PERIOD_BOUND_CLAIM_KEYS.has(claimKey)) return false;
+  return CUMULATIVE_FIGURE_LANGUAGE.test(claim);
+}
+
 // Claims whose substance IS a figure, and where a number appearing nowhere in
 // the cited evidence means the claim is attached to the wrong fragment.
 //

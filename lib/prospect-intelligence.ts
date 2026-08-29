@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  hasStatedPeriod,
+  isFinancialClaimKey,
   RESEARCH_INFORMATION_SECTIONS,
   type ResearchConfidence,
   type ResearchEntityValidationStatus,
@@ -255,11 +257,21 @@ export type ApprovedClaim = {
   sources: { url: string; title: string | null }[];
 };
 
+// A claim a person approved that still cannot be handed to a model. Returned
+// rather than dropped silently: a reviewer who spends a decision on a claim
+// is owed the fact that it went no further, and a silent filter is how the
+// last one of these went unnoticed for a whole build.
+export type WithheldClaim = {
+  claimKey: string;
+  reason: string;
+};
+
 export type ApprovedIntelligence = {
   researchRunId: string;
   version: number;
   confirmedEin: string | null;
   claims: ApprovedClaim[];
+  withheld: WithheldClaim[];
 };
 
 export async function loadApprovedIntelligence(
@@ -310,6 +322,7 @@ export async function loadApprovedIntelligence(
   }
 
   const approved: ApprovedClaim[] = [];
+  const withheld: WithheldClaim[] = [];
   for (const c of claims ?? []) {
     const decision = decisionByClaim.get(c.id as string);
     // An explicit exclusion always wins, even over a clean verdict: a person
@@ -318,6 +331,26 @@ export async function loadApprovedIntelligence(
 
     const verified = verdictByClaim.get(c.id as string) === "supported";
     if (!verified && !decision) continue;
+
+    // An undated financial figure is withheld from strategy even when a
+    // person approved it. Extraction already caps these at low confidence,
+    // but ApprovedClaim carries no confidence, so downstream that demotion
+    // had no effect: a figure marked untrustworthy arrived in the strategy
+    // prompt with the same standing as the confirmed EIN.
+    //
+    // Withheld rather than labelled on purpose. A "do not size an ask off
+    // this" tag in the prompt is the same model-obedience dependency the
+    // entity and period work removed from this pipeline -- and the harm is
+    // specific: a cumulative giving total read as annual overstated one real
+    // funder's capacity by roughly 2x.
+    //
+    // Approving such a claim is still worth doing: it stays visible in
+    // Prospect Intelligence, where a person can read it in context. It just
+    // does not become an input a model reasons from unpriced.
+    if (isFinancialClaimKey(c.claim_key as string) && !hasStatedPeriod(c.reporting_period as string | null)) {
+      withheld.push({ claimKey: c.claim_key as string, reason: "no reporting period -- an undated financial figure cannot be compared or used to size an ask" });
+      continue;
+    }
 
     approved.push({
       claimKey: c.claim_key as string,
@@ -334,5 +367,6 @@ export async function loadApprovedIntelligence(
     version: run.version as number,
     confirmedEin: (run.confirmed_ein as string | null) ?? null,
     claims: approved,
+    withheld,
   };
 }

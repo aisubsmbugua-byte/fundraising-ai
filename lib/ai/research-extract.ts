@@ -2,6 +2,7 @@ import { resolveModel } from "@/lib/ai/model-select";
 import {
   RESEARCH_CLAIM_KEYS,
   claimFiguresAppearInEvidence,
+  claimSpansMultiplePeriods,
   isFinancialClaimKey,
   isQuantitativeClaimKey,
   NO_REPORTING_PERIOD,
@@ -449,6 +450,26 @@ ${findings || "(no findings)"}`,
         confidence_reason: c.confidence_reason
           ? `${c.confidence_reason}; reporting period unstated`
           : "reporting period unstated -- an undated financial figure cannot be compared or verified",
+      };
+    })
+    // A claim that says its own figure spans several years, filed under a key
+    // that promises one period, is recorded as having no period -- because it
+    // hasn't got one. This is not a penalty applied to a true statement: the
+    // claim may be perfectly accurate, it is simply not the quantity its key
+    // names, and the period label is the thing that was wrong.
+    //
+    // Runs after the undated rule deliberately, so it can overwrite a period
+    // the model asserted. When the wording and the label disagree, the
+    // wording is the evidence and the label is the claim about it.
+    .map((c) => {
+      if (!claimSpansMultiplePeriods(c.claim_key, c.claim)) return c;
+      return {
+        ...c,
+        reporting_period: UNSTATED_REPORTING_PERIOD,
+        confidence: "low" as ResearchConfidence,
+        confidence_reason: c.confidence_reason
+          ? `${c.confidence_reason}; figure spans multiple periods under a single-period key`
+          : "the claim's own wording spans multiple periods, but this key means a single named period -- the figure cannot be read as a per-year amount",
       };
     });
 

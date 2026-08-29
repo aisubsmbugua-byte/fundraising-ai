@@ -10,7 +10,7 @@
 // Usage: npx tsx scripts/test-entity-validation.ts
 
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
-import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections } from "../lib/research";
+import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, claimSpansMultiplePeriods, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -470,6 +470,56 @@ check(
 // The downstream bar: material claims must be supported, and a claim with no
 // evidence can never be supported by definition.
 check("evidence-missing is incompatible with a confirmed dossier claim", isMaterialClaimKey("identity.ein") && uncited.evidence_missing === true, true);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- figures that span periods under a single-period key ---");
+
+// The real case, from Servants Heart v14: verified, approved by a human, and
+// handed to the strategy model as though it were an annual figure -- roughly
+// 2x this funder's actual annual giving.
+check(
+  "the real cumulative-giving claim is caught",
+  claimSpansMultiplePeriods(
+    "funding.total_annual_giving",
+    "Total grants paid across all years on record: 122 grants totaling $3.4M (multi-year cumulative)"
+  ),
+  true
+);
+check(
+  "'since inception' is caught",
+  claimSpansMultiplePeriods("funding.charitable_disbursements", "$18M disbursed since inception"),
+  true
+);
+check(
+  "a properly dated giving figure is untouched",
+  claimSpansMultiplePeriods("funding.total_annual_giving", "$1,855,039 in grants awarded in Tax Year 2024"),
+  false
+);
+
+// The precision cases decide whether this is safe to run automatically: a
+// check that demotes true claims is worse than no check at all. Each of
+// these is a phrase the obvious version of the regex would have caught.
+check(
+  "a funder that MAKES multi-year grants is not a cumulative figure",
+  claimSpansMultiplePeriods("funding.grant_size_range", "Makes multi-year grants ranging from $25,000 to $100,000"),
+  false
+);
+check(
+  "'to date' on an assets figure is not caught -- it means 'as of now'",
+  claimSpansMultiplePeriods("funding.total_assets", "Total assets to date of $12.4M"),
+  false
+);
+check(
+  "the one key that exists to span periods is exempt",
+  claimSpansMultiplePeriods("funding.multiyear_grant_stats", "122 grants totaling $3.4M cumulative across all years"),
+  false
+);
+check(
+  "a non-financial key is out of scope",
+  claimSpansMultiplePeriods("funding.focus_areas", "Has funded education across all years on record"),
+  false
+);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);
