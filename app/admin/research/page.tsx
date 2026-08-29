@@ -87,7 +87,7 @@ export default async function AdminResearchPage() {
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -199,6 +199,24 @@ export default async function AdminResearchPage() {
                 <div style={{ marginTop: spacing.xs, fontSize: 13, color: colors.danger }}>
                   Identity unresolved — candidate intelligence only. This run cannot be treated as a confirmed
                   dossier or advance into Strategy/Outreach until the entity is confirmed.
+                </div>
+              )}
+
+              {run.status === "ready" && run.searches_used !== null && (
+                <div style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs }}>
+                  Retrieval: {run.searches_used} search{run.searches_used === 1 ? "" : "es"} ·{" "}
+                  {run.fetch_attempts ?? 0} page fetch{(run.fetch_attempts ?? 0) === 1 ? "" : "es"}
+                  {(run.fetch_failures ?? 0) > 0 ? ` (${run.fetch_failures} failed)` : ""} ·{" "}
+                  {(run.captured_chars ?? 0).toLocaleString()} chars captured
+                  {run.filing_fetched === false && (
+                    <span style={{ color: colors.danger }}> · no IRS filing read</span>
+                  )}
+                  {run.official_site_fetched === false && (
+                    <span style={{ color: colors.danger }}> · funder&apos;s own site NOT read</span>
+                  )}
+                  {run.official_site_fetched === null && run.depth === "dossier" && (
+                    <span> · no website on file</span>
+                  )}
                 </div>
               )}
 

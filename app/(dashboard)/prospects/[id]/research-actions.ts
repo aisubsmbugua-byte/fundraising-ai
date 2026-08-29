@@ -141,6 +141,9 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       fetchedCitations,
       fetchAvailable,
       model: searchModel,
+      searchesUsed,
+      fetchAttempts,
+      fetchFailures,
     } = await searchFunderWeb(prospect, "research_only", depth).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
@@ -392,6 +395,34 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       estimateCostUsd(searchModel, searchUsage.inputTokens, searchUsage.outputTokens) +
       estimateCostUsd(model, extraction.usage.inputTokens, extraction.usage.outputTokens);
 
+    // --- Retrieval instrumentation. The specific failure this exists to
+    // surface: a funder's own guidelines page listed as a source but never
+    // read. Application rules, eligibility and exclusions live only there and
+    // never in a filing, so that miss silently costs a whole class of fact --
+    // and it previously took three runs and a stored-evidence investigation
+    // to notice.
+    const fetchedHosts = new Set(
+      fetchedSources
+        .map((f) => {
+          try {
+            return new URL(f.url).hostname.replace(/^www\./, "");
+          } catch {
+            return null;
+          }
+        })
+        .filter((h): h is string => h !== null)
+    );
+    let officialSiteFetched: boolean | null = null;
+    if (prospect.website) {
+      try {
+        officialSiteFetched = fetchedHosts.has(new URL(prospect.website).hostname.replace(/^www\./, ""));
+      } catch {
+        officialSiteFetched = null;
+      }
+    }
+    const filingFetched = fetchedSources.some((f) => classifySourceType(f.url, prospect.website) === "irs_filing");
+    const capturedChars = allFragments.reduce((n, f) => n + f.exactText.length, 0);
+
     const excludedCount = allFragments.length - usableFragments.length;
     const statusMessage = extraction.truncated
       ? `Extraction response was truncated (hit the token limit) -- results below are incomplete. Found ${claims.length} fact${claims.length === 1 ? "" : "s"} before truncation; retry likely to find more.`
@@ -402,7 +433,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
             ? `Screen: found ${claims.length} fact${claims.length === 1 ? "" : "s"} from search only${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
             : `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
               fetchAvailable ? "" : " (page fetch unavailable this run -- search snippets only)"
-            }${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
+            }${officialSiteFetched === false ? " -- WARNING: the funder's own site was not read, so application rules and eligibility are likely missing" : ""}${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
           : "Research completed, but found nothing extractable";
 
     await supabase
@@ -424,6 +455,12 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         // Recorded because cost, latency and coverage are only interpretable
         // alongside the depth that produced them.
         depth,
+        searches_used: searchesUsed,
+        fetch_attempts: fetchAttempts,
+        fetch_failures: fetchFailures,
+        official_site_fetched: officialSiteFetched,
+        filing_fetched: filingFetched,
+        captured_chars: capturedChars,
         // Backend state, not a convention: when identity was refused, several
         // competing organizations sit at the same trust level and only the
         // model's reading separates them. Such a run stays as candidate

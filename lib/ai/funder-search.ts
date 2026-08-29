@@ -61,6 +61,13 @@ export async function searchFunderWeb(
   // back to search-only, so a run can say so rather than silently looking
   // like a shallow result.
   fetchAvailable: boolean;
+  // Retrieval instrumentation. Retrieval cannot be replayed the way
+  // extraction can, so it is measured by recording what came back.
+  // A failed fetch returns HTTP 200 with an error block rather than raising,
+  // so failures are invisible unless counted here.
+  searchesUsed: number;
+  fetchAttempts: number;
+  fetchFailures: number;
 }> {
   // max_uses caps how many searches Claude can run in this pass -- the
   // main lever on latency. Kept tight on purpose: this is meant to be
@@ -199,10 +206,21 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
   // blocks (a fetch that failed or was blocked) are skipped -- they carry
   // no document to cite.
   const fetchedSources: FetchedSource[] = [];
+  let searchesUsed = 0;
+  let fetchAttempts = 0;
+  let fetchFailures = 0;
   for (const block of searchResponse.content) {
+    if (block.type === "web_search_tool_result") searchesUsed++;
     if (block.type !== "web_fetch_tool_result") continue;
+    fetchAttempts++;
     const content = (block as { content?: unknown }).content as Record<string, unknown> | undefined;
-    if (!content || content.type !== "web_fetch_result" || typeof content.url !== "string") continue;
+    // Server-tool errors arrive as a 200 with an error block, never as a
+    // thrown exception -- an uncounted failure looks identical to a page the
+    // model simply chose not to read.
+    if (!content || content.type !== "web_fetch_result" || typeof content.url !== "string") {
+      fetchFailures++;
+      continue;
+    }
     const doc = content.content as Record<string, unknown> | undefined;
     fetchedSources.push({
       url: content.url,
@@ -282,5 +300,8 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
     fetchedSources,
     fetchedCitations,
     fetchAvailable,
+    searchesUsed,
+    fetchAttempts,
+    fetchFailures,
   };
 }
