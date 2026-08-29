@@ -27,17 +27,18 @@ Slices build toward this incrementally. Slices 1–3 are deliberately human-scaf
 
 Once a candidate is accepted into the pipeline, the intended flow is a sequence of AI-prepares / human-approves handoffs, not a single draft-then-send step:
 
-1. Accepting a candidate automatically triggers a deep-dive: AI researches the specific funder and proposes a **strategy** (outreach approach, proposal/ask positioning, rationale). This research runs without a separate human trigger — accepting a candidate is a commitment to do the work of pursuing it — but its output is a proposal, not a decision.
-2. A human approves (or edits) the strategy. Nothing downstream happens without this.
-3. AI drafts outreach content (intro email, or call-prep notes) based on the approved strategy.
-4. A human approves the content. If it's an email, the system executes the send as the direct, immediate result of that approval click — there is no separate autonomous send step, ever. If it's a call, the human makes the call using the AI-prepped notes.
-5. AI drafts the proposal/grant/deck/ask.
-6. A human approves. If email is the right vehicle, the system sends on approval, same as step 4; otherwise AI preps materials for a human-led meeting.
-7. Stewardship/CRM follow-through (reporting, renewal, relationship memory) is a later slice, not yet designed in detail.
+1. Accepting a candidate automatically starts a **strategy run**: AI researches the specific funder and proposes a **strategy** (outreach approach, proposal/ask positioning, rationale). This runs without a separate human trigger — accepting a candidate is a commitment to do the work of pursuing it — but its output is a proposal, not a decision.
+2. Separately and on demand, the **Research Agent** can be run against a prospect. It produces evidence-backed claims about the funder, each verified and then individually approved, corrected, or excluded by a human. Only approved claims become **approved intelligence**, and that is the only research payload a strategy run is allowed to read (`loadApprovedIntelligence`). It returns nothing until the funder's identity is resolved, so an unresolved prospect can never feed a strategy.
+3. A human approves (or edits) the strategy. Nothing downstream happens without this.
+4. AI drafts outreach content (intro email, or call-prep notes) based on the approved strategy.
+5. A human approves the content. If it's an email, the system executes the send as the direct, immediate result of that approval click — there is no separate autonomous send step, ever. If it's a call, the human makes the call using the AI-prepped notes.
+6. AI drafts the proposal/grant/deck/ask.
+7. A human approves. If email is the right vehicle, the system sends on approval, same as step 5; otherwise AI preps materials for a human-led meeting.
+8. Stewardship/CRM follow-through (reporting, renewal, relationship memory) is a later slice, not yet designed in detail.
 
-"Strategy" is a new artifact type this workflow introduces — distinct from a draft (Slice 5's `drafts` table). It's the AI's proposed plan for a prospect: reviewed and approved before any content gets drafted from it, not skipped past.
+"Strategy" is a new artifact type this workflow introduces — distinct from a draft (Slice 5's `drafts` table). It's the AI's proposed plan for a prospect: reviewed and approved before any content gets drafted from it, not skipped past. It lives in `strategy_runs` and is produced by `runStrategy` in `app/(dashboard)/prospects/[id]/strategy-actions.ts`. Research and strategy were originally one combined step called the "deep dive"; that name is gone from the code, and only appears now where something legitimately describes data produced before the split.
 
-Since the deep-dive involves real web search and takes several seconds, the UI shows genuine progressive status (what step is running right now), not a static spinner — sourced from the actual run's state, not a simulated animation.
+Since a strategy run involves real web search and takes several seconds, the UI shows genuine progressive status (what step is running right now), not a static spinner — sourced from the actual run's state, not a simulated animation.
 
 ## How we build
 
@@ -60,7 +61,8 @@ Next.js (App Router) · Supabase (Postgres/auth/storage) · Vercel · Anthropic 
 - **Evidence library** — verifiable outcomes + case studies with permission tags. This is the core differentiator; treat it as first-class data.
 - **Relationship memory** — the full interaction history, including "no → yes" tracking. A "no" is data, not a dead end.
 - **Knowledge base** — the nonprofit's own profile (mission, programs, outcomes, who it serves) plus general funding-landscape data. AI uses both to propose funder-type matches and to ground drafts in real evidence. The evidence library (Slice 6) is where the nonprofit-side half of this lives.
-- **Strategy** — the AI's proposed plan for pursuing a specific accepted prospect (outreach approach, ask positioning, rationale), produced by an automatic deep-dive on acceptance. Reviewed and approved by a human before any content is drafted from it — see "The advancement workflow."
+- **Strategy** — the AI's proposed plan for pursuing a specific accepted prospect (outreach approach, ask positioning, rationale), produced by a strategy run that starts automatically on acceptance. Reviewed and approved by a human before any content is drafted from it — see "The advancement workflow."
+- **Approved intelligence** — the subset of a Research Agent run's claims a human has approved, corrected, or approved with a note. The only research a strategy run may read, and empty until the funder's identity is resolved. Verified-but-unapproved claims don't qualify: verification checks a claim against its evidence, approval is the human decision, and rule 3 means the second is what gates downstream use.
 
 ## When in doubt
 
