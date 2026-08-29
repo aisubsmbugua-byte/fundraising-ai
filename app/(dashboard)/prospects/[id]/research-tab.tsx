@@ -2,6 +2,7 @@ import type { DeepDiveRun } from "@/lib/deep-dive";
 import type { ProspectIntelligence, IntelligenceReviewState } from "@/lib/prospect-intelligence";
 import { spacing, colors, sectionStyle, chipStyle } from "@/lib/ui";
 import EntityResolver from "./entity-resolver";
+import VerifyRetry from "./verify-retry";
 
 // How each review state reads to a person, and what they should do about it.
 // The wording matters more than the colour: "partial" on its own tells a
@@ -10,9 +11,11 @@ import EntityResolver from "./entity-resolver";
 const REVIEW_STATE: Record<IntelligenceReviewState, { label: string; tone: "teal" | "amber" | "red" | "neutral"; hint: string }> = {
   verified: { label: "Verified", tone: "teal", hint: "The cited evidence states this." },
   partial: { label: "Partly supported", tone: "amber", hint: "The evidence backs part of this — the wording reaches further than the source does." },
-  inference: { label: "Inference", tone: "amber", hint: "Reasoned from the evidence rather than stated by it." },
+  interpretation: { label: "Interpretation", tone: "amber", hint: "Reasoned from the evidence rather than stated by it." },
   unverified: { label: "Not yet checked", tone: "neutral", hint: "Research found this, but it has not been checked against its evidence." },
-  no_evidence: { label: "No evidence", tone: "red", hint: "Found during research but nothing citable supports it. Treat as a lead, not a fact." },
+  // "Evidence not captured" rather than "no evidence": the fact may well be
+  // true, this run simply did not capture support for it.
+  evidence_not_captured: { label: "Evidence not captured", tone: "red", hint: "Found during research, but this run captured nothing citable for it. Treat as a lead, not a fact." },
   conflict: { label: "Conflict", tone: "red", hint: "Sources disagree, or the evidence does not support this. Needs a person to settle it." },
 };
 
@@ -58,23 +61,38 @@ export default function ResearchTab({
   }
 
   const blocked = intelligence.state === "blocked";
+  const verifying = intelligence.verificationState === "pending" || intelligence.verificationState === "in_progress";
+  const verifyFailed = intelligence.verificationState === "failed";
   const gaps = intelligence.sections.filter((s) => s.missing);
 
   return (
     <div style={{ display: "grid", gap: spacing.md }}>
       {/* The one thing to read first. A blocked dossier says so plainly
           rather than presenting facts that may describe another organization. */}
-      <div style={{ ...sectionStyle, borderLeft: `3px solid ${blocked ? colors.danger : gaps.length ? "#b8860b" : colors.text}` }}>
+      <div style={{ ...sectionStyle, borderLeft: `3px solid ${blocked ? colors.danger : verifying || verifyFailed ? "#b8860b" : gaps.length ? "#b8860b" : colors.text}` }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>
-          {blocked ? "Identity not confirmed" : gaps.length ? "Research available, with gaps" : "Ready for review"}
+          {blocked
+            ? "Identity not confirmed"
+            : verifying
+              ? "Checking claims against their sources"
+              : verifyFailed
+                ? "Verification incomplete"
+                : gaps.length
+                  ? "Research available, with gaps"
+                  : "Ready for review"}
         </h3>
         <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
           {blocked
             ? "Several organizations share this name and research could not tell which is meant. Everything below may describe a different organization — confirm the entity before relying on any of it."
-            : gaps.length
-              ? `Research is usable, but nothing was found for: ${gaps.map((g) => g.label.toLowerCase()).join(", ")}.`
-              : "Every information category was found. Individual claims still carry their own review state below."}
+            : verifying
+              ? "Research is complete and shown below. Each claim is being checked against the evidence it cites; review states will appear shortly."
+              : verifyFailed
+                ? "The research below is intact, but the check against sources did not finish, so claims are unreviewed. Retrying is safe — it re-reads the stored evidence and does not re-run research."
+                : gaps.length
+                  ? `Research is usable, but nothing was found for: ${gaps.map((g) => g.label.toLowerCase()).join(", ")}.`
+                  : "Every information category was found. Individual claims still carry their own review state below."}
         </p>
+        {verifyFailed && <div style={{ marginTop: spacing.xs }}><VerifyRetry runId={intelligence.runId} /></div>}
       </div>
 
       <EntityResolver

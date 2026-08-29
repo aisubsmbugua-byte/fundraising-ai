@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { triggerResearch } from "./actions";
+import { triggerResearch, triggerVerification } from "./actions";
 import { fieldStyle, labelStyle, buttonPrimary, spacing, colors } from "@/lib/ui";
 
 type ProspectOption = { id: string; name: string; organization: string | null; stage?: string | null };
@@ -52,7 +52,16 @@ export default function ResearchPanel({
             setError(null);
             startTransition(async () => {
               const result = await triggerResearch(prospectId, previousRunId, depth === "auto" ? undefined : depth);
-              if ("error" in result) setError(result.error);
+              if ("error" in result) {
+                setError(result.error);
+                return;
+              }
+              // Second, separately-budgeted call: research can consume most of
+              // the route's time on its own, so chaining verification inside
+              // it would risk killing a finished dossier to check it. The run
+              // marks itself pending, so a failure here leaves a visible
+              // "verification incomplete" state rather than a silent gap.
+              await triggerVerification(result.runId);
             });
           }}
         >

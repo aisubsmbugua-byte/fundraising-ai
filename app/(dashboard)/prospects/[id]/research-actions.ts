@@ -1,6 +1,7 @@
 "use server";
 
 import { createHash } from "crypto";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireSuperadmin } from "@/lib/auth";
 import { estimateCostUsd } from "@/lib/ai/model-select";
@@ -492,6 +493,14 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         official_site_fetched: officialSiteFetched,
         filing_fetched: filingFetched,
         captured_chars: capturedChars,
+        // Queued for Stage 5 when it can meaningfully run. Recorded on the
+        // run so the Research tab can say "checking" rather than presenting
+        // an unchecked dossier as finished -- which is exactly how it
+        // shipped, with 0% of displayed claims carrying a verdict.
+        verification_state:
+          depth === "dossier" && isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }) && claims.some((c) => isMaterialClaimKey(c.claim_key))
+            ? "pending"
+            : "skipped",
         // Only a foundational blocker, or ready for a human to judge.
         completion_state: depth === "dossier" ? assessDossierState({ dossierConfirmed: isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }) }) : null,
         // What a fundraiser needs to know is present, judged on what was
@@ -563,7 +572,12 @@ export async function verifyRunClaims(runId: string) {
     .eq("research_run_id", runId);
 
   const material = (claims ?? []).filter((c) => isMaterialClaimKey(c.claim_key));
-  if (material.length === 0) return { verified: 0, verdicts: {} as Record<string, number> };
+  if (material.length === 0) {
+    await supabase.from("research_runs").update({ verification_state: "skipped" }).eq("id", runId);
+    return { verified: 0, verdicts: {} as Record<string, number> };
+  }
+
+  await supabase.from("research_runs").update({ verification_state: "in_progress" }).eq("id", runId);
 
   // Each claim's own cited evidence, and nothing else -- this is what the
   // verifier is given.
@@ -589,7 +603,10 @@ export async function verifyRunClaims(runId: string) {
       reportingPeriod: (c.reporting_period as string | null) ?? null,
       evidence: evidenceByClaim.get(c.id as string) ?? [],
     })),
-  }).catch((err) => {
+  }).catch(async (err) => {
+    // The research itself is untouched and the stored evidence is unchanged,
+    // so this is retryable. A failed check must never cost a dossier.
+    await supabase.from("research_runs").update({ verification_state: "failed" }).eq("id", runId);
     throw new ResearchError("verification_failed", err instanceof Error ? err.message : "Verification call failed");
   });
 
@@ -608,7 +625,22 @@ export async function verifyRunClaims(runId: string) {
     if (error) throw new ResearchError("verification_insert_failed", error.message);
   }
 
+  await supabase.from("research_runs").update({ verification_state: "complete" }).eq("id", runId);
+
   const counts: Record<string, number> = {};
   for (const v of result.verdicts) counts[v.verdict] = (counts[v.verdict] ?? 0) + 1;
   return { verified: result.verdicts.length, verdicts: counts };
+}
+
+
+// Re-runs Stage 5 against a run's STORED evidence. Never re-runs research --
+// a failed check costs a model call, not a dossier.
+export async function retryVerification(runId: string): Promise<{ error: string } | { success: true }> {
+  try {
+    await verifyRunClaims(runId);
+    revalidatePath("/prospects", "layout");
+    return { success: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Verification failed" };
+  }
 }

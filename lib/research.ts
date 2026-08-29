@@ -258,6 +258,12 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
 // dossier-level money before that point means paying full price for every
 // candidate that surfaces, most of which are never pursued.
+// Stage 5 lifecycle for a run. A verification failure must leave the
+// research intact and retryable -- losing a dossier because a check failed
+// would be worse than not checking it.
+export const RESEARCH_VERIFICATION_STATES = ["pending", "in_progress", "complete", "failed", "skipped"] as const;
+export type ResearchVerificationState = (typeof RESEARCH_VERIFICATION_STATES)[number];
+
 // What a fundraiser needs to know is present, judged on what the run
 // OBTAINED rather than on which pages it opened. Reading a page proves
 // nothing about whether the wanted information came back.

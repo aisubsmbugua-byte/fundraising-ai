@@ -29,6 +29,12 @@ export async function triggerResearch(
     await runResearch(runId, prospectId, depth);
     revalidatePath("/admin/research");
     return { success: true, runId };
+    // Verification is NOT chained here on purpose. runResearch can use most
+    // of this route's 450s budget on its own (150s search + 280s
+    // extraction), and a verification call inside the same invocation would
+    // risk killing a completed dossier to run a check on it. The caller
+    // triggers verification as a second, separately-budgeted action -- see
+    // ResearchPanel.
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to run research" };
   }

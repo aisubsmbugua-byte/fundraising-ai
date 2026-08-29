@@ -1,0 +1,18 @@
+-- Whether Stage 5 has judged this run's material claims.
+--
+-- The Research tab shipped showing every claim as "Not yet checked", because
+-- verification was a superadmin button in a dark admin tool and nothing
+-- triggered it for a real prospect: it had run on 5 of 33 completed runs, and
+-- on 0% of the claims a user could actually see. The review states are the
+-- most useful thing on that page and nobody was seeing them.
+--
+--   pending      eligible and queued -- the banner says so rather than
+--                presenting unchecked claims as a finished dossier
+--   in_progress  running now
+--   complete     verdicts recorded
+--   failed       the model call failed; research is intact and retryable,
+--                because a verification failure must never erase research
+--   skipped      not eligible (identity unresolved, or no material claims)
+--
+-- Null on runs that predate this.
+alter table research_runs add column verification_state text;

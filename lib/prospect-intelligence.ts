@@ -11,15 +11,19 @@ import {
 //
 //   verified   supported by its evidence, from the confirmed entity
 //   partial    the evidence backs part of it -- the wording reaches further
-//   inference  the run reasoned to it rather than reading it
-//   unverified research finished but Stage 5 has not judged this claim
-//   no_evidence the run believes it but could cite nothing
+//   interpretation the run reasoned to it rather than reading it
+//   unverified     research finished but Stage 5 has not judged this claim
+//   evidence_not_captured
+//                  the run believes it but captured nothing citable. The
+//                  fact may well be true -- this run simply has no support
+//                  for it, which is a different statement from "no evidence
+//                  exists".
 //   conflict   another claim for the same key disagrees
 //
 // Deliberately not the same vocabulary as the verification verdicts: those
 // answer "does the evidence support the wording", which is a narrower
 // question than "should I act on this".
-export type IntelligenceReviewState = "verified" | "partial" | "inference" | "unverified" | "no_evidence" | "conflict";
+export type IntelligenceReviewState = "verified" | "partial" | "interpretation" | "unverified" | "evidence_not_captured" | "conflict";
 
 export type IntelligenceClaim = {
   id: string;
@@ -48,6 +52,7 @@ export type ProspectIntelligence = {
   completedAt: string | null;
   // blocked | ready_for_review
   state: string | null;
+  verificationState: string | null;
   identityConfirmed: boolean;
   confirmedEin: string | null;
   resolutionMethod: string | null;
@@ -72,7 +77,7 @@ export async function loadProspectIntelligence(
   const { data: run } = await supabase
     .from("research_runs")
     .select(
-      "id, version, depth, status, completed_at, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, searches_used, fetch_attempts, fetch_failures"
+      "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, searches_used, fetch_attempts, fetch_failures"
     )
     .eq("prospect_id", prospectId)
     .eq("status", "ready")
@@ -129,11 +134,11 @@ export async function loadProspectIntelligence(
   const shaped: IntelligenceClaim[] = (claims ?? []).map((c) => {
     const verdict = verdictByClaim.get(c.id as string);
     let reviewState: IntelligenceReviewState;
-    if (c.evidence_missing) reviewState = "no_evidence";
+    if (c.evidence_missing) reviewState = "evidence_not_captured";
     else if (verdict?.verdict === "supported") reviewState = "verified";
     else if (verdict?.verdict === "partially_supported") reviewState = "partial";
     else if (verdict?.verdict === "unsupported" || verdict?.verdict === "contradicted") reviewState = "conflict";
-    else if (c.claim_type === "hypothesis") reviewState = "inference";
+    else if (c.claim_type === "hypothesis") reviewState = "interpretation";
     else reviewState = "unverified";
 
     // A conflicting key overrides an otherwise clean verdict: the claim may
@@ -169,7 +174,7 @@ export async function loadProspectIntelligence(
   // coverage chips beside it showed two categories at zero. A view that
   // contradicts itself is worse than one that is merely out of date.
   const sections: IntelligenceSection[] = RESEARCH_INFORMATION_SECTIONS.map((s) => {
-    const claims = shaped.filter((c) => (s.keys as readonly string[]).includes(c.claimKey) && c.reviewState !== "no_evidence");
+    const claims = shaped.filter((c) => (s.keys as readonly string[]).includes(c.claimKey) && c.reviewState !== "evidence_not_captured");
     return { section: s.section, label: s.label, claims, missing: claims.length === 0 };
   });
   const missingSections = sections.filter((s) => s.missing).map((s) => s.section);
@@ -196,6 +201,7 @@ export async function loadProspectIntelligence(
     depth: (run.depth as string | null) ?? null,
     completedAt: (run.completed_at as string | null) ?? null,
     state: (run.completion_state as string | null) ?? null,
+    verificationState: (run.verification_state as string | null) ?? null,
     identityConfirmed: !!run.dossier_confirmed,
     confirmedEin: (run.confirmed_ein as string | null) ?? null,
     resolutionMethod: (run.entity_resolution_method as string | null) ?? null,
