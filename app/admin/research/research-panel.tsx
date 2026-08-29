@@ -6,7 +6,7 @@ import { fieldStyle, labelStyle, buttonPrimary, spacing, colors } from "@/lib/ui
 
 type ProspectOption = { id: string; name: string; organization: string | null; stage?: string | null };
 
-type DepthChoice = "auto" | "screen" | "dossier";
+type DepthChoice = "auto" | "identity" | "screen" | "dossier";
 
 export default function ResearchPanel({
   prospects,
@@ -36,10 +36,11 @@ export default function ResearchPanel({
             ))}
           </select>
         </div>
-        <div style={{ width: 190, flexShrink: 0 }}>
+        <div style={{ width: 215, flexShrink: 0 }}>
           <label style={labelStyle}>Depth</label>
           <select style={fieldStyle} value={depth} onChange={(e) => setDepth(e.target.value as DepthChoice)}>
             <option value="auto">Auto (by pipeline stage)</option>
+            <option value="identity">Identity — who is this?</option>
             <option value="screen">Screen — search only</option>
             <option value="dossier">Dossier — read pages</option>
           </select>

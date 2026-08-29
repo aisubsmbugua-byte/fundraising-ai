@@ -431,7 +431,11 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       : !extraction.evidenceAvailable
         ? "Research completed, but no usable captured evidence this run -- claims below have no verifiable source."
         : claims.length > 0
-          ? depth === "screen"
+          ? depth === "identity"
+            ? `Identity preflight: ${claims.length} identity fact${claims.length === 1 ? "" : "s"}${
+                confirmedEin ? ` — resolved to EIN ${confirmedEin}` : " — identity NOT resolved; confirm which entity below before running a dossier"
+              }`
+            : depth === "screen"
             ? `Screen: found ${claims.length} fact${claims.length === 1 ? "" : "s"} from search only${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
             : `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
               fetchAvailable ? "" : " (page fetch unavailable this run -- search snippets only)"

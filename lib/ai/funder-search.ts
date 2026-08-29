@@ -28,11 +28,15 @@ export async function searchFunderWeb(
     organization: string | null;
     website: string | null;
     channel: string;
+    // Optional so the live combined deep-dive's call site is unchanged; used
+    // only by the identity preflight, where a stored city/state is a useful
+    // disambiguator between similarly-named organizations.
+    location?: string | null;
   },
   purpose: "combined" | "research_only" = "combined",
   // Only meaningful for research_only. "screen" skips page fetching
   // entirely -- see RESEARCH_DEPTHS in lib/research.ts.
-  depth: "screen" | "dossier" = "dossier"
+  depth: "identity" | "screen" | "dossier" = "dossier"
 ): Promise<{
   findings: string;
   // Which model actually ran the search, so the caller can price it.
@@ -114,12 +118,32 @@ Find what triage needs to decide whether this funder is worth pursuing:
 
 Financial figures must be dated or omitted. If a figure appears with its fiscal or tax year clearly stated, report it with that year; if it does not, leave it out rather than reporting an undated or approximate number -- an undated figure is worse than none. If two sources give different figures for the same thing, report both and say which source each came from rather than picking one. Only report things you actually find -- do not invent facts. Do NOT recommend an approach, suggest positioning, or draft any outreach language.`;
 
+  // Identity preflight. Two searches, no fetching, and one job: work out
+  // WHICH organization this is before any money is spent researching it.
+  //
+  // Enumerating candidates matters as much as resolving. Several real
+  // organizations can share a name -- one prospect had four -- and the
+  // failure this prevents is spending full dossier price only to discover
+  // identity was ambiguous, which accounted for 45% of Stage-1-era spend.
+  const identityPrompt = `Identify precisely which legal organization is meant by "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}${prospect.location ? `, said to be located in ${prospect.location}` : ""}.
+
+This is a short identity check, not research. Two searches at most. Do not investigate their giving, priorities or application process -- that happens later and only once identity is settled.
+
+Find, for the organization itself: its full legal name, its IRS EIN, the city and state it is based in, and its official website if it has one.
+
+Several distinct real organizations often share a similar name. If you find more than one, report EACH of them separately with its own legal name, EIN and location, and say plainly that the name is ambiguous. Do not choose between them and do not merge them into one description -- listing the candidates is the useful answer here, and picking wrongly is worse than not picking.
+
+Only report what you actually find. If no EIN is publicly stated, say so rather than guessing one.`;
+
   const combinedPrompt = `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
 
 Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`;
 
   const isResearch = purpose === "research_only";
   const isScreen = isResearch && depth === "screen";
+  const isIdentity = isResearch && depth === "identity";
+  // Neither identity nor screen may fetch pages.
+  const isSearchOnly = isScreen || isIdentity;
 
   // The live combined deep-dive keeps its original tool config and token
   // budget byte-for-byte -- a human waits on that call, so its latency
@@ -129,7 +153,7 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
   const searchTool = {
     type: "web_search_20260318" as const,
     name: "web_search" as const,
-    max_uses: isScreen ? 3 : isResearch ? 6 : 3,
+    max_uses: isIdentity ? 2 : isScreen ? 3 : isResearch ? 6 : 3,
     allowed_callers: ["direct" as const],
   };
   // citations default to DISABLED on web_fetch -- without this, fetched
@@ -169,12 +193,12 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
   // failed run, fall back to search-only once. Worst case this lands exactly
   // on the previous behavior instead of an error; fetchAvailable records
   // which path actually ran.
-  let fetchAvailable = isResearch && !isScreen;
+  let fetchAvailable = isResearch && !isSearchOnly;
   let searchResponse;
-  if (isScreen) {
+  if (isSearchOnly) {
     // No fetch tool at all: page content is the dominant input-token cost, so
     // withholding the tool (rather than asking the model not to use it) is
-    // what makes screen depth cheap.
+    // what makes these depths cheap.
     searchResponse = await request(false);
   } else if (isResearch) {
     try {

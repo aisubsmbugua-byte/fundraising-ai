@@ -4,6 +4,7 @@ import ResearchPanel from "./research-panel";
 import ClaimReview from "./claim-review";
 import ConfirmEin from "./confirm-ein";
 import VerifyButton from "./verify-button";
+import EntityPicker, { type EntityCandidate } from "./entity-picker";
 
 // Live data every load -- runs and claims change as soon as a research
 // call finishes, same reasoning as /admin/organizations.
@@ -255,6 +256,29 @@ export default async function AdminResearchPage() {
                   runId={run.id}
                   disabled={!run.dossier_confirmed}
                   disabledReason="This run's entity was never confirmed, so verifying its claims would check wording against evidence that may describe another organization."
+                />
+              )}
+
+              {run.status === "ready" && !run.dossier_confirmed && (
+                <EntityPicker
+                  prospectId={run.prospect_id}
+                  savedEin={prospectEins.get(run.prospect_id) ?? null}
+                  candidates={(() => {
+                    // Distinct EINs this run encountered, each with the source
+                    // title most likely to name the organization.
+                    const byEin = new Map<string, EntityCandidate>();
+                    for (const s of runSources) {
+                      if (!s.source_ein) continue;
+                      const existing = byEin.get(s.source_ein);
+                      const title = (s.title ?? "").includes(".") && !(s.title ?? "").includes(" ") ? "" : s.title ?? "";
+                      if (!existing) byEin.set(s.source_ein, { ein: s.source_ein, label: title || s.url, sourceCount: 1, status: s.entity_validation_status });
+                      else {
+                        existing.sourceCount++;
+                        if (!existing.label.includes(" ") && title) existing.label = title;
+                      }
+                    }
+                    return Array.from(byEin.values()).sort((a, b) => b.sourceCount - a.sourceCount);
+                  })()}
                 />
               )}
 

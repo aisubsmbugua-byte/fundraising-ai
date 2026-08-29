@@ -234,6 +234,13 @@ export const ENTITY_CLASSIFICATION_VERSION = 2;
 
 // How much retrieval a run is allowed to spend.
 //
+//   identity a preflight pass: two searches, no fetching, and only the four
+//            identity keys. Its job is to establish WHICH organization this
+//            is -- or to enumerate the candidates when it cannot -- before
+//            any expensive retrieval is spent on the wrong one. 45% of
+//            Stage-1-era spend went on runs that resolved no identity and so
+//            produced no usable dossier; this exists to stop paying full
+//            price to discover that.
 //   screen   search only, no page fetching. Enough for identity, focus
 //            areas, geography and funder type -- what triage actually needs.
 //            Measured at roughly $0.10-0.15 per organization.
@@ -242,7 +249,7 @@ export const ENTITY_CLASSIFICATION_VERSION = 2;
 //            and application rules. Roughly $0.65-0.78 and 3-4 minutes.
 //
 // Null on pre-Stage-1 rows, which were all full-depth by definition.
-export const RESEARCH_DEPTHS = ["screen", "dossier"] as const;
+export const RESEARCH_DEPTHS = ["identity", "screen", "dossier"] as const;
 export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 
 // Depth follows pipeline stage, because the product already places the
@@ -410,6 +417,15 @@ export const RESEARCH_TRIAGE_CLAIM_KEYS = [
   "people.key_contacts",
 ] as const;
 
+// The four keys an identity preflight asks for. Anything else would defeat
+// the point: this pass exists to be cheap.
+export const RESEARCH_IDENTITY_CLAIM_KEYS = [
+  "identity.legal_name",
+  "identity.ein",
+  "identity.location",
+  "identity.website",
+] as const;
+
 export function claimKeysForDepth(
   depth: ResearchDepth,
   opts: { knownWebsite?: boolean } = {}
@@ -427,8 +443,8 @@ export function claimKeysForDepth(
   if (opts.knownWebsite) all = all.filter((k) => k.key !== "identity.website");
 
   if (depth === "dossier") return all;
-  const triage = new Set<string>(RESEARCH_TRIAGE_CLAIM_KEYS);
-  return all.filter((k) => triage.has(k.key));
+  const scope = new Set<string>(depth === "identity" ? RESEARCH_IDENTITY_CLAIM_KEYS : RESEARCH_TRIAGE_CLAIM_KEYS);
+  return all.filter((k) => scope.has(k.key));
 }
 
 export function defaultDepthForStage(stage: string | null): ResearchDepth {
