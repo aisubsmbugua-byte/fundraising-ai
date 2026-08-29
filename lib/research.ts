@@ -258,13 +258,47 @@ export type ResearchDepth = (typeof RESEARCH_DEPTHS)[number];
 // "a commitment to do the work of pursuing it" (see CLAUDE.md). Spending
 // dossier-level money before that point means paying full price for every
 // candidate that surfaces, most of which are never pursued.
+// What a fundraiser needs to know is present, judged on what the run
+// OBTAINED rather than on which pages it opened. Reading a page proves
+// nothing about whether the wanted information came back.
+export const RESEARCH_INFORMATION_SECTIONS = [
+  { section: "identity", label: "Identity", keys: ["identity.legal_name", "identity.ein", "identity.location"] },
+  { section: "funding_priorities", label: "Funding priorities", keys: ["funding.focus_areas", "funding.geographic_focus", "funding.international_reach", "funding.funder_type"] },
+  { section: "financial_capacity", label: "Financial capacity", keys: ["funding.total_assets", "funding.total_annual_giving", "funding.charitable_disbursements", "funding.grant_size_range", "funding.median_grant_size", "funding.grant_count_annual"] },
+  { section: "recent_grants", label: "Recent grants", keys: ["funding.recent_grants"] },
+  { section: "eligibility", label: "Eligibility", keys: ["application.eligible_org_types", "application.foreign_org_eligibility", "application.fiscal_sponsorship_rules", "application.mission_alignment_requirement", "application.excluded_recipients", "application.prohibited_activities"] },
+  { section: "application_access", label: "Application access", keys: ["application.accepts_unsolicited", "application.invitation_mechanism", "application.submission_method", "application.deadline"] },
+  { section: "leadership", label: "Leadership", keys: ["people.key_contacts"] },
+] as const;
+
+export type ResearchInformationSection = (typeof RESEARCH_INFORMATION_SECTIONS)[number]["section"];
+
+// Sections this run obtained nothing for. A claim counts only if it carries
+// evidence: an uncited finding is visible to a human but cannot make a
+// section count as covered.
+export function missingInformationSections(claims: { claim_key: string; evidence_missing?: boolean | null }[]): string[] {
+  const have = new Set(claims.filter((c) => !c.evidence_missing).map((c) => c.claim_key));
+  return RESEARCH_INFORMATION_SECTIONS.filter((s) => !s.keys.some((k) => have.has(k))).map((s) => s.section);
+}
+
 // Source classes a private-foundation dossier is expected to have read.
 // Each is required only when it actually exists for that funder -- a prospect
 // with no website cannot be marked incomplete for failing to read one.
 export const RESEARCH_SOURCE_CLASSES = ["authoritative_filing", "grant_schedule", "official_site"] as const;
 export type ResearchSourceClass = (typeof RESEARCH_SOURCE_CLASSES)[number];
 
-export const RESEARCH_COMPLETION_STATES = ["complete", "partial", "blocked"] as const;
+// Only states with a genuine enforcement purpose survive.
+//
+//   blocked           identity unresolved -- nothing here can be trusted to
+//                     describe the intended organization, so nothing may be
+//                     used downstream
+//   ready_for_review  research finished; a human sees section-level coverage
+//                     and gaps and decides what is usable
+//
+// "complete" was removed deliberately. It claimed a universal sufficiency
+// that no single flag can carry, and it hid real gaps: three runs carried it
+// while holding no grant information whatsoever.
+export const RESEARCH_COMPLETION_STATES = ["blocked", "ready_for_review"] as const;
 export type ResearchCompletionState = (typeof RESEARCH_COMPLETION_STATES)[number];
 
 // A filing's own detail page -- where the grant schedule lives. ProPublica
@@ -284,30 +318,12 @@ export function isGrantSchedulePage(url: string): boolean {
 // schedule successfully, cited nothing from it, produced zero named grants,
 // and was still marked complete. A page opened and taken nothing from is not
 // a source the dossier read.
-export function assessDossierCompleteness({
-  dossierConfirmed,
-  filingFetched,
-  officialSiteFetched,
-  grantSchedulePresent,
-  grantScheduleFetched,
-}: {
-  dossierConfirmed: boolean;
-  filingFetched: boolean;
-  // null when the prospect has no website on file -- nothing to read.
-  officialSiteFetched: boolean | null;
-  grantSchedulePresent: boolean;
-  // Contributed at least one captured fragment -- not merely fetched.
-  grantScheduleFetched: boolean;
-}): { state: ResearchCompletionState; missing: ResearchSourceClass[] } {
-  const missing: ResearchSourceClass[] = [];
-  if (!filingFetched) missing.push("authoritative_filing");
-  if (grantSchedulePresent && !grantScheduleFetched) missing.push("grant_schedule");
-  if (officialSiteFetched === false) missing.push("official_site");
-
-  // Identity outranks completeness: reading every required source about the
-  // wrong organization is not a partial dossier, it is an unusable one.
-  if (!dossierConfirmed) return { state: "blocked", missing };
-  return { state: missing.length === 0 ? "complete" : "partial", missing };
+// Identity is the only foundational condition that can prevent use: research
+// about an organization we could not identify is not a partial dossier, it is
+// an unusable one. Everything else is a gap for a human to weigh, not a
+// blocker -- which is why section coverage is reported rather than scored.
+export function assessDossierState({ dossierConfirmed }: { dossierConfirmed: boolean }): ResearchCompletionState {
+  return dossierConfirmed ? "ready_for_review" : "blocked";
 }
 
 // What a screen-depth run is asked to extract.

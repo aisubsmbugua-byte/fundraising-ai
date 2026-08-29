@@ -5,6 +5,7 @@ import ClaimReview from "./claim-review";
 import ConfirmEin from "./confirm-ein";
 import VerifyButton from "./verify-button";
 import EntityPicker, { type EntityCandidate } from "./entity-picker";
+import { RESEARCH_INFORMATION_SECTIONS as INFORMATION_SECTIONS } from "@/lib/research";
 
 // Live data every load -- runs and claims change as soon as a research
 // call finishes, same reasoning as /admin/organizations.
@@ -38,9 +39,11 @@ const VERDICT_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
 // A dossier that finished cleanly can still have missed the one page a
 // fundraiser most wants. partial is amber, not red: the research is usable,
 // it is simply not everything a dossier should contain.
+// Two states only. "complete" was removed: it claimed a sufficiency no single
+// flag can carry, and hid real gaps -- three runs wore it while holding no
+// grant information at all. What a fundraiser needs is section coverage.
 const COMPLETION_TONE: Record<string, "teal" | "amber" | "red" | "neutral"> = {
-  complete: "teal",
-  partial: "amber",
+  ready_for_review: "teal",
   blocked: "red",
 };
 
@@ -108,7 +111,7 @@ export default async function AdminResearchPage() {
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars, completion_state, missing_source_classes"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars, completion_state, missing_source_classes, missing_information"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -233,10 +236,7 @@ export default async function AdminResearchPage() {
                 )}
                 {run.completion_state && (
                   <span style={{ ...chipStyle(COMPLETION_TONE[run.completion_state] ?? "neutral"), marginLeft: 4 }}>
-                    {run.completion_state}
-                    {(run.missing_source_classes ?? []).length > 0
-                      ? ` — no ${(run.missing_source_classes as string[]).map((m) => m.replace(/_/g, " ")).join(", ")}`
-                      : ""}
+                    {(run.completion_state as string).replace(/_/g, " ")}
                   </span>
                 )}
               </div>
@@ -247,6 +247,21 @@ export default async function AdminResearchPage() {
                 <div style={{ marginTop: spacing.xs, fontSize: 13, color: colors.danger }}>
                   Identity unresolved — candidate intelligence only. This run cannot be treated as a confirmed
                   dossier or advance into Strategy/Outreach until the entity is confirmed.
+                </div>
+              )}
+
+              {run.status === "ready" && run.completion_state === "ready_for_review" && (
+                <div style={{ fontSize: 12.5, marginTop: spacing.xs }}>
+                  <span style={{ color: colors.textMuted }}>Information: </span>
+                  {(() => {
+                    const missing = new Set((run.missing_information ?? []) as string[]);
+                    return INFORMATION_SECTIONS.map((sec) => (
+                      <span key={sec.section} style={{ ...chipStyle(missing.has(sec.section) ? "red" : "teal"), marginRight: 4 }}>
+                        {sec.label}
+                        {missing.has(sec.section) ? " missing" : ""}
+                      </span>
+                    ));
+                  })()}
                 </div>
               )}
 

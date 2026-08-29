@@ -21,7 +21,8 @@ import {
   defaultDepthForStage,
   claimKeysForDepth,
   isMaterialClaimKey,
-  assessDossierCompleteness,
+  assessDossierState,
+  missingInformationSections,
   isGrantSchedulePage,
   type ResearchDepth,
   deriveEntityNameToken,
@@ -432,49 +433,19 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     // A grant schedule counts as missing only when one was actually there:
     // "found the page and never opened it" is the failure worth flagging,
     // and it is exactly what cost 20 named grant recipients between two runs.
-    // "Read" means the page contributed captured evidence, not that the fetch
-    // returned successfully. v11 fetched the grant schedule, cited nothing
-    // from it, produced zero named grants -- and was marked complete. A page
-    // opened and taken nothing from is not a source the dossier read.
-    // ...and it must be OUR entity's page. v12 read two filings belonging to a
-    // different organization (EIN 20-5145644); counting those would mark the
-    // dossier complete on the strength of someone else's filing. Excluded
-    // sources are stored for audit but cannot satisfy a source class.
+    // Retrieval diagnostics -- operational. These explain WHY a gap exists;
+    // they do not tell a fundraiser whether the dossier holds what they need,
+    // and they are no longer allowed to decide that. The pattern-matching
+    // approach that drove state never once recognised the source that
+    // actually supplied 20 named grants.
     const readUrls = new Set(
       allFragments
         .filter((f) => f.kind === "fetched_page_excerpt" && !EXCLUDED_ENTITY_STATUSES.has(f.entityStatus))
         .map((f) => f.url)
     );
     const grantSchedulePresent = indexedSources.some((s) => isGrantSchedulePage(s.url));
-    const grantScheduleFetched = Array.from(readUrls).some((u) => isGrantSchedulePage(u));
-    const filingRead = Array.from(readUrls).some((u) => classifySourceType(u, prospect.website) === "irs_filing");
-    let officialSiteRead: boolean | null = null;
-    if (prospect.website) {
-      try {
-        const host = new URL(prospect.website).hostname.replace(/^www\./, "");
-        officialSiteRead = Array.from(readUrls).some((u) => {
-          try {
-            return new URL(u).hostname.replace(/^www\./, "") === host;
-          } catch {
-            return false;
-          }
-        });
-      } catch {
-        officialSiteRead = null;
-      }
-    }
-    // Only a dossier is judged against a dossier's requirements -- an
-    // identity or screen run is not trying to be one.
-    const completeness =
-      depth === "dossier"
-        ? assessDossierCompleteness({
-            dossierConfirmed: isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }),
-            filingFetched: filingRead,
-            officialSiteFetched: officialSiteRead,
-            grantSchedulePresent,
-            grantScheduleFetched,
-          })
-        : null;
+    const grantScheduleRead = Array.from(readUrls).some((u) => isGrantSchedulePage(u));
+    const retrievalDiagnostics = grantSchedulePresent && !grantScheduleRead ? ["grant_schedule"] : [];
 
     const excludedCount = allFragments.length - usableFragments.length;
     const statusMessage = extraction.truncated
@@ -490,13 +461,10 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
             ? `Screen: found ${claims.length} fact${claims.length === 1 ? "" : "s"} from search only${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
             : `Found ${claims.length} fact${claims.length === 1 ? "" : "s"} from ${fetchedSources.length} page${fetchedSources.length === 1 ? "" : "s"} read in full${
               fetchAvailable ? "" : " (page fetch unavailable this run -- search snippets only)"
-            }${
-              completeness && completeness.state !== "complete"
-                ? ` -- ${completeness.state.toUpperCase()}${
-                    completeness.missing.length ? `: did not read ${completeness.missing.map((m) => m.replace(/_/g, " ")).join(", ")}` : ""
-                  }`
-                : ""
-            }${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
+            }${(() => {
+              const gaps = depth === "dossier" ? missingInformationSections(claims.map((c) => ({ claim_key: c.claim_key, evidence_missing: c.evidence_missing }))) : [];
+              return gaps.length ? ` -- no ${gaps.map((g) => g.replace(/_/g, " ")).join(", ")}` : "";
+            })()}${excludedCount > 0 ? ` (${excludedCount} evidence fragment${excludedCount === 1 ? "" : "s"} excluded for entity mismatch)` : ""}`
           : "Research completed, but found nothing extractable";
 
     await supabase
@@ -524,8 +492,12 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         official_site_fetched: officialSiteFetched,
         filing_fetched: filingFetched,
         captured_chars: capturedChars,
-        completion_state: completeness?.state ?? null,
-        missing_source_classes: completeness?.missing ?? null,
+        // Only a foundational blocker, or ready for a human to judge.
+        completion_state: depth === "dossier" ? assessDossierState({ dossierConfirmed: isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }) }) : null,
+        // What a fundraiser needs to know is present, judged on what was
+        // obtained rather than which pages were opened.
+        missing_information: depth === "dossier" ? missingInformationSections(claims.map((c) => ({ claim_key: c.claim_key, evidence_missing: c.evidence_missing }))) : null,
+        missing_source_classes: depth === "dossier" ? retrievalDiagnostics : null,
         // Backend state, not a convention: when identity was refused, several
         // competing organizations sit at the same trust level and only the
         // model's reading separates them. Such a run stays as candidate

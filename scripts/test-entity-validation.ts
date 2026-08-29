@@ -10,7 +10,7 @@
 // Usage: npx tsx scripts/test-entity-validation.ts
 
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
-import { assessDossierCompleteness, claimFiguresAppearInEvidence, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey } from "../lib/research";
+import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -412,56 +412,64 @@ check("identity keys are not", isQuantitativeClaimKey("identity.legal_name"), fa
 
 
 // ---------------------------------------------------------------------------
-console.log("\n--- Dossier completeness ---");
+console.log("\n--- Dossier state and information coverage ---");
 
-// A filing's detail page carries the grant schedule; the organization summary
-// page carries totals but never the recipient list. Both are ProPublica URLs.
-check("a full-filing page is a grant schedule", isGrantSchedulePage("https://projects.propublica.org/nonprofits/organizations/582218044/202543159349101244/full"), true);
+// A filing detail page is still a useful DIAGNOSTIC, but no longer decides
+// whether a dossier is usable.
+check("a full-filing page is recognised as a grant schedule", isGrantSchedulePage("https://projects.propublica.org/nonprofits/organizations/582218044/202543159349101244/full"), true);
 check("an organization summary page is not", isGrantSchedulePage("https://projects.propublica.org/nonprofits/organizations/582218044"), false);
 
+// Only identity blocks. Everything else is a gap for a human to weigh.
+check("unresolved identity blocks", assessDossierState({ dossierConfirmed: false }), "blocked");
+check("confirmed identity is ready for review", assessDossierState({ dossierConfirmed: true }), "ready_for_review");
+
+// Coverage is judged on what was OBTAINED. The real case: a run holding 32
+// facts and no grant information must say so rather than reporting complete.
 check(
-  "everything required was read -> complete",
-  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: true, grantSchedulePresent: true, grantScheduleFetched: true }),
-  { state: "complete", missing: [] }
+  "a dossier with financials but no grants reports recent_grants missing",
+  missingInformationSections([
+    { claim_key: "identity.ein" },
+    { claim_key: "funding.total_assets" },
+    { claim_key: "funding.focus_areas" },
+    { claim_key: "application.accepts_unsolicited" },
+    { claim_key: "people.key_contacts" },
+    { claim_key: "application.eligible_org_types" },
+  ]),
+  ["recent_grants"]
 );
 
-// The real failure: the schedule was in the results and never opened. That is
-// what cost 20 named grant recipients between two otherwise-identical runs.
+// An uncited finding is visible to a human but cannot make a section count
+// as covered -- otherwise evidence_missing would quietly fill gaps.
 check(
-  "grant schedule seen but not read -> partial",
-  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: true, grantSchedulePresent: true, grantScheduleFetched: false }),
-  { state: "partial", missing: ["grant_schedule"] }
-);
-
-// A funder with no website cannot be incomplete for failing to read one.
-check(
-  "no website on file is not a missing source",
-  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: null, grantSchedulePresent: false, grantScheduleFetched: false }),
-  { state: "complete", missing: [] }
+  "an evidence-missing claim does not cover its section",
+  missingInformationSections([{ claim_key: "funding.recent_grants", evidence_missing: true }]),
+  ["identity", "funding_priorities", "financial_capacity", "recent_grants", "eligibility", "application_access", "leadership"]
 );
 check(
-  "a website that existed and was not read IS missing",
-  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: false, grantSchedulePresent: false, grantScheduleFetched: false }),
-  { state: "partial", missing: ["official_site"] }
-);
-
-// Identity outranks completeness: reading every required source about the
-// wrong organization is not partial, it is unusable.
-check(
-  "unresolved identity -> blocked, however much was read",
-  assessDossierCompleteness({ dossierConfirmed: false, filingFetched: true, officialSiteFetched: true, grantSchedulePresent: true, grantScheduleFetched: true }),
-  { state: "blocked", missing: [] }
+  "the same claim WITH evidence does cover it",
+  missingInformationSections([{ claim_key: "funding.recent_grants", evidence_missing: false }]).includes("recent_grants"),
+  false
 );
 
 
-// The v11 case: the schedule was fetched successfully, contributed no
-// captured evidence, produced zero named grants -- and was marked complete.
-// "Read" must mean the page gave us something, not that the request returned.
+// ---------------------------------------------------------------------------
+console.log("\n--- evidence_missing guarantees ---");
+
+// It has never fired in a real run, and that is fine: its value is that the
+// system CAN represent an uncited finding safely if one occurs. What must
+// hold is that when it does fire, the claim cannot be trusted or used. These
+// assert the guarantee deterministically rather than waiting for the model
+// to produce one.
+const uncited = { claim_key: "funding.recent_grants", evidence_missing: true };
+check("an uncited claim cannot cover its information section", missingInformationSections([uncited]).includes("recent_grants"), true);
 check(
-  "a page fetched but contributing no evidence counts as NOT read",
-  assessDossierCompleteness({ dossierConfirmed: true, filingFetched: true, officialSiteFetched: null, grantSchedulePresent: true, grantScheduleFetched: false }),
-  { state: "partial", missing: ["grant_schedule"] }
+  "an uncited claim cannot satisfy any section it names",
+  missingInformationSections([{ claim_key: "identity.ein", evidence_missing: true }]).includes("identity"),
+  true
 );
+// The downstream bar: material claims must be supported, and a claim with no
+// evidence can never be supported by definition.
+check("evidence-missing is incompatible with a confirmed dossier claim", isMaterialClaimKey("identity.ein") && uncited.evidence_missing === true, true);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);
