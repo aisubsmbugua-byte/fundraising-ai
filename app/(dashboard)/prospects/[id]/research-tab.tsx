@@ -1,9 +1,12 @@
 import type { StrategyRun } from "@/lib/strategy";
 import type { ProspectIntelligence, IntelligenceReviewState } from "@/lib/prospect-intelligence";
 import { spacing, colors, sectionStyle, chipStyle } from "@/lib/ui";
+import type { ProspectWorkflow } from "@/lib/prospect-workflow";
 import EntityResolver from "./entity-resolver";
 import VerifyRetry from "./verify-retry";
-import { ApproveVerified, ClaimDecision } from "./claim-decision";
+import ResearchPanel from "./research-panel";
+import ApproveAndGenerate from "./approve-and-generate";
+import { ClaimDecision } from "./claim-decision";
 
 // How each review state reads to a person, and what they should do about it.
 // The wording matters more than the colour: "partial" on its own tells a
@@ -24,10 +27,16 @@ export default function ResearchTab({
   prospectId,
   intelligence,
   strategyRun,
+  workflow,
+  lastCompletedAt,
+  approvedClaimCount,
 }: {
   prospectId: string;
   intelligence: ProspectIntelligence | null;
   strategyRun: StrategyRun | null;
+  workflow: ProspectWorkflow;
+  lastCompletedAt: string | null;
+  approvedClaimCount: number;
 }) {
   // Kept, but collapsed and labelled: it predates entity checking and
   // verification, so presenting it beside verified intelligence without that
@@ -45,16 +54,21 @@ export default function ResearchTab({
     </details>
   ) : null;
 
+  // No finished run to show. This covers three different situations -- never
+  // researched, researching right now, and a run that failed -- and the
+  // workflow state is what tells them apart. ResearchPanel renders the right
+  // control for each, so this block never has to guess.
   if (!intelligence) {
     return (
       <div>
         <div style={sectionStyle}>
-          <h3 style={{ fontSize: 14, margin: 0 }}>No structured research yet</h3>
-          <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
-            {strategyRun?.findings
-              ? "This prospect has legacy deep-dive findings only. Structured intelligence appears once research has been run for it."
-              : "Structured intelligence appears once research has been run for this prospect."}
+          <h3 style={{ fontSize: 14, margin: 0 }}>{workflow.label}</h3>
+          <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+            {strategyRun?.findings && workflow.state === "not_started"
+              ? "This prospect has legacy findings only, from before research became its own step. Running research produces evidence-backed claims you can review and approve."
+              : workflow.hint}
           </p>
+          <ResearchPanel prospectId={prospectId} workflow={workflow} lastCompletedAt={lastCompletedAt} />
         </div>
         {legacy}
       </div>
@@ -100,16 +114,25 @@ export default function ResearchTab({
                   : "Every information category was found. Individual claims still carry their own review state below."}
         </p>
         {verifyFailed && <div style={{ marginTop: spacing.xs }}><VerifyRetry runId={intelligence.runId} /></div>}
+        <div style={{ marginTop: spacing.sm }}>
+          <ResearchPanel prospectId={prospectId} workflow={workflow} lastCompletedAt={lastCompletedAt} />
+        </div>
       </div>
 
-      {!blocked && !verifying && (verifiedCount > 0 || exceptionCount > 0) && (
+      {!blocked && !verifying && (verifiedCount > 0 || approvedClaimCount > 0) && (
         <div style={sectionStyle}>
           <h3 style={{ fontSize: 14, margin: 0 }}>Approve intelligence</h3>
           <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.sm }}>
-            Only approved intelligence reaches Strategy and outreach. Verified claims can be approved together;
-            anything the evidence does not fully support needs a decision of its own.
+            Only approved intelligence reaches Strategy and outreach. Verified claims are approved together;
+            anything the evidence does not fully support needs a decision of its own, below.
           </p>
-          <ApproveVerified runId={intelligence.runId} verifiedCount={verifiedCount} exceptionCount={exceptionCount} />
+          <ApproveAndGenerate
+            researchRunId={intelligence.runId}
+            prospectId={prospectId}
+            verifiedCount={verifiedCount}
+            exceptionCount={exceptionCount}
+            alreadyApprovedCount={approvedClaimCount}
+          />
         </div>
       )}
 

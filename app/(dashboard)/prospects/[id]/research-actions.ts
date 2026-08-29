@@ -3,7 +3,7 @@
 import { createHash } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireSuperadmin } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { estimateCostUsd } from "@/lib/ai/model-select";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { verifyResearchClaims } from "@/lib/ai/research-verify";
@@ -92,7 +92,7 @@ class ResearchError extends Error {
 // Shared by startResearch and retryResearch -- the only difference between
 // a first run and a retry is whether retryOfRunId is set.
 async function createResearchRun(prospectId: string, retryOfRunId: string | null): Promise<string> {
-  const user = await requireSuperadmin();
+  const user = await requireUser();
   const supabase = createClient();
 
   const { data: prospect } = await supabase.from("prospects").select("name").eq("id", prospectId).single();
@@ -109,14 +109,45 @@ export async function retryResearch(prospectId: string, previousRunId: string): 
   return createResearchRun(prospectId, previousRunId);
 }
 
-// The heavy-lifting call. Dark/superadmin-only -- this is evaluation
-// infrastructure, not a feature soft-launched to real tenant users, so the
-// authorization boundary is enforced here structurally, not just by the
-// absence of a UI entry point. started_at acts as a claim-lock, same
+// The one entry point the product uses. Chains a re-run onto the prospect's
+// previous run automatically, so version history stays continuous without
+// the caller having to know a previous run exists -- the admin panel takes
+// the run id explicitly because it is comparing specific runs; nobody using
+// the prospect page is.
+//
+// Returns rather than throws: Next.js redacts a thrown Server Action's
+// message in production, and every failure here is one the user needs to
+// read.
+export async function startProspectResearch(
+  prospectId: string
+): Promise<{ error: string } | { success: true; runId: string }> {
+  try {
+    const supabase = createClient();
+    const { data: previous } = await supabase
+      .from("research_runs")
+      .select("id")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const runId = previous ? await retryResearch(prospectId, previous.id as string) : await startResearch(prospectId);
+    revalidatePath(`/prospects/${prospectId}`);
+    return { success: true, runId };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not start research" };
+  }
+}
+
+// The heavy-lifting call. Open to any signed-in team member: research is now
+// the first step of the accepted-prospect workflow rather than evaluation
+// infrastructure, and every table it touches is scoped by organization in
+// RLS, so the isolation that mattered is enforced in the database and not by
+// the absence of a UI entry point. started_at acts as a claim-lock, same
 // pattern as runStrategy, so a duplicate trigger (e.g. a page refresh
 // mid-run) can't start the same run twice.
 export async function runResearch(runId: string, prospectId: string, depthOverride?: ResearchDepth) {
-  await requireSuperadmin();
+  await requireUser();
   const supabase = createClient();
 
   const { data: claimed } = await supabase
@@ -549,7 +580,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
 // may describe the wrong organization -- a precise answer to the wrong
 // question, and the more dangerous for looking rigorous.
 export async function verifyRunClaims(runId: string) {
-  await requireSuperadmin();
+  await requireUser();
   const supabase = createClient();
 
   const { data: run } = await supabase

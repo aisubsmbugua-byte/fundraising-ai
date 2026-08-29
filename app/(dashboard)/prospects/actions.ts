@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { upsertContact } from "@/lib/contacts";
-import { requireSuperadmin } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 
 // Accepts what people actually type -- "58-2218044", "582218044", stray
 // spaces -- and stores the canonical dashed form the research code compares
@@ -247,9 +247,12 @@ export async function updateAskAmount(prospectId: string, askAmount: number | nu
 // forbids. Once a human confirms it here, resolveRunEntity short-circuits to
 // stored_ein and every later run of this prospect is deterministic.
 //
-// Superadmin-only, matching the rest of the (dark) Research Agent surface.
+// Open to any signed-in team member. It has to be: confirming the entity is
+// a required step of the workflow whenever research finds several
+// organizations sharing a name, and a mandatory step only a superadmin can
+// take is a dead end for everyone else. RLS scopes the prospect row.
 export async function confirmProspectEin(prospectId: string, ein: string) {
-  await requireSuperadmin();
+  await requireUser();
   const supabase = createClient();
 
   const digits = ein.replace(/\D/g, "");

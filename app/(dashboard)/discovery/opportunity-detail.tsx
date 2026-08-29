@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Globe, MapPin, Coins, Building2, Database, Bookmark, RotateCcw, X, CircleCheck } from "lucide-react";
 import { acceptCandidate, dismissCandidate, saveCandidateForLater, restoreCandidateToPending } from "./actions";
-import { runStrategy } from "../prospects/[id]/strategy-actions";
+import { runResearch } from "../prospects/[id]/research-actions";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
 import FitScoreCircle from "@/components/FitScoreCircle";
@@ -23,7 +23,7 @@ export default function OpportunityDetail({
 }) {
   const [status, setStatus] = useState<PanelStatus>("idle");
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [pendingStrategyRun, setPendingStrategyRun] = useState<{ runId: string; prospectId: string } | null>(null);
+  const [pendingResearchRun, setPendingResearchRun] = useState<{ runId: string; prospectId: string } | null>(null);
   const [, startTransition] = useTransition();
 
   // Reset local transient state whenever the selected candidate
@@ -38,10 +38,10 @@ export default function OpportunityDetail({
   // isPending-equivalent state stuck for as long as that call took to
   // settle even though it's never awaited (same fix as StrategyPanel).
   useEffect(() => {
-    if (pendingStrategyRun) {
-      runStrategy(pendingStrategyRun.runId, pendingStrategyRun.prospectId);
+    if (pendingResearchRun) {
+      runResearch(pendingResearchRun.runId, pendingResearchRun.prospectId, "dossier");
     }
-  }, [pendingStrategyRun]);
+  }, [pendingResearchRun]);
 
   const disabled = status !== "idle";
   const confidenceTone =
@@ -126,7 +126,7 @@ export default function OpportunityDetail({
       )}
       {status === "justAccepted" && (
         <p style={{ fontSize: 13, color: colors.success, marginTop: spacing.md }}>
-          ✓ AI is now researching {candidate.name} — your strategy will be ready for review shortly.
+          ✓ Researching {candidate.name} — the findings will be ready for your review shortly.
         </p>
       )}
 
@@ -197,7 +197,7 @@ export default function OpportunityDetail({
       <ConfirmDialog
         open={confirmOpen}
         title="Accept candidate"
-        message={`Accept "${candidate.name}" into the pipeline as a new prospect at the Discovery stage? This starts automatic research and proposes a strategy for pursuing them.`}
+        message={`Accept "${candidate.name}" into the pipeline as a new prospect at the Discovery stage? Research starts straight away; you review what it finds, then generate a strategy from it.`}
         confirmLabel="Accept"
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => {
@@ -209,7 +209,7 @@ export default function OpportunityDetail({
               setStatus("idle");
               return;
             }
-            setPendingStrategyRun(result);
+            setPendingResearchRun(result);
             setStatus("justAccepted");
             onStatusChange(candidate.id, "accepted");
           });

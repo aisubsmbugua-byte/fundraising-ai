@@ -7,6 +7,7 @@ import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { parseCsv } from "@/lib/candidates";
 import { CHANNELS } from "@/lib/prospects";
 import { upsertContact } from "@/lib/contacts";
+import { allocateResearchRunVersion } from "@/lib/research";
 
 async function getActiveRules(supabase: ReturnType<typeof createClient>) {
   const { data } = await supabase.from("screening_rules").select("*").eq("active", true);
@@ -197,30 +198,27 @@ export async function acceptCandidate(candidateId: string) {
   if (updateError) throw new Error(updateError.message);
   console.log(`[accept-candidate] candidate status updated at +${Date.now() - t0}ms`);
 
-  // Accepting is a commitment to pursue this prospect -- create the
-  // strategy run row now (fast, just an insert). The actual research
-  // is triggered by the caller (CandidateActions), fire-and-forget,
-  // right after this returns -- the Discovery page stays mounted
-  // (Accept no longer navigates away), so there's no unmounting-
-  // component risk of the browser cancelling that request.
-  const { data: run, error: runError } = await supabase
-    .from("strategy_runs")
-    .insert({
-      prospect_id: prospect.id,
-      status: "researching",
-      status_message: `Researching ${candidate.name} and drafting a strategy...`,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
-  if (runError || !run) throw new Error(runError?.message ?? "Failed to start strategy run");
-  console.log(`[accept-candidate] strategy_run inserted at +${Date.now() - t0}ms`);
+  // Accepting is a commitment to pursue this prospect, so RESEARCH starts
+  // here -- not a strategy. A strategy is written from intelligence a person
+  // has reviewed and approved, which cannot exist yet at the moment of
+  // acceptance; generating one now would produce a confident-looking plan
+  // grounded in nothing but the model's own search.
+  //
+  // Only the row is created here (fast, just an insert). The run itself is
+  // triggered by the caller, fire-and-forget, right after this returns --
+  // the Discovery page stays mounted (Accept no longer navigates away), so
+  // there's no unmounting-component risk of the browser cancelling it.
+  // Through the shared allocator rather than a direct insert: version
+  // numbering and its retry-on-collision handling live in one place, and a
+  // second insert path would be the one that eventually gets them wrong.
+  const runId = await allocateResearchRunVersion(supabase, prospect.id as string, null, user.id, `Researching ${candidate.name}...`);
+  console.log(`[accept-candidate] research_run inserted at +${Date.now() - t0}ms`);
 
   revalidatePath("/discovery");
   revalidatePath("/pipeline");
   console.log(`[accept-candidate] revalidated, returning at +${Date.now() - t0}ms`);
 
-  return { prospectId: prospect.id as string, runId: run.id as string };
+  return { prospectId: prospect.id as string, runId };
 }
 
 export async function dismissCandidate(candidateId: string) {

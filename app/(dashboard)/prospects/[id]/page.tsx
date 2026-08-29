@@ -13,13 +13,14 @@ import RightRail from "./right-rail";
 import OverviewTab from "./overview-tab";
 import ResearchTab from "./research-tab";
 import { loadProspectIntelligence } from "@/lib/prospect-intelligence";
+import { loadProspectWorkflow } from "@/lib/prospect-workflow";
 import ActivityTab from "./activity-tab";
 import ContactsTab from "./contacts-tab";
 import StrategyPanel from "./strategy-panel";
 import DraftPanel from "./draft-panel";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import InitialsAvatar from "@/components/InitialsAvatar";
-import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle } from "@/lib/ui";
+import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle, sectionStyle } from "@/lib/ui";
 import type { StrategyRun } from "@/lib/strategy";
 import type { Draft } from "@/lib/drafts";
 import type { Contact } from "@/lib/contacts";
@@ -54,7 +55,13 @@ export default async function ProspectDetailPage({
 
   if (!prospect) notFound();
 
-  const intelligence = await loadProspectIntelligence(supabase, prospect.id);
+  // Workflow state covers runs still in flight, which loadProspectIntelligence
+  // deliberately cannot see (it only reads finished ones) -- so both are
+  // needed, and neither is derivable from the other.
+  const [intelligence, workflow] = await Promise.all([
+    loadProspectIntelligence(supabase, prospect.id),
+    loadProspectWorkflow(supabase, prospect.id),
+  ]);
 
   const [
     { data: history },
@@ -297,7 +304,14 @@ export default async function ProspectDetailPage({
                 />
               )}
               {activeTab === "research" && (
-                <ResearchTab prospectId={prospect.id} intelligence={intelligence} strategyRun={strategyRun ?? null} />
+                <ResearchTab
+                  prospectId={prospect.id}
+                  intelligence={intelligence}
+                  strategyRun={strategyRun ?? null}
+                  workflow={workflow}
+                  lastCompletedAt={workflow.lastCompletedAt}
+                  approvedClaimCount={workflow.approvedClaimCount}
+                />
               )}
               {activeTab === "strategy" && strategyRun?.strategy && !strategyRun.approved_intelligence_run_id && (
                 <div
@@ -319,7 +333,24 @@ export default async function ProspectDetailPage({
                 <>
                   <MoveStageControl prospectId={prospect.id} prospectName={prospect.name} currentStage={prospect.stage} />
                   <div style={{ marginTop: spacing.lg }}>
-                    <StrategyPanel prospectId={prospect.id} initialRun={strategyRun ?? null} />
+                    {strategyRun ? (
+                      <StrategyPanel prospectId={prospect.id} initialRun={strategyRun} />
+                    ) : (
+                      // A strategy is generated from approved intelligence, so
+                      // an empty Strategy tab has a cause, and it is always on
+                      // the Research tab. Saying which step is outstanding
+                      // beats an empty panel that looks broken.
+                      <div style={sectionStyle}>
+                        <h3 style={{ fontSize: 14, margin: 0 }}>No strategy yet</h3>
+                        <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
+                          A strategy is written from research you have reviewed and approved. {workflow.hint}{" "}
+                          <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: colors.text }}>
+                            Go to Research
+                          </Link>
+                          .
+                        </p>
+                      </div>
+                    )}
                   </div>
                   {strategyRun?.approved_strategy && (
                     <DraftPanel prospectId={prospect.id} strategyRunId={strategyRun.id} drafts={drafts ?? []} />

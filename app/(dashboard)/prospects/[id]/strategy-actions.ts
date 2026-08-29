@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { loadApprovedIntelligence } from "@/lib/prospect-intelligence";
+import { approveVerifiedIntelligence } from "./research-actions";
 import { hasStatedPeriod } from "@/lib/research";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
@@ -308,12 +309,31 @@ ${
   revalidatePath(`/prospects/${prospectId}`);
 }
 
-export async function retryStrategy(prospectId: string) {
+// The only way a strategy_runs row gets created. Guarded, because the whole
+// point of the research-first workflow is that a strategy is written from
+// intelligence a person approved -- a strategy generated from an empty
+// payload would silently fall back to the model's own web search and look
+// exactly like a grounded one.
+//
+// The guard therefore refuses rather than degrading: research that failed,
+// is still blocked on identity, or has not been reviewed yet all leave the
+// prospect where it is, with a message saying which of those it is.
+async function createStrategyRun(prospectId: string): Promise<string> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  const approved = await loadApprovedIntelligence(supabase, prospectId);
+  if (!approved) {
+    throw new Error(
+      "This prospect has no confirmed research to build a strategy from. Run research and confirm the organization's identity first."
+    );
+  }
+  if (approved.claims.length === 0) {
+    throw new Error("No intelligence has been approved yet. Approve the claims the strategy should be written from first.");
+  }
 
   const { data: prospect } = await supabase.from("prospects").select("name").eq("id", prospectId).single();
   if (!prospect) throw new Error("Prospect not found");
@@ -323,7 +343,7 @@ export async function retryStrategy(prospectId: string) {
     .insert({
       prospect_id: prospectId,
       status: "researching",
-      status_message: `Researching ${prospect.name} and drafting a strategy...`,
+      status_message: `Building a strategy for ${prospect.name} from approved intelligence...`,
       created_by: user.id,
     })
     .select("id")
@@ -332,6 +352,33 @@ export async function retryStrategy(prospectId: string) {
 
   revalidatePath(`/prospects/${prospectId}`);
   return run.id as string;
+}
+
+export async function retryStrategy(prospectId: string) {
+  return createStrategyRun(prospectId);
+}
+
+// The explicit handoff from research to strategy, named after what the
+// person is actually doing. Approving and generating are one action on
+// screen because they are one decision -- "these are the facts, write from
+// them" -- but they stay two writes, so a failure to create the run cannot
+// silently discard the approvals.
+//
+// Returns rather than throws for the usual production-redaction reason; the
+// guard messages in createStrategyRun are the ones a user most needs to see.
+export async function approveIntelligenceAndGenerateStrategy(
+  researchRunId: string,
+  prospectId: string
+): Promise<{ error: string } | { success: true; runId: string; approved: number }> {
+  try {
+    const result = await approveVerifiedIntelligence(researchRunId);
+    if ("error" in result) return { error: result.error };
+
+    const runId = await createStrategyRun(prospectId);
+    return { success: true, runId, approved: result.approved };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not generate the strategy" };
+  }
 }
 
 export async function approveStrategy(
