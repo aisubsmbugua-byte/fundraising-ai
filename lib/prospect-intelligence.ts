@@ -148,7 +148,14 @@ export async function loadProspectIntelligence(
       claim: c.claim as string,
       confidence: c.confidence as ResearchConfidence,
       confidenceReason: (c.confidence_reason as string | null) ?? null,
-      reportingPeriod: (c.reporting_period as string | null) ?? null,
+      // "not_time_bound" and "unstated" are internal vocabulary -- a person
+      // should see a year, or a plain statement that none was given.
+      reportingPeriod:
+        c.reporting_period === "not_time_bound"
+          ? null
+          : c.reporting_period === "unstated"
+            ? "no year stated"
+            : ((c.reporting_period as string | null) ?? null),
       periodUnverified: verdict?.period_verdict === "unverified",
       reviewState,
       reviewReason: verdict?.reason ?? (c.confidence_reason as string | null) ?? null,
@@ -156,13 +163,16 @@ export async function loadProspectIntelligence(
     };
   });
 
-  const missingSections = (run.missing_information as string[] | null) ?? [];
-  const sections: IntelligenceSection[] = RESEARCH_INFORMATION_SECTIONS.map((s) => ({
-    section: s.section,
-    label: s.label,
-    claims: shaped.filter((c) => (s.keys as readonly string[]).includes(c.claimKey)),
-    missing: missingSections.includes(s.section),
-  }));
+  // Derived from the claims actually present rather than read from the run's
+  // stored array. The stored value is null for every run that predates it,
+  // which made the banner announce "every category was found" while the
+  // coverage chips beside it showed two categories at zero. A view that
+  // contradicts itself is worse than one that is merely out of date.
+  const sections: IntelligenceSection[] = RESEARCH_INFORMATION_SECTIONS.map((s) => {
+    const claims = shaped.filter((c) => (s.keys as readonly string[]).includes(c.claimKey) && c.reviewState !== "no_evidence");
+    return { section: s.section, label: s.label, claims, missing: claims.length === 0 };
+  });
+  const missingSections = sections.filter((s) => s.missing).map((s) => s.section);
 
   // Distinct entities this run encountered -- the disambiguation choices.
   const byEin = new Map<string, ProspectIntelligence["candidates"][number]>();
