@@ -10,6 +10,7 @@
 // Usage: npx tsx scripts/test-entity-validation.ts
 
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
+import { claimFiguresAppearInEvidence, distinctiveNumbers } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -335,6 +336,49 @@ check(
     ],
   }),
   { ein: MACLELLAN_EIN, method: "authoritative_filing" }
+);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- A claim's figures must appear in the evidence it cites (Servants Heart v8) ---");
+
+// Ten named grants in one real run each cited a fragment containing the
+// foundation's mission statement and no grant at all. Making evidence_ids
+// required removed unevidenced claims but permitted MIS-evidenced ones.
+const MISSION_FRAGMENT =
+  "Servants Heart Foundation exists to glorify God by caring for those in need and strengthening the local church through ministry partnerships.";
+
+check(
+  "a grant amount absent from the cited fragment is not supported",
+  claimFiguresAppearInEvidence("Grant to Mariners Church (Irvine, CA) of $190,000 in fiscal year 2023.", [MISSION_FRAGMENT]),
+  false
+);
+check(
+  "a figure present in the cited fragment IS supported",
+  claimFiguresAppearInEvidence("Total assets were $17,408,962 in FY2024.", ["Total Assets $17,408,962 Total Liabilities $34.7k"]),
+  true
+);
+check(
+  "separators do not break the match",
+  claimFiguresAppearInEvidence("approximately $167M in assets", ["Total assets of 167,367,179 at year end"]),
+  true
+);
+
+// A bare year is not distinctive: 2023 appears on almost any filing page, so
+// matching on it alone would pass a claim whose actual figure is absent.
+check("a bare year is not a distinctive number", distinctiveNumbers("in fiscal year 2023"), []);
+check("an amount is distinctive", distinctiveNumbers("$190,000 in fiscal year 2023"), ["190000"]);
+check(
+  "a year in the evidence cannot rescue a missing amount",
+  claimFiguresAppearInEvidence("Grant of $85,000 in fiscal year 2023.", ["The foundation filed its return for fiscal year 2023."]),
+  false
+);
+
+// Prose claims carry no figures and are Stage 5's job, not arithmetic's.
+check(
+  "a claim with no figures is not judged here",
+  claimFiguresAppearInEvidence("The foundation supports Christian ministry organizations.", [MISSION_FRAGMENT]),
+  true
 );
 
 console.log(`\n${pass} passed, ${fail} failed.`);

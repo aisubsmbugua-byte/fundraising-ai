@@ -350,6 +350,48 @@ export function isMaterialClaimKey(claimKey: string): boolean {
   return MATERIAL_CLAIM_KEYS.has(claimKey);
 }
 
+// Numbers in a claim that ought to appear in the evidence backing it.
+//
+// Deliberately excludes bare years: 2023 turns up in almost any filing page,
+// so matching on it would pass a claim whose actual figure is absent. What
+// remains -- amounts, counts, medians -- is distinctive enough that its
+// absence from every cited fragment means the claim is citing the wrong
+// evidence.
+export function distinctiveNumbers(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.match(/\d[\d,.]*/g) ?? []) {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 3) continue;
+    const n = Number(digits);
+    // A bare 4-digit year is not distinctive.
+    if (digits.length === 4 && n >= 1900 && n <= 2099) continue;
+    out.push(digits);
+  }
+  return out;
+}
+
+// Whether a claim's figures actually appear in the evidence it cites.
+//
+// This catches a failure the evidence-first design created rather than
+// removed. Making evidence_ids REQUIRED eliminated unevidenced claims, but
+// when no captured fragment supports a specific detail the model must still
+// cite something -- so it attaches the nearest fragment instead. One real run
+// produced ten named grants with amounts ("Grant to Mariners Church of
+// $190,000 in fiscal year 2023") each citing a fragment containing the
+// foundation's mission statement and no grant at all. Missing citations were
+// traded for wrong ones, and every upstream guarantee still passed: the
+// fragment was real, exactly captured, and from the confirmed entity.
+//
+// Digits are compared with separators stripped, so "$17,408,962" matches
+// "17408962" in a filing table. A claim with no distinctive numbers is not
+// judged here -- prose claims are Stage 5's job, not arithmetic's.
+export function claimFiguresAppearInEvidence(claim: string, evidenceTexts: string[]): boolean {
+  const wanted = distinctiveNumbers(claim);
+  if (wanted.length === 0) return true;
+  const haystack = evidenceTexts.join(" ").replace(/\D/g, "");
+  return wanted.some((n) => haystack.includes(n));
+}
+
 // Claim keys whose value is meaningless without the period it covers. A
 // funder's assets, giving and grant sizes all move year to year, so "total
 // assets $167M" with no year attached cannot be checked, compared, or safely
