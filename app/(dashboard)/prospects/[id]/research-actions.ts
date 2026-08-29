@@ -140,6 +140,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       fetchedSources,
       fetchedCitations,
       fetchAvailable,
+      model: searchModel,
     } = await searchFunderWeb(prospect, "research_only", depth).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
@@ -383,6 +384,13 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
 
     const inputTokens = searchUsage.inputTokens + extraction.usage.inputTokens;
     const outputTokens = searchUsage.outputTokens + extraction.usage.outputTokens;
+    // Priced per call, because search and extraction deliberately run on
+    // different models. Pricing the combined token totals at one model's rate
+    // overstated cost by roughly 20% on the first split run -- and every
+    // economic decision here rests on these numbers being right.
+    const costUsd =
+      estimateCostUsd(searchModel, searchUsage.inputTokens, searchUsage.outputTokens) +
+      estimateCostUsd(model, extraction.usage.inputTokens, extraction.usage.outputTokens);
 
     const excludedCount = allFragments.length - usableFragments.length;
     const statusMessage = extraction.truncated
@@ -425,7 +433,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         code_version: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
-        cost_usd: estimateCostUsd(model, inputTokens, outputTokens),
+        cost_usd: costUsd,
         latency_ms: Date.now() - startedAt,
         completed_at: new Date().toISOString(),
       })
