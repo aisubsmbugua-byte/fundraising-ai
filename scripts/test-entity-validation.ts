@@ -231,8 +231,12 @@ console.log("\n--- Affiliate clusters must still resolve (Maclellan v22 regressi
 check("prospect's own filing is the closest name match", nameMatchDistance("Maclellan Foundation", "The Maclellan Foundation Inc - Nonprofit Explorer - ProPublica"), 2);
 check("an affiliate's filing is much further away", nameMatchDistance("Maclellan Foundation", "Robert L And Kathrina H Maclellan Foundation - Full Filing - Nonprofit Explorer - ProPublica"), 5);
 
+// Under the conservative rule this now REFUSES rather than ranking. A family
+// foundation's siblings are plausible candidates too, and picking between
+// them is exactly the judgement that produced a wrong-entity dossier. The
+// human resolves it once via the picker, after which stored_ein applies.
 check(
-  "a family cluster still resolves to the researched entity",
+  "a family cluster refuses rather than ranking its members",
   resolveRunEntity({
     storedEin: null,
     prospectName: "Maclellan Foundation",
@@ -243,11 +247,10 @@ check(
       { url: "https://projects.propublica.org/nonprofits/organizations/237159802", title: "Robert L And Kathrina H Maclellan Foundation - Full Filing - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
     ],
   }),
-  { ein: MACLELLAN_EIN, method: "authoritative_filing" }
+  { ein: null, method: "ambiguous_filings" }
 );
 
-// ...but two EQUALLY close competitors are genuinely ambiguous and must not
-// be guessed between. This is the real Servants Heart case.
+// Two competitors were always refused; now ANY second candidate is.
 check(
   "two equally-close competitors stay ambiguous",
   resolveRunEntity({
@@ -323,7 +326,7 @@ check(
 // Convergence: the closest name is ALSO the best corroborated, so it stands.
 // This is the Maclellan family cluster, which must keep resolving.
 check(
-  "when both signals agree, identity still resolves",
+  "even when both signals agree, more than one plausible EIN refuses",
   resolveRunEntity({
     storedEin: null,
     prospectName: "Maclellan Foundation",
@@ -333,6 +336,22 @@ check(
       { url: "https://projects.propublica.org/nonprofits/organizations/626041468", title: "The Maclellan Foundation Inc - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
       { url: "https://www.guidestar.org/profile/62-6041468", title: "The Maclellan Foundation Inc - GuideStar Profile", texts: [], sourceType: "irs_filing" },
       { url: "https://projects.propublica.org/nonprofits/organizations/237159802", title: "Robert L And Kathrina H Maclellan Foundation - Full Filing - Nonprofit Explorer", texts: [], sourceType: "irs_filing" },
+    ],
+  }),
+  { ein: null, method: "ambiguous_filings" }
+);
+
+// A single plausible candidate is still confirmable -- the common case.
+check(
+  "one unambiguous candidate still resolves",
+  resolveRunEntity({
+    storedEin: null,
+    prospectName: "Maclellan Foundation",
+    prospectWebsite: "https://www.maclellan.net",
+    nameToken: maclellanToken,
+    sources: [
+      { url: "https://projects.propublica.org/nonprofits/organizations/626041468", title: "The Maclellan Foundation Inc - Nonprofit Explorer - ProPublica", texts: [], sourceType: "irs_filing" },
+      { url: "https://www.guidestar.org/profile/62-6041468", title: "The Maclellan Foundation Inc - GuideStar Profile", texts: [], sourceType: "irs_filing" },
     ],
   }),
   { ein: MACLELLAN_EIN, method: "authoritative_filing" }

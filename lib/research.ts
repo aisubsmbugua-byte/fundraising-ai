@@ -179,7 +179,8 @@ export function extractEinCandidatesFromUrl(url: string): string[] {
 // classifySourceEntity, so both agree on what "this source is about the
 // right organization" means.
 // How far a source's own organization name sits from the prospect's, in
-// extra words. "Maclellan Foundation" vs "The Maclellan Foundation Inc" is
+// extra words. Used ONLY to order candidates for human review -- never to
+// confirm identity, which it proved unfit for (see resolveRunEntity). "Maclellan Foundation" vs "The Maclellan Foundation Inc" is
 // close (1-2 filler words); vs "Robert L And Kathrina H Maclellan
 // Foundation" is far (5 extra words naming different people).
 //
@@ -667,40 +668,33 @@ export function resolveRunEntity({
   //    candidate. When the two signals point at different organizations that
   //    is genuine ambiguity, and the honest answer is to refuse and ask,
   //    which costs a trust label rather than a wrong dossier.
-  const bestDistanceByEin = new Map<string, number>();
-  const sourceCountByEin = new Map<string, number>();
+  //    A single plausible candidate may be confirmed. More than one is
+  //    refused outright -- no ranking, no tie-break, no heuristic.
+  //
+  //    Ranking was tried and was wrong three times: too strict on a family
+  //    cluster, tied on identically named entities, and finally CONFIRMING
+  //    an unrelated charity because it happened to carry the shorter name,
+  //    which discarded 56 fragments of correct evidence and produced a
+  //    dossier about the wrong organization. Both signals available here --
+  //    name similarity and source corroboration -- come from the same
+  //    uncertain search results, so agreement between them is weaker
+  //    evidence than it looks.
+  //
+  //    A rule that never has to choose correctly cannot choose wrongly. The
+  //    cost is that more prospects need a human to say which entity is
+  //    meant, which is exactly what the cheap identity preflight and the
+  //    candidate picker exist for.
+  const plausibleEins = new Set<string>();
   for (const s of sources) {
     if (s.sourceType !== "irs_filing") continue;
     // The title counts toward the name check as well as the captured text --
     // callers usually seed one into the other, but a source's own title is
     // the most direct statement of who it is about and must never be missed.
     if (!sourceMatchesName(s.url, [...s.texts, s.title ?? ""], nameToken)) continue;
-    // The source's own stated name -- its title, else its first captured text.
-    const distance = nameMatchDistance(prospectName, s.title ?? s.texts[0] ?? null);
-    if (distance === null) continue;
-    for (const ein of new Set(sourceEinCandidates(s.url, s.texts))) {
-      const prev = bestDistanceByEin.get(ein);
-      if (prev === undefined || distance < prev) bestDistanceByEin.set(ein, distance);
-      sourceCountByEin.set(ein, (sourceCountByEin.get(ein) ?? 0) + 1);
-    }
+    for (const ein of sourceEinCandidates(s.url, s.texts)) plausibleEins.add(ein);
   }
-  if (bestDistanceByEin.size === 1) return { ein: Array.from(bestDistanceByEin.keys())[0], method: "authoritative_filing" };
-  if (bestDistanceByEin.size > 1) {
-    const ranked = Array.from(bestDistanceByEin.entries()).sort((a, b) => a[1] - b[1]);
-    const closest = ranked[0][1];
-    const nameWinners = ranked.filter(([, d]) => d === closest);
-    // Tied on name -- nothing distinguishes them.
-    if (nameWinners.length !== 1) return { ein: null, method: "ambiguous_filings" };
-
-    const nameWinner = nameWinners[0][0];
-    const mostCorroborated = Array.from(sourceCountByEin.entries()).sort((a, b) => b[1] - a[1]);
-    const topCount = mostCorroborated[0][1];
-    const corroborationWinners = mostCorroborated.filter(([, n]) => n === topCount).map(([ein]) => ein);
-
-    // The two signals must converge on the same organization.
-    if (!corroborationWinners.includes(nameWinner)) return { ein: null, method: "ambiguous_filings" };
-    return { ein: nameWinner, method: "authoritative_filing" };
-  }
+  if (plausibleEins.size === 1) return { ein: Array.from(plausibleEins)[0], method: "authoritative_filing" };
+  if (plausibleEins.size > 1) return { ein: null, method: "ambiguous_filings" };
 
   // 3. An EIN stated on the prospect's own official domain.
   if (prospectWebsite) {

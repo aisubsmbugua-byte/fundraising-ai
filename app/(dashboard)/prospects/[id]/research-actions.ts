@@ -300,6 +300,8 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
               source_url: primaryFragment?.url ?? null,
               source_excerpt: primaryFragment?.exactText ?? null,
               confidence: c.confidence,
+              // Visible to a human, barred from downstream use.
+              evidence_missing: c.evidence_missing ?? false,
               confidence_reason: c.confidence_reason ?? null,
               reporting_period: c.reporting_period ?? null,
             };

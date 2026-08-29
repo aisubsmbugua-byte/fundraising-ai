@@ -15,6 +15,10 @@ import type { CitedSource, SearchedSource } from "@/lib/ai/funder-search";
 
 export type ExtractedClaim = {
   claim_key: string;
+  // True when the run believes the finding but no captured fragment supports
+  // it. Kept for a human, barred from downstream use -- never dressed up with
+  // an unrelated citation.
+  evidence_missing?: boolean;
   claim_type: ResearchClaimType;
   claim: string;
   evidence_ids: number[];
@@ -244,6 +248,11 @@ export async function extractResearchClaims({
                         "'fact' if directly stated by evidence with no inference needed; 'hypothesis' if you had to infer or synthesize it",
                     },
                     claim: { type: "string", description: "The extracted statement itself, concise and specific to this one fact only" },
+                    evidence_missing: {
+                      type: "boolean",
+                      description:
+                        "Set true ONLY when the findings support this fact but no numbered fragment does. Then leave evidence_ids empty. Never cite a fragment that does not mention the fact just to fill the field.",
+                    },
                     evidence_ids: {
                       type: "array",
                       items: { type: "integer" },
@@ -326,7 +335,7 @@ A claim that required inference must be claim_type "hypothesis" and confidence n
 
 Assign a reporting period ONLY when the cited evidence explicitly states it for that figure. Do not infer a period from a nearby heading, a table's position, page order, or surrounding content -- financial tables routinely place several years' figures beside one another, so adjacency is not attribution. If you cannot bind the figure to a period from the evidence itself, answer "unstated" rather than choosing the year that looks closest.
 
-Every evidence_id you cite must actually contain what the claim says. If a detail appears in the research findings but no numbered fragment carries it -- a named grant and its amount, for instance -- do NOT submit that claim attached to an unrelated fragment. Leave it out and mark the key not_found in coverage. A claim pointing at evidence that does not mention it is worse than no claim, because it reads as corroborated.
+Every evidence_id you cite must actually contain what the claim says. If a detail appears in the research findings but no numbered fragment carries it -- a named grant and its amount, for instance -- do NOT attach an unrelated fragment to it. Instead submit the claim with evidence_ids empty and evidence_missing true. Saying "I found this and cannot cite it" is honest and useful; pointing at evidence that does not mention the fact is worse than saying nothing, because it reads as corroborated.
 
 Reporting periods are mandatory on financial claims. Every figure (revenue, expenses, assets, charitable disbursements, grants paid, grant counts, grant size range, median grant size) must carry the fiscal or tax year it covers in reporting_period. Do not blend years into one claim, and do not describe a figure as "most recent" without naming its year. If two years appear for the same fact, prefer the most recent and say which year it is; if the evidence states no year at all, leave reporting_period out, lower the confidence, and say "reporting period unstated" in confidence_reason rather than inferring one.
 
@@ -371,11 +380,15 @@ ${findings || "(no findings)"}`,
     .map((c) => {
       const rawIds = Array.isArray(c.evidence_ids) ? c.evidence_ids : [];
       const evidence_ids = rawIds.filter((i): i is number => typeof i === "number" && Number.isInteger(i) && i >= 0 && i <= maxIndex);
+      // Derived, not trusted from the model: a claim citing nothing IS
+      // evidence-missing whether or not it said so.
+      const evidence_missing = evidence_ids.length === 0;
       return {
         claim_key: c.claim_key as string,
         claim_type: c.claim_type as ResearchClaimType,
         claim: c.claim as string,
         evidence_ids,
+        evidence_missing,
         supports_directly: c.supports_directly !== false,
         confidence: c.confidence as ResearchConfidence,
         confidence_reason: typeof c.confidence_reason === "string" ? c.confidence_reason : undefined,
@@ -387,6 +400,19 @@ ${findings || "(no findings)"}`,
     // allowed MIS-evidenced ones: with no fragment supporting a detail, the
     // model attaches the nearest one instead. Checked here, in extraction, so
     // evaluation replays see it too.
+    // An uncited finding is kept and labelled, never promoted. It may be
+    // true -- it simply has nothing behind it in this run.
+    .map((c) =>
+      c.evidence_missing
+        ? {
+            ...c,
+            confidence: "low" as ResearchConfidence,
+            confidence_reason: c.confidence_reason
+              ? `${c.confidence_reason}; no captured evidence supports this`
+              : "no captured evidence supports this -- reported from the findings but not citable, so it cannot be relied on",
+          }
+        : c
+    )
     .map((c) => {
       // Only where a figure IS the claim -- see isQuantitativeClaimKey.
       if (!isQuantitativeClaimKey(c.claim_key) || c.evidence_ids.length === 0) return c;

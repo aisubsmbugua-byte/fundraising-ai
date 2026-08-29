@@ -109,7 +109,7 @@ export default async function AdminResearchPage() {
   const { data: claims } = await supabase
     .from("research_claims")
     .select(
-      "id, research_run_id, claim_key, category, claim, confidence, confidence_reason, reporting_period, source_url, source_excerpt, retrieved_at, verification_status, verified_at, recheck_at"
+      "id, research_run_id, claim_key, category, claim, confidence, confidence_reason, reporting_period, source_url, source_excerpt, retrieved_at, verification_status, verified_at, recheck_at, evidence_missing"
     )
     .in("research_run_id", runIds)
     .order("claim_key");
@@ -390,6 +390,14 @@ export default async function AdminResearchPage() {
                             {claim.confidence_reason ? `: ${claim.confidence_reason}` : ""})
                           </span>
                         </div>
+                        {claim.evidence_missing && (
+                          <div style={{ marginTop: 2 }}>
+                            <span style={chipStyle("red")}>evidence missing</span>
+                            <span style={{ marginLeft: spacing.xs, fontSize: 12, color: colors.textMuted }}>
+                              reported from the findings but not citable — not usable downstream
+                            </span>
+                          </div>
+                        )}
                         {verdict && (
                           <div style={{ marginTop: 2 }}>
                             <span style={chipStyle(VERDICT_TONE[verdict.verdict as string] ?? "neutral")}>
