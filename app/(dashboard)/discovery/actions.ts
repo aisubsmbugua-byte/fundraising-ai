@@ -156,6 +156,12 @@ export async function acceptCandidate(candidateId: string) {
     .eq("id", candidateId)
     .single();
   if (fetchError || !candidate) throw new Error("Candidate not found");
+  // Belt and braces: the queue already hides these, but acceptance takes an
+  // id and must not be the one path that lets an unattributable candidate
+  // through into the pipeline.
+  if (candidate.capture_status === "source_missing") {
+    throw new Error("This candidate could not be traced to a source the search actually visited, so it cannot be accepted.");
+  }
   console.log(`[accept-candidate] candidate fetched at +${Date.now() - t0}ms`);
 
   const { data: prospect, error: insertError } = await supabase
@@ -167,6 +173,13 @@ export async function acceptCandidate(candidateId: string) {
       contact_name: candidate.contact_name,
       contact_email: candidate.contact_email,
       website: candidate.website,
+      // Only a site believed to be the funder's own reaches the prospect,
+      // and its status travels with it -- entity resolution consults a
+      // prospect's domain before falling back on ambiguous filings, so a
+      // third-party URL arriving here unlabelled would be read as the
+      // organization speaking about itself.
+      website_status: candidate.website_status ?? null,
+      legal_name: candidate.funder_name ?? null,
       location: candidate.location,
       funder_type: candidate.funder_type,
       geographic_focus: candidate.geographic_focus,

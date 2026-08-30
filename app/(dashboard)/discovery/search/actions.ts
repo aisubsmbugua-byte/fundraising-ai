@@ -11,6 +11,8 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 import { upsertContact } from "@/lib/contacts";
+import { candidateDedupeKey, type WebsiteStatus } from "@/lib/candidates";
+import { isAggregatorUrl } from "@/lib/research";
 
 // Root cause of the scope-3 reliability problem was traced to
 // web_search_20260318 defaulting to routing through an internal
@@ -23,6 +25,14 @@ const DEFAULT_SEARCH_SCOPE = 3;
 
 type FoundCandidate = {
   name: string;
+  // The legal organization, separate from the program. Research resolves
+  // identity against this -- a name with the program glued on cannot be
+  // matched to a filing.
+  funder_name?: string;
+  opportunity_name?: string;
+  // Index into the search results actually visited. Required by the schema;
+  // anything that does not resolve marks the candidate source_missing.
+  source_index?: number;
   organization?: string;
   website?: string;
   contact_name?: string;
@@ -30,6 +40,16 @@ type FoundCandidate = {
   location?: string;
   rationale: string;
 };
+
+// Hostname or nothing. A malformed URL must not throw inside candidate
+// mapping and take a whole search run with it.
+function safeHostname(url: string): string | null {
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
 
 async function cachedProPublicaLookup(supabase: SupabaseClient, name: string) {
   // Best-effort org-name match against our own cache first (instant,
@@ -228,6 +248,24 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
       .map((block) => (block as { text: string }).text)
       .join("\n");
 
+    // The URLs the search actually visited, kept rather than discarded.
+    // Previously only the prose survived this step, so `website` was whatever
+    // the model could recall -- usually nothing -- and a wholly invented
+    // candidate was indistinguishable from a found one.
+    const searchResults: { url: string; title: string | null }[] = [];
+    const seenUrls = new Set<string>();
+    for (const block of searchResponse.content as unknown as Record<string, unknown>[]) {
+      if (block.type !== "web_search_tool_result") continue;
+      const results = block.content;
+      if (!Array.isArray(results)) continue;
+      for (const r of results as Record<string, unknown>[]) {
+        if (typeof r.url !== "string" || seenUrls.has(r.url)) continue;
+        seenUrls.add(r.url);
+        searchResults.push({ url: r.url, title: typeof r.title === "string" ? r.title : null });
+      }
+    }
+    console.log(`[discovery-search] channel=${channel} captured ${searchResults.length} source urls`);
+
     await supabase
       .from("discovery_search_runs")
       .update({ status: "extracting", status_message: "Extracting names, websites, and contact info..." })
@@ -249,15 +287,30 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
                   items: {
                     type: "object",
                     properties: {
-                      name: { type: "string" },
+                      name: { type: "string", description: "Display name for this opportunity, as you would show it in a list" },
+                      funder_name: {
+                        type: "string",
+                        description:
+                          "The LEGAL ORGANIZATION only -- e.g. 'Presbyterian Mission Agency'. Never include a program or grant name here; those go in opportunity_name. This is what identity research resolves against.",
+                      },
+                      opportunity_name: {
+                        type: "string",
+                        description:
+                          "The specific program, fund or grant, if any -- e.g. '1001 New Worshiping Communities'. Omit when the funder itself is the opportunity.",
+                      },
+                      source_index: {
+                        type: "integer",
+                        description:
+                          "REQUIRED. The index, from the numbered source list below, of the search result this candidate came from. Do not guess: if no listed source supports this candidate, omit the candidate entirely rather than inventing an index.",
+                      },
                       organization: { type: "string" },
-                      website: { type: "string" },
+                      website: { type: "string", description: "The funder's OWN website if you saw it. Do not put a directory, filing or news URL here -- leave it blank instead." },
                       contact_name: { type: "string" },
                       contact_email: { type: "string" },
                       location: { type: "string" },
                       rationale: { type: "string" },
                     },
-                    required: ["name", "rationale"],
+                    required: ["name", "funder_name", "source_index", "rationale"],
                   },
                 },
               },
@@ -270,6 +323,11 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
           {
             role: "user",
             content: `Extract a structured list of candidate organizations from the research notes below. Only include real, named organizations. Leave a field blank/omit it if not actually found -- do not invent contact info or websites.
+
+Every candidate must cite the numbered source it came from via source_index. Sources actually visited by the search:
+${searchResults.map((r, i) => `[${i}] ${r.url}${r.title ? ` -- ${r.title}` : ""}`).join("\n") || "(none captured)"}
+
+Separate the ORGANIZATION from the PROGRAM. "Presbyterian Mission Agency -- 1001 New Worshiping Communities / Mission Program Grants" is funder_name "Presbyterian Mission Agency" and opportunity_name "1001 New Worshiping Communities / Mission Program Grants". A name that runs them together cannot be identified later.
 
 Research notes:
 ${findings || "(no findings)"}`,
@@ -284,9 +342,58 @@ ${findings || "(no findings)"}`,
       throw new Error("AI did not return a structured result. Try again.");
     }
 
-    const found = ((toolUse.input as { candidates?: FoundCandidate[] }).candidates ?? []).filter(
+    const rawFound = ((toolUse.input as { candidates?: FoundCandidate[] }).candidates ?? []).filter(
       (c) => c && c.name
     );
+
+    // Attribute every candidate to a URL the search actually visited, and
+    // classify that URL deterministically. A directory or news page is not
+    // the funder's website, and must never be stored as though it were --
+    // entity resolution now consults a prospect's domain ahead of filing
+    // ambiguity, so an aggregator URL here would be read as the organization
+    // speaking about itself.
+    //
+    // A candidate whose source_index matches nothing is the fabrication
+    // signal. It is kept for audit and excluded from the queue, never
+    // dropped silently and never turned into a prospect.
+    const found = rawFound.map((c) => {
+      const idx = typeof c.source_index === "number" ? c.source_index : -1;
+      const source = idx >= 0 && idx < searchResults.length ? searchResults[idx] : null;
+      const sourceDomain = source ? safeHostname(source.url) : null;
+      const modelWebsiteHost = c.website ? safeHostname(c.website) : null;
+
+      // Official only when the model named a site of its own that is not a
+      // known aggregator. The cited source domain is provenance, not identity.
+      const officialCandidate = modelWebsiteHost && !isAggregatorUrl(c.website ?? "") ? modelWebsiteHost : null;
+      const websiteStatus: WebsiteStatus | null = officialCandidate
+        ? "official_candidate"
+        : source
+          ? "third_party_source"
+          : null;
+
+      return {
+        ...c,
+        // Only a website we believe is the funder's own is carried forward as
+        // `website`; everything else stays in source_url as provenance.
+        website: officialCandidate ? `https://${officialCandidate}` : null,
+        source_url: source?.url ?? null,
+        source_domain: sourceDomain,
+        official_website_candidate: officialCandidate,
+        website_status: websiteStatus,
+        capture_status: source ? "captured" : "source_missing",
+        dedupe_key: candidateDedupeKey({
+          sourceDomain,
+          funderName: c.funder_name,
+          opportunityName: c.opportunity_name,
+          name: c.name,
+        }),
+      };
+    });
+
+    const sourceless = found.filter((c) => c.capture_status === "source_missing").length;
+    if (sourceless > 0) {
+      console.log(`[discovery-search] channel=${channel} ${sourceless} candidate(s) cited no captured source -- audit only`);
+    }
 
     console.log(`[discovery-search] channel=${channel} scope=${scope} findings_chars=${findings.length} ai_found=${found.length}`);
 
@@ -354,6 +461,16 @@ ${findings || "(no findings)"}`,
         focus_areas: null,
         source: "ai_search",
         raw: { rationale: found_candidate.rationale, propublica_ein: propublica?.ein ?? null },
+        // Provenance, kept separate from identity. source_url is where this
+        // was found; website (above) is only ever the funder's own site.
+        funder_name: found_candidate.funder_name || found_candidate.name,
+        opportunity_name: found_candidate.opportunity_name || null,
+        source_url: found_candidate.source_url,
+        source_domain: found_candidate.source_domain,
+        official_website_candidate: found_candidate.official_website_candidate,
+        website_status: found_candidate.website_status,
+        capture_status: found_candidate.capture_status,
+        dedupe_key: found_candidate.dedupe_key,
       };
 
       const { tier } = screenProspect(candidate, rules);

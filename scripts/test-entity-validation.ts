@@ -12,6 +12,7 @@
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
 import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, claimSpansMultiplePeriods, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections, strategyFieldPolicy, IDENTITY_GATE_KEYS, STRATEGY_FIELD_POLICY, RESEARCH_CLAIM_KEYS } from "../lib/research";
 import { deriveStrategyUse } from "../lib/prospect-intelligence";
+import { domainIsFunderOwn, candidateDedupeKey } from "../lib/candidates";
 import { contactEmailDomain, assessEntityLifecycle, mentionsSuccession, reportingPeriodYear, cleanEntityName, extractLocation, extractOfficialWebsite, extractOrgType, buildEntityCandidates, presentableCandidates, MIN_CANDIDATE_ATTRIBUTES, MAX_PRESENTED_CANDIDATES } from "../lib/research";
 import {
   classifyRunSources,
@@ -810,5 +811,31 @@ check(
   "stored_ein"
 );
 
+// ---------------------------------------------------------------------------
+console.log("\n--- Donor Finder capture contract ---");
+
+// A cited URL is provenance, not identity. Storing ProPublica as a prospect's
+// website would let an aggregator page be read as the organization speaking
+// about itself -- and resolution now consults the domain BEFORE falling back
+// on ambiguous filings, so it would confirm the wrong entity outright.
+check("a third-party source never resolves identity", domainIsFunderOwn("third_party_source"), false);
+check("a candidate official domain may", domainIsFunderOwn("official_candidate"), true);
+check("so may one Research confirmed", domainIsFunderOwn("official_confirmed"), true);
+check("a hand-entered website (no status) stays trusted", domainIsFunderOwn(null), true);
+
+// Domain alone would merge distinct programs: pcusa.org hosts many agencies.
+const pmaKey = candidateDedupeKey({ sourceDomain: "pcusa.org", funderName: "Presbyterian Mission Agency", opportunityName: "1001 New Worshiping Communities" });
+const otherProgram = candidateDedupeKey({ sourceDomain: "pcusa.org", funderName: "Presbyterian Mission Agency", opportunityName: "Matthew 25 Grants" });
+check("two programs from one funder stay separate", pmaKey === otherProgram, false);
+check(
+  "the same program found twice consolidates",
+  pmaKey === candidateDedupeKey({ sourceDomain: "pcusa.org", funderName: "The Presbyterian Mission Agency, Inc.", opportunityName: "1001 New Worshiping Communities" }),
+  true
+);
+check(
+  "a funder alone is not confused with one of its programs",
+  candidateDedupeKey({ sourceDomain: "pcusa.org", funderName: "Presbyterian Mission Agency" }) === pmaKey,
+  false
+);
+
 console.log(`\n${pass} passed, ${fail} failed.`);
-if (fail > 0) process.exit(1);

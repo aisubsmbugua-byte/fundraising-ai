@@ -18,6 +18,10 @@ export default async function DiscoveryPage() {
       .from("candidates")
       .select("*")
       .neq("status", "accepted")
+      // A candidate the extractor could not attribute to any search result
+      // it actually visited is the fabrication signal. Kept in the table for
+      // audit, never offered as something to accept.
+      .neq("capture_status", "source_missing")
       .order("created_at", { ascending: false })
       .returns<Candidate[]>(),
     getAutoSearchSettings(),

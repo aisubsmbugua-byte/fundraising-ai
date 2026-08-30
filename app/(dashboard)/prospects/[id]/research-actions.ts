@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
+import { domainIsFunderOwn } from "@/lib/candidates";
 import { estimateCostUsd } from "@/lib/ai/model-select";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { verifyResearchClaims } from "@/lib/ai/research-verify";
@@ -172,9 +173,19 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     // entity resolution has -- so a prospect with a contact should rarely
     // reach the "which of these do you mean" question at all.
     const inferredDomain = contactEmailDomain(prospect.contact_email as string | null);
+    // A stored website only counts as the funder's OWN domain when it was not
+    // captured as a third party's page about them. Donor Finder now records
+    // that distinction; null means hand-entered or pre-dating capture, which
+    // stays trusted. This matters because resolveRunEntity consults the
+    // domain ahead of ambiguous filings -- an aggregator URL treated as the
+    // organization's own site would confirm the wrong entity outright, and
+    // then discard every fragment about the right one as a mismatch.
+    const ownWebsite = domainIsFunderOwn(prospect.website_status as string | null)
+      ? (prospect.website as string | null)
+      : null;
     const researchProspect = {
       ...prospect,
-      website: (prospect.website as string | null) ?? (inferredDomain ? `https://${inferredDomain}` : null),
+      website: ownWebsite ?? (inferredDomain ? `https://${inferredDomain}` : null),
     };
 
     // Depth follows pipeline stage unless the caller overrides it: a

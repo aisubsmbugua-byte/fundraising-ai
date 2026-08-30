@@ -64,6 +64,10 @@ export type Prospect = {
   contact_name: string | null;
   contact_email: string | null;
   website: string | null;
+  // Whether `website` is the funder's own site or a third party's page about
+  // them. Null means hand-entered or pre-dating source capture, and is
+  // trusted. See WEBSITE_STATUSES in lib/candidates.ts.
+  website_status: string | null;
   notes: string | null;
   owner_id: string;
   stage: Stage;
