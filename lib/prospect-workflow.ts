@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { APPROVED_FOR_DOWNSTREAM } from "@/lib/research";
 import type { StrategyRun } from "@/lib/strategy";
 
 // Where a prospect stands on the road from "accepted" to "strategy a person
@@ -212,14 +213,20 @@ export async function loadProspectWorkflow(
     .limit(1)
     .maybeSingle<Pick<StrategyRun, "status" | "approved_strategy">>();
 
+  // Distinct CLAIMS, not approval rows. Approvals are append-only and the
+  // latest one wins, so a reviewer who changes their mind about a claim
+  // leaves two rows behind; counting rows told the user "uses the 13 claims
+  // you already approved" when only 12 claims were approved.
   let approvedClaimCount = 0;
   if (research?.id) {
-    const { count } = await supabase
+    const { data: rows } = await supabase
       .from("research_claim_approvals")
-      .select("id", { count: "exact", head: true })
+      .select("claim_id, decision, created_at")
       .eq("research_run_id", research.id)
-      .in("decision", ["approved", "approved_with_note", "corrected"]);
-    approvedClaimCount = count ?? 0;
+      .order("created_at", { ascending: false });
+    const latest = new Map<string, string>();
+    for (const r of rows ?? []) if (!latest.has(r.claim_id as string)) latest.set(r.claim_id as string, r.decision as string);
+    approvedClaimCount = [...latest.values()].filter((d) => APPROVED_FOR_DOWNSTREAM.has(d as never)).length;
   }
 
   const workflow = deriveProspectWorkflow({

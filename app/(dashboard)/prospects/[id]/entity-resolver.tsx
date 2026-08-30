@@ -95,7 +95,13 @@ export default function EntityResolver({
         </p>
       )}
 
-      {!blocked && <span style={{ ...chipStyle("teal"), display: "inline-block", marginTop: spacing.xs }}>confirmed entity</span>}
+      {/* Requires an actual EIN, not merely the absence of a block. Without
+          that second condition this rendered "confirmed entity" underneath
+          "could not be established" on any run that never reached the
+          blocking check. */}
+      {!blocked && confirmedEin && (
+        <span style={{ ...chipStyle("teal"), display: "inline-block", marginTop: spacing.xs }}>confirmed entity</span>
+      )}
 
       {error && <div style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{error}</div>}
     </div>

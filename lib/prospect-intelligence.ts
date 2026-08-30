@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  APPROVED_FOR_DOWNSTREAM,
   hasStatedPeriod,
   isFinancialClaimKey,
   RESEARCH_INFORMATION_SECTIONS,
@@ -27,6 +28,57 @@ import {
 // question than "should I act on this".
 export type IntelligenceReviewState = "verified" | "partial" | "interpretation" | "unverified" | "evidence_not_captured" | "conflict";
 
+// What will actually happen to this claim, as distinct from how trustworthy
+// it is. These are different questions and the UI was answering only the
+// first: it labelled a flagged claim "needs a decision", implying work was
+// required for it to be handled safely, when the gate already excludes it by
+// default. Ignoring it IS the safe outcome. Saying so turns a 42-item
+// obligation into a much shorter list of genuine choices.
+export const STRATEGY_USE_STATES = [
+  "in_strategy",
+  "approved_not_used",
+  "excluded_by_you",
+  "ready_to_approve",
+  "held_back",
+  "not_verified",
+] as const;
+export type StrategyUse = (typeof STRATEGY_USE_STATES)[number];
+
+// Mirrors loadApprovedIntelligence's admission rules exactly. It reads the
+// VERDICT rather than the review state on purpose: review state applies a
+// conflict override that the gate does not, and a display that quietly
+// diverged from the gate would be the same class of lie this whole change
+// is removing. Where they disagree, the UI now shows both.
+export function deriveStrategyUse(input: {
+  decision: string | null;
+  supported: boolean;
+  // Whether verification reached this claim at all. Never checked and
+  // checked-then-flagged both end up unused, but they are not the same
+  // situation and a reviewer can only act usefully on the second.
+  hasVerdict: boolean;
+  withheldReason: string | null;
+}): StrategyUse {
+  const { decision, supported, hasVerdict, withheldReason } = input;
+  // Widened deliberately: this reads decision strings straight out of the
+  // database, which is a text column, so a value the TS union does not know
+  // about must fall through to "not approved" rather than fail to compile.
+  if (decision && !(APPROVED_FOR_DOWNSTREAM as ReadonlySet<string>).has(decision)) return "excluded_by_you";
+  if (decision) return withheldReason ? "approved_not_used" : "in_strategy";
+  if (supported) return "ready_to_approve";
+  return hasVerdict ? "held_back" : "not_verified";
+}
+
+// Why an approved claim still will not reach Strategy. One definition,
+// consumed by both the gate that enforces it and the UI that reports it --
+// the previous arrangement had the rule in the gate only, so a reviewer
+// could approve a claim and never learn it went nowhere.
+export function withheldFromStrategyReason(claimKey: string, reportingPeriod: string | null): string | null {
+  if (isFinancialClaimKey(claimKey) && !hasStatedPeriod(reportingPeriod)) {
+    return "no reporting period — an undated financial figure cannot be compared or used to size an ask";
+  }
+  return null;
+}
+
 export type IntelligenceClaim = {
   id: string;
   claimKey: string;
@@ -38,6 +90,9 @@ export type IntelligenceClaim = {
   reviewState: IntelligenceReviewState;
   reviewReason: string | null;
   decision: { decision: string; note: string | null } | null;
+  // What happens to it, and -- when the answer is "nothing" -- why.
+  strategyUse: StrategyUse;
+  withheldReason: string | null;
   sources: { url: string; title: string | null; citedText: string | null }[];
 };
 
@@ -160,12 +215,22 @@ export async function loadProspectIntelligence(
       reviewState = "conflict";
     }
 
+    const decision = decisionByClaim.get(c.id as string) ?? null;
+    const withheldReason = withheldFromStrategyReason(c.claim_key as string, (c.reporting_period as string | null) ?? null);
+
     return {
       id: c.id as string,
       claimKey: c.claim_key as string,
       claim: c.claim as string,
       confidence: c.confidence as ResearchConfidence,
       confidenceReason: (c.confidence_reason as string | null) ?? null,
+      strategyUse: deriveStrategyUse({
+        decision: decision?.decision ?? null,
+        supported: verdict?.verdict === "supported",
+        hasVerdict: !!verdict,
+        withheldReason,
+      }),
+      withheldReason,
       // "not_time_bound" and "unstated" are internal vocabulary -- a person
       // should see a year, or a plain statement that none was given.
       reportingPeriod:
@@ -177,7 +242,7 @@ export async function loadProspectIntelligence(
       periodUnverified: verdict?.period_verdict === "unverified",
       reviewState,
       reviewReason: verdict?.reason ?? (c.confidence_reason as string | null) ?? null,
-      decision: decisionByClaim.get(c.id as string) ?? null,
+      decision,
       sources: sourcesByClaim.get(c.id as string) ?? [],
     };
   });
@@ -187,10 +252,32 @@ export async function loadProspectIntelligence(
   // which made the banner announce "every category was found" while the
   // coverage chips beside it showed two categories at zero. A view that
   // contradicts itself is worse than one that is merely out of date.
+  // Two separate questions, previously answered with one filter: what to
+  // SHOW, and what counts as COVERED. Uncited claims were dropped from the
+  // sections entirely so that a section holding only uncited findings would
+  // still read "not found" -- correct for coverage, and a silent
+  // disappearance for the reviewer, who could not see a claim that bulk
+  // approval would nonetheless sweep into Strategy.
+  //
+  // Now everything is shown, and coverage is computed from the evidenced
+  // subset only.
   const sections: IntelligenceSection[] = RESEARCH_INFORMATION_SECTIONS.map((s) => {
-    const claims = shaped.filter((c) => (s.keys as readonly string[]).includes(c.claimKey) && c.reviewState !== "evidence_not_captured");
-    return { section: s.section, label: s.label, claims, missing: claims.length === 0 };
+    const claims = shaped.filter((c) => (s.keys as readonly string[]).includes(c.claimKey));
+    const evidenced = claims.filter((c) => c.reviewState !== "evidence_not_captured");
+    return { section: s.section, label: s.label, claims, missing: evidenced.length === 0 };
   });
+
+  // Claims whose key belongs to no section at all -- identity.website,
+  // total_revenue, total_expenses, multiyear_grant_stats and anything added
+  // to the claim vocabulary without being added to a section. They were
+  // invisible: extracted, verifiable, approvable, and never rendered. A
+  // catch-all is what stops the display silently falling behind the
+  // vocabulary again.
+  const sectioned = new Set(RESEARCH_INFORMATION_SECTIONS.flatMap((s) => s.keys as readonly string[]));
+  const unsectioned = shaped.filter((c) => !sectioned.has(c.claimKey));
+  if (unsectioned.length > 0) {
+    sections.push({ section: "other", label: "Other findings", claims: unsectioned, missing: false });
+  }
   const missingSections = sections.filter((s) => s.missing).map((s) => s.section);
 
   // Distinct entities this run encountered -- the disambiguation choices.
@@ -347,8 +434,9 @@ export async function loadApprovedIntelligence(
     // Approving such a claim is still worth doing: it stays visible in
     // Prospect Intelligence, where a person can read it in context. It just
     // does not become an input a model reasons from unpriced.
-    if (isFinancialClaimKey(c.claim_key as string) && !hasStatedPeriod(c.reporting_period as string | null)) {
-      withheld.push({ claimKey: c.claim_key as string, reason: "no reporting period -- an undated financial figure cannot be compared or used to size an ask" });
+    const withheldReason = withheldFromStrategyReason(c.claim_key as string, (c.reporting_period as string | null) ?? null);
+    if (withheldReason) {
+      withheld.push({ claimKey: c.claim_key as string, reason: withheldReason });
       continue;
     }
 

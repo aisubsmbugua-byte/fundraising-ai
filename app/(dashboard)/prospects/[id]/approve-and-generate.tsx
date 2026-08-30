@@ -73,10 +73,12 @@ export default function ApproveAndGenerate({
         {verifiedCount > 0
           ? `Approves ${verifiedCount} verified claim${verifiedCount === 1 ? "" : "s"}`
           : `Uses the ${alreadyApprovedCount} claim${alreadyApprovedCount === 1 ? "" : "s"} you already approved`}
+        {/* Stated as a consequence, not a task. These are already excluded;
+            the reviewer is being told what will happen, not given a queue. */}
         {exceptionCount > 0 &&
-          `. ${exceptionCount} claim${exceptionCount === 1 ? "" : "s"} below still need${exceptionCount === 1 ? "s" : ""} a decision and ${
+          `. ${exceptionCount} claim${exceptionCount === 1 ? "" : "s"} below ${
             exceptionCount === 1 ? "is" : "are"
-          } not included.`}
+          } left out — open ${exceptionCount === 1 ? "it" : "them"} only if you want to change that.`}
       </span>
 
       {error && <span style={{ fontSize: 12.5, color: colors.danger }}>{error}</span>}
