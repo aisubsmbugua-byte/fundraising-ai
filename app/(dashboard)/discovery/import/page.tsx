@@ -6,7 +6,7 @@ import { spacing, colors, fieldStyle } from "@/lib/ui";
 export default function ImportCandidatesPage({
   searchParams,
 }: {
-  searchParams: { imported?: string; errors?: string };
+  searchParams: { imported?: string; errors?: string; duplicates?: string };
 }) {
   return (
     <div style={{ maxWidth: 480 }}>
@@ -35,6 +35,11 @@ export default function ImportCandidatesPage({
           }}
         >
           ✓ Imported {searchParams.imported} candidate{searchParams.imported === "1" ? "" : "s"}.
+          {/* Counted and worded separately from errors. A skipped duplicate is
+              the import working; an unreadable row is the import failing.
+              One combined number would hide both. */}
+          {Number(searchParams.duplicates) > 0 &&
+            ` ${searchParams.duplicates} row(s) skipped — already in your queue or pipeline.`}
           {Number(searchParams.errors) > 0 && ` ${searchParams.errors} row(s) skipped due to errors.`}
         </div>
       )}

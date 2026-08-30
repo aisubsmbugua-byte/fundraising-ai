@@ -43,6 +43,17 @@ export function normalizeForDedupe(value: string | null | undefined): string {
     .trim();
 }
 
+// Hostname or nothing. A malformed URL must not throw inside candidate
+// mapping and take a whole search run with it.
+export function safeHostname(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
 // Words that carry no distinguishing information in a program name. Stripped
 // before comparison so a trailing "Program" cannot split one opportunity into
 // two, and so attestation never fails on filler.

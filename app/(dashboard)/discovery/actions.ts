@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
-import { parseCsv } from "@/lib/candidates";
+import { candidateDedupeKey, parseCsv, safeHostname } from "@/lib/candidates";
+import { findExistingFunder, isUniqueViolation, isSameOrg, type ExistingFunder } from "@/lib/candidate-intake";
 import { CHANNELS } from "@/lib/prospects";
 import { upsertContact } from "@/lib/contacts";
 import { allocateResearchRunVersion } from "@/lib/research";
@@ -14,14 +15,23 @@ async function getActiveRules(supabase: ReturnType<typeof createClient>) {
   return (data ?? []) as ScreeningRule[];
 }
 
-export async function createCandidate(formData: FormData) {
+export type CreateCandidateResult = { error: string } | { duplicate: ExistingFunder } | { ok: true; id: string };
+
+// Returns rather than throws, and never redirects: a duplicate is a normal
+// answer this form has to render (with the values still in the fields), not an
+// error condition. Next redacts thrown messages in production, so throwing
+// here would surface as a bare 500 with nothing to act on.
+export async function createCandidate(formData: FormData): Promise<CreateCandidateResult> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) return { error: "Your session has expired. Sign in again." };
 
   const focusAreas = (formData.get("focus_areas") as string) || "";
+  // Set by the "Add anyway" button, so the person can overrule the warning --
+  // two genuinely different churches can share a name, and they would know.
+  const confirmed = formData.get("confirm_duplicate") === "1";
 
   const candidate = {
     name: formData.get("name") as string,
@@ -44,15 +54,38 @@ export async function createCandidate(formData: FormData) {
     raw: null,
   };
 
+  // Hand-entered rows had no dedupe_key at all, which is why nothing could
+  // detect the Graceway repeats even in principle. A manual entry has no
+  // source domain -- that part of the key is legitimately empty here.
+  const dedupeKey = candidateDedupeKey({
+    sourceDomain: candidate.website ? safeHostname(candidate.website) : null,
+    funderName: candidate.name,
+    name: candidate.name,
+  });
+
+  if (!confirmed) {
+    const existing = await findExistingFunder(supabase, {
+      name: candidate.name,
+      organization: candidate.organization,
+      dedupeKey,
+    });
+    if (existing) return { duplicate: existing };
+  }
+
   const rules = await getActiveRules(supabase);
   const { tier } = screenProspect(candidate, rules);
 
   const { data: inserted, error } = await supabase
     .from("candidates")
-    .insert({ ...candidate, suggested_tier: tier, status: "pending" })
+    .insert({ ...candidate, dedupe_key: dedupeKey, suggested_tier: tier, status: "pending" })
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // The constraint caught what the check raced past -- a double-submit. Say
+    // what happened in the caller's terms; a database code helps nobody.
+    if (isUniqueViolation(error)) return { error: "That funder is already in your discovery queue." };
+    return { error: error.message };
+  }
 
   await upsertContact(supabase, {
     name: candidate.contact_name,
@@ -63,7 +96,7 @@ export async function createCandidate(formData: FormData) {
   });
 
   revalidatePath("/discovery");
-  redirect("/discovery");
+  return { ok: true, id: inserted.id as string };
 }
 
 export async function importCandidatesCsv(formData: FormData) {
@@ -81,8 +114,19 @@ export async function importCandidatesCsv(formData: FormData) {
   const validChannels = new Set<string>(CHANNELS.map((c) => c.value));
   const rules = await getActiveRules(supabase);
 
+  // Every existing funder, read once. The import previously inserted its whole
+  // batch in a single call with no duplicate check of any kind -- so a file
+  // re-uploaded after a correction silently doubled the queue, and a file
+  // containing the same funder twice inserted it twice.
+  const [{ data: knownCandidates }, { data: knownProspects }] = await Promise.all([
+    supabase.from("candidates").select("name, organization"),
+    supabase.from("prospects").select("name, organization"),
+  ]);
+  const known = [...(knownCandidates ?? []), ...(knownProspects ?? [])] as { name: string; organization: string | null }[];
+
   const toInsert: Record<string, unknown>[] = [];
   let errorCount = 0;
+  let duplicateCount = 0;
 
   for (const row of rows) {
     const name = row.name;
@@ -91,6 +135,17 @@ export async function importCandidatesCsv(formData: FormData) {
       errorCount++;
       continue;
     }
+    // Checked against rows already in the batch as well as rows already in the
+    // database -- a file listing the same funder twice is the ordinary case,
+    // and is exactly what a batch insert cannot catch on its own.
+    const isDuplicate = known.some(
+      (k) => isSameOrg(k.name, name) || (row.organization && k.organization && isSameOrg(k.organization, row.organization))
+    );
+    if (isDuplicate) {
+      duplicateCount++;
+      continue;
+    }
+    known.push({ name, organization: row.organization || null });
     const candidate = {
       name,
       channel,
@@ -112,7 +167,16 @@ export async function importCandidatesCsv(formData: FormData) {
       raw: row,
     };
     const { tier } = screenProspect(candidate, rules);
-    toInsert.push({ ...candidate, suggested_tier: tier, status: "pending" });
+    toInsert.push({
+      ...candidate,
+      dedupe_key: candidateDedupeKey({
+        sourceDomain: safeHostname(candidate.website),
+        funderName: candidate.name,
+        name: candidate.name,
+      }),
+      suggested_tier: tier,
+      status: "pending",
+    });
   }
 
   if (toInsert.length > 0) {
@@ -133,7 +197,10 @@ export async function importCandidatesCsv(formData: FormData) {
   }
 
   revalidatePath("/discovery");
-  redirect(`/discovery/import?imported=${toInsert.length}&errors=${errorCount}`);
+  // Duplicates are reported, never folded into the error count -- a skipped
+  // duplicate is the import working, and a row that could not be read is the
+  // import failing. Showing them as one number would hide both.
+  redirect(`/discovery/import?imported=${toInsert.length}&errors=${errorCount}&duplicates=${duplicateCount}`);
 }
 
 export async function acceptCandidate(candidateId: string) {

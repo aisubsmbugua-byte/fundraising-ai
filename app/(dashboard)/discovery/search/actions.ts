@@ -11,7 +11,8 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 import { upsertContact } from "@/lib/contacts";
-import { attestationCorpus, candidateDedupeKey, candidateDisplayName, isAttested, type WebsiteStatus } from "@/lib/candidates";
+import { attestationCorpus, candidateDedupeKey, candidateDisplayName, isAttested, safeHostname, type WebsiteStatus } from "@/lib/candidates";
+import { isAlreadyKnown, type KnownOrg } from "@/lib/candidate-intake";
 import { isAggregatorUrl } from "@/lib/research";
 
 // Root cause of the scope-3 reliability problem was traced to
@@ -40,16 +41,6 @@ type FoundCandidate = {
   location?: string;
   rationale: string;
 };
-
-// Hostname or nothing. A malformed URL must not throw inside candidate
-// mapping and take a whole search run with it.
-function safeHostname(url: string): string | null {
-  try {
-    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
 
 async function cachedProPublicaLookup(supabase: SupabaseClient, name: string) {
   // Best-effort org-name match against our own cache first (instant,
@@ -83,43 +74,6 @@ async function cachedProPublicaLookup(supabase: SupabaseClient, name: string) {
     .single();
 
   return saved ?? null;
-}
-
-// Strips a leading "The " and normalizes case/whitespace so "The
-// Maclellan Foundation" and "Maclellan Foundation" compare equal.
-function normalizeOrgName(s: string): string {
-  return s.trim().toLowerCase().replace(/^the\s+/, "");
-}
-
-// Two names/orgs are the same real thing if they're equal after
-// normalizing, or one contains the other (e.g. "Assemblies of God"
-// vs. "Assemblies of God World Missions (AGWM)"). Guarded to at
-// least 4 characters so a short generic word doesn't false-positive
-// against everything.
-function isSameOrg(a: string, b: string): boolean {
-  const na = normalizeOrgName(a);
-  const nb = normalizeOrgName(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  if (na.length < 4 || nb.length < 4) return false;
-  return na.includes(nb) || nb.includes(na);
-}
-
-type KnownOrg = { name: string; organization: string | null };
-
-// Best-effort, not a hard uniqueness guarantee: catches exact and
-// near-exact name/organization variants (see isSameOrg), but two
-// genuinely differently-worded names for the same funder with no
-// organization field set on either side (e.g. an abbreviation like
-// "2PC Foundation" vs. "Second Presbyterian Church Foundation") can
-// still slip through -- there's no EIN to key off for orgs
-// ProPublica doesn't have.
-function isAlreadyKnown(known: KnownOrg[], name: string, organization?: string | null): boolean {
-  return known.some((row) => {
-    if (isSameOrg(row.name, name)) return true;
-    if (organization && row.organization && isSameOrg(row.organization, organization)) return true;
-    return false;
-  });
 }
 
 // Creates the run row and returns immediately -- the actual search is
