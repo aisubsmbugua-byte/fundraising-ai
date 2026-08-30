@@ -370,8 +370,18 @@ async function createStrategyRun(prospectId: string): Promise<string> {
   return run.id as string;
 }
 
-export async function retryStrategy(prospectId: string) {
-  return createStrategyRun(prospectId);
+// Returns rather than throws. createStrategyRun's guard is correct to refuse
+// -- a strategy with no approved intelligence behind it would be written from
+// nothing -- but a Server Action that THROWS gives the browser a bare 500 and
+// "Application error: a server-side exception has occurred", which tells the
+// user neither what went wrong nor what to do. The refusal is a normal
+// outcome, so it travels back as data.
+export async function retryStrategy(prospectId: string): Promise<{ error: string } | { runId: string }> {
+  try {
+    return { runId: await createStrategyRun(prospectId) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not start a strategy run" };
+  }
 }
 
 // The explicit handoff from research to strategy, named after what the

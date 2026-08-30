@@ -43,6 +43,8 @@ export default function StrategyPanel({
   const [intel, setIntel] = useState<OrganizationIntel>(run?.organization_intel ?? emptyIntel);
   const [focusAreasText, setFocusAreasText] = useState((run?.organization_intel?.focus_areas ?? []).join(", "));
   const triggeredRef = useRef<string | null>(null);
+  // A refusal from the strategy guard is information, not a crash.
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   // Fetches run status via a plain REST route, not a Server Action --
   // see app/api/strategy-runs/[prospectId]/route.ts for why.
@@ -122,16 +124,24 @@ export default function StrategyPanel({
             disabled={isPending}
             onClick={() =>
               startTransition(async () => {
-                const newRunId = await retryStrategy(prospectId);
+                setRetryError(null);
+                const result = await retryStrategy(prospectId);
+                if ("error" in result) {
+                  setRetryError(result.error);
+                  return;
+                }
                 const latest = await fetchRun();
                 setRun(latest);
-                runStrategy(newRunId, prospectId);
+                runStrategy(result.runId, prospectId);
               })
             }
             style={{ ...buttonSecondary, marginTop: spacing.sm }}
           >
             {isPending ? "Retrying…" : "Retry strategy"}
           </button>
+          {retryError && (
+            <div style={{ fontSize: 12.5, color: colors.danger, marginTop: spacing.xs }}>{retryError}</div>
+          )}
         </div>
       )}
 
@@ -203,7 +213,13 @@ export default function StrategyPanel({
                 disabled={isPending}
                 onClick={() =>
                   startTransition(async () => {
-                    const newRunId = await retryStrategy(prospectId);
+                    setRetryError(null);
+                    const result = await retryStrategy(prospectId);
+                    if ("error" in result) {
+                      setRetryError(result.error);
+                      return;
+                    }
+                    const newRunId = result.runId;
                     const latest = await fetchRun();
                     setRun(latest);
                     runStrategy(newRunId, prospectId);
@@ -213,6 +229,9 @@ export default function StrategyPanel({
               >
                 {isPending ? "Regenerating…" : "Regenerate strategy"}
               </button>
+              {retryError && (
+                <div style={{ fontSize: 12.5, color: colors.danger, marginTop: spacing.xs }}>{retryError}</div>
+              )}
               <p style={{ fontSize: 11, color: colors.textFaint, marginTop: spacing.xs }}>
                 Useful if your Organization Profile has changed since this was approved, or to pick up
                 new fields added since. This creates a fresh strategy to review and approve — it doesn&apos;t
