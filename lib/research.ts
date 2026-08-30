@@ -640,6 +640,103 @@ export function hasStatedPeriod(reportingPeriod: string | null | undefined): boo
   return !!reportingPeriod && reportingPeriod !== NO_REPORTING_PERIOD && reportingPeriod !== UNSTATED_REPORTING_PERIOD;
 }
 
+// ---------------------------------------------------------------------------
+// Entity lifecycle
+//
+// Every check in this pipeline asks whether a claim is true OF an organization.
+// None asks whether that organization still exists. A 990 filed by a dissolved
+// charity is structurally identical to one filed by a going concern, so
+// evidence capture, entity gating, verification and reporting periods all pass
+// cleanly on a funder that no longer operates.
+//
+// Found on Overseas Council International: filings stop at FY2017 with a
+// short-period return, expenses fall 6.2M -> 5.75M -> 3.43M -> 815K, the
+// address moves from Indianapolis to Charlotte, and the organization that
+// absorbed it appears in the candidate list as a rival to be eliminated. Four
+// independent signals, all captured, none with anywhere to go.
+//
+// These functions report SIGNALS, never a conclusion. "Stopped filing in 2017"
+// is a fact; "this organization merged" is an inference a person makes with
+// context we do not have -- a funder can go quiet for other reasons, and
+// declaring a merger we cannot evidence would repeat the mistake this whole
+// build has been correcting.
+
+// A funder's most recent filing year is what says whether we are looking at a
+// going concern. 990s are filed in arrears and aggregators lag further, so a
+// two-year gap is normal and three starts to be a question.
+export const ENTITY_LIFECYCLE_STALE_YEARS = 3;
+
+export function reportingPeriodYear(reportingPeriod: string | null | undefined): number | null {
+  if (!hasStatedPeriod(reportingPeriod)) return null;
+  // Digit boundaries, not word boundaries. \b finds no boundary between the
+  // "Y" and the "2" of "FY2024" -- both are word characters -- so the most
+  // common period format in our own data parsed as having no year at all.
+  // Guarding on adjacent digits instead also stops "202303199349108860"
+  // (a ProPublica filing id) yielding a year.
+  const years = [...reportingPeriod!.matchAll(/(?<!\d)(?:19|20)\d{2}(?!\d)/g)].map((m) => Number(m[0]));
+  return years.length ? Math.max(...years) : null;
+}
+
+// Phrases that state a change of legal existence. Deliberately narrow, and
+// deliberately not including bare "dissolved" or "acquired", which appear in
+// grantmaking prose about OTHER organizations often enough to be noise -- a
+// funder that "supports organizations dissolved by conflict" is not itself
+// dissolved.
+const SUCCESSION_LANGUAGE =
+  /\b(merged (?:with|into)|merger with|now part of|formerly known as|formerly named|changed its name to|successor (?:to|organization)|ceased operations|final return|no longer operating|absorbed (?:by|into))\b/i;
+
+export function mentionsSuccession(text: string): boolean {
+  return SUCCESSION_LANGUAGE.test(text);
+}
+
+// A short accounting period is what an organization files when its fiscal year
+// is cut off -- most often because it is being wound up or absorbed mid-year.
+// On its own it means a fiscal-year change; followed by no further filings it
+// is the shape of an ending.
+export function mentionsShortPeriodReturn(text: string): boolean {
+  return /\bshort[-\s]period\b/i.test(text);
+}
+
+export type EntityLifecycleSignal = {
+  kind: "stale_filings" | "short_period_return" | "succession_language";
+  detail: string;
+};
+
+export function assessEntityLifecycle(input: {
+  claims: { claim: string; reporting_period?: string | null }[];
+  currentYear: number;
+}): { newestYear: number | null; signals: EntityLifecycleSignal[] } {
+  const { claims, currentYear } = input;
+  const years = claims.map((c) => reportingPeriodYear(c.reporting_period)).filter((y): y is number => y !== null);
+  const newestYear = years.length ? Math.max(...years) : null;
+
+  const signals: EntityLifecycleSignal[] = [];
+  if (newestYear !== null && currentYear - newestYear >= ENTITY_LIFECYCLE_STALE_YEARS) {
+    signals.push({
+      kind: "stale_filings",
+      detail: `The most recent financial year found anywhere in this research is ${newestYear}.`,
+    });
+  }
+
+  const shortPeriod = claims.find((c) => mentionsShortPeriodReturn(c.claim));
+  if (shortPeriod) {
+    signals.push({
+      kind: "short_period_return",
+      detail: "A short-period return was found, which usually means a fiscal year was cut short.",
+    });
+  }
+
+  const succession = claims.find((c) => mentionsSuccession(c.claim));
+  if (succession) {
+    signals.push({
+      kind: "succession_language",
+      detail: `A source refers to a change of name or organization: "${succession.claim.slice(0, 160)}${succession.claim.length > 160 ? "…" : ""}"`,
+    });
+  }
+
+  return { newestYear, signals };
+}
+
 export const RESEARCH_TRIAGE_CLAIM_KEYS = [
   // Who they are
   "identity.legal_name",

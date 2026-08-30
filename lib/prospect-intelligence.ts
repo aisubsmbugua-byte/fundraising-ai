@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   APPROVED_FOR_DOWNSTREAM,
+  assessEntityLifecycle,
   hasStatedPeriod,
   isFinancialClaimKey,
   strategyFieldPolicy,
   RESEARCH_INFORMATION_SECTIONS,
+  type EntityLifecycleSignal,
   type ResearchConfidence,
   type ResearchEntityValidationStatus,
 } from "@/lib/research";
@@ -137,6 +139,9 @@ export type ProspectIntelligence = {
   candidates: { ein: string; label: string; sourceCount: number; status: ResearchEntityValidationStatus | null }[];
   sections: IntelligenceSection[];
   missingSections: string[];
+  // Signals that this organization may not be a going concern. Reported, not
+  // concluded -- see assessEntityLifecycle.
+  lifecycle: { newestYear: number | null; signals: EntityLifecycleSignal[] };
   // Operational, shown only where it explains a gap a user can see.
   retrieval: { searches: number | null; fetches: number | null; fetchFailures: number | null; missingSourceClasses: string[] };
 };
@@ -331,6 +336,16 @@ export async function loadProspectIntelligence(
     candidates: Array.from(byEin.values()).sort((a, b) => b.sourceCount - a.sourceCount),
     sections,
     missingSections,
+    // Computed from the raw rows rather than the shaped claims: reporting
+    // periods are rewritten for display ("unstated" becomes "no year
+    // stated"), and a year cannot be read back out of prose.
+    lifecycle: assessEntityLifecycle({
+      claims: (claims ?? []).map((c) => ({
+        claim: c.claim as string,
+        reporting_period: (c.reporting_period as string | null) ?? null,
+      })),
+      currentYear: new Date().getFullYear(),
+    }),
     retrieval: {
       searches: (run.searches_used as number | null) ?? null,
       fetches: (run.fetch_attempts as number | null) ?? null,

@@ -44,6 +44,7 @@ export default function EntityResolver({
   // rows into the same state at once, so the click gave no indication which
   // organization it had applied to.
   const [savingEin, setSavingEin] = useState<string | null>(null);
+  const [merged, setMerged] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   return (
@@ -83,8 +84,23 @@ export default function EntityResolver({
       {blocked && !savedEin && candidates.length > 1 && (
         <>
           <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.xs }}>
-            Research found {candidates.length} organizations matching this name. Which one is this prospect?
+            Research found {candidates.length} organizations matching this name.{" "}
+            {merged ? "Which one is the organization that exists today?" : "Which one is this prospect?"}
           </p>
+
+          {/* The question the resolver cannot ask. A merged predecessor and an
+              unrelated namesake look identical in search results, so "these
+              are one organization at different times" is knowledge a person
+              has and the system does not. Without this the list forces a
+              single choice and the older entity looks like the right answer,
+              which is how a defunct EIN gets confirmed. */}
+          <label style={{ display: "flex", alignItems: "flex-start", gap: spacing.xs, fontSize: 12.5, color: colors.textMuted, marginBottom: spacing.sm, cursor: "pointer" }}>
+            <input type="checkbox" checked={merged} onChange={(e) => setMerged(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              These are the same organization at different times — it merged or changed its name. Choosing will record
+              the others as what it used to be, instead of discarding them.
+            </span>
+          </label>
           <div style={{ display: "grid", gap: spacing.xs }}>
             {candidates.map((c) => {
               const saving = savingEin === c.ein;
@@ -105,7 +121,11 @@ export default function EntityResolver({
                       setSavingEin(c.ein);
                       startTransition(async () => {
                         try {
-                          await confirmProspectEin(prospectId, c.ein);
+                          await confirmProspectEin(
+                            prospectId,
+                            c.ein,
+                            merged ? candidates.filter((o) => o.ein !== c.ein).map((o) => o.ein) : []
+                          );
                           // Deliberate: revalidatePath marks the cache stale
                           // but this component's own props come from a server
                           // render, so without an explicit refresh the page
@@ -119,7 +139,7 @@ export default function EntityResolver({
                       });
                     }}
                   >
-                    {saving ? "Saving…" : "This one"}
+                    {saving ? "Saving…" : merged ? "The current one" : "This one"}
                   </button>
                 </div>
               );

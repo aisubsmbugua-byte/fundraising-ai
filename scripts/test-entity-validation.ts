@@ -12,6 +12,7 @@
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
 import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, claimSpansMultiplePeriods, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections, strategyFieldPolicy, IDENTITY_GATE_KEYS, STRATEGY_FIELD_POLICY, RESEARCH_CLAIM_KEYS } from "../lib/research";
 import { deriveStrategyUse } from "../lib/prospect-intelligence";
+import { assessEntityLifecycle, mentionsSuccession, reportingPeriodYear } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -598,6 +599,73 @@ check(
   use({ claimKey: "funding.total_assets", decision: "approved", withheldReason: "no reporting period" }),
   "approved_not_used"
 );
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- entity lifecycle signals ---");
+
+// The real case: Overseas Council International. Filings stop at FY2017 with
+// a short-period return, the organization was absorbed into another ministry,
+// and every existing check passed cleanly because none of them asks whether
+// the subject still exists.
+const oci = [
+  { claim: "Total expenses were $815,022 for the fiscal year ending December 2017 (short-period return).", reporting_period: "FY ending Dec. 2017" },
+  { claim: "Total expenses were $3,431,859 for the fiscal year ending September 2017.", reporting_period: "FY ending Sept. 2017" },
+  { claim: "Total expenses were $6,204,033 for the fiscal year ending September 2015.", reporting_period: "FY ending Sept. 2015" },
+];
+const ociResult = assessEntityLifecycle({ claims: oci, currentYear: 2026 });
+check("newest year is read across every claim", ociResult.newestYear, 2017);
+check("nine-year-old filings are flagged", ociResult.signals.some((s) => s.kind === "stale_filings"), true);
+check("the short-period return is flagged", ociResult.signals.some((s) => s.kind === "short_period_return"), true);
+
+// A going concern must stay silent, or the warning becomes wallpaper.
+const current = [
+  { claim: "Charitable disbursements of $1,855,039 for the fiscal year ending December 2024.", reporting_period: "FY2024" },
+  { claim: "16 awards in 2024", reporting_period: "Tax Year 2024" },
+];
+check("a current funder raises nothing", assessEntityLifecycle({ claims: current, currentYear: 2026 }).signals, []);
+check(
+  "a two-year lag is normal, not a signal",
+  assessEntityLifecycle({ claims: [{ claim: "x", reporting_period: "FY2024" }], currentYear: 2026 }).signals,
+  []
+);
+check(
+  "three years is where it becomes a question",
+  assessEntityLifecycle({ claims: [{ claim: "x", reporting_period: "FY2023" }], currentYear: 2026 }).signals.some((s) => s.kind === "stale_filings"),
+  true
+);
+// Undated claims cannot date a run either way.
+check(
+  "unstated periods do not fabricate a year",
+  assessEntityLifecycle({ claims: [{ claim: "x", reporting_period: "unstated" }], currentYear: 2026 }).newestYear,
+  null
+);
+
+// "FY2024" has no word boundary between the Y and the 2, so \b found no year
+// in the single most common period format in our own data.
+check("a year is read out of FY2024", reportingPeriodYear("FY2024"), 2024);
+check("...and out of prose", reportingPeriodYear("FY ending Sept. 2017"), 2017);
+check("...and Tax Year 2023", reportingPeriodYear("Tax Year 2023"), 2023);
+check("a filing id is not a year", reportingPeriodYear("202303199349108860"), null);
+
+check("succession language is caught", mentionsSuccession("Overseas Council merged into United World Mission in 2018."), true);
+check("a name change is caught", mentionsSuccession("Formerly known as Overseas Council for Theological Education."), true);
+check("a final return is caught", mentionsSuccession("The organization filed a final return for 2017."), true);
+
+// Precision: grantmaking prose is full of these words used about OTHER
+// organizations. A warning that fires on every funder teaches people to
+// ignore it, which is worse than not having one.
+check(
+  "a funder that supports merged organizations is not itself merged",
+  mentionsSuccession("Supports ministries serving communities dissolved by conflict and displacement."),
+  false
+);
+check(
+  "funding mergers is not being merged",
+  mentionsSuccession("Has funded mergers and capacity-building among partner ministries."),
+  false
+);
+check("plain grantmaking prose is silent", mentionsSuccession("Grants are made to preselected charitable organizations."), false);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);

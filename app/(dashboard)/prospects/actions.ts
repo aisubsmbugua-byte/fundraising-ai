@@ -251,17 +251,33 @@ export async function updateAskAmount(prospectId: string, askAmount: number | nu
 // a required step of the workflow whenever research finds several
 // organizations sharing a name, and a mandatory step only a superadmin can
 // take is a dead end for everyone else. RLS scopes the prospect row.
-export async function confirmProspectEin(prospectId: string, ein: string) {
+// predecessorEins is how a person says "these are the same organization at
+// different times". The resolver cannot work that out -- a merged predecessor
+// and an unrelated namesake look identical in search results -- so it is
+// recorded from human knowledge rather than inferred. ein stays the single
+// surviving entity, so nothing downstream has to learn about multiplicity.
+export async function confirmProspectEin(prospectId: string, ein: string, predecessorEins: string[] = []) {
   await requireUser();
   const supabase = createClient();
 
-  const digits = ein.replace(/\D/g, "");
-  if (digits.length !== 9) throw new Error("An EIN must be 9 digits.");
-  const normalized = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  const normalize = (raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length !== 9) throw new Error("An EIN must be 9 digits.");
+    return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  };
+
+  const normalized = normalize(ein);
+  // Never lists the surviving entity as its own predecessor, however the
+  // caller passes them.
+  const predecessors = [...new Set(predecessorEins.map(normalize))].filter((e) => e !== normalized);
 
   const { error } = await supabase
     .from("prospects")
-    .update({ ein: normalized, updated_at: new Date().toISOString() })
+    .update({
+      ein: normalized,
+      predecessor_eins: predecessors.length ? predecessors : null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", prospectId);
   if (error) throw new Error(error.message);
 

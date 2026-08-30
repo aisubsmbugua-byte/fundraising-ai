@@ -72,6 +72,10 @@ export type Prospect = {
   // A set ein makes the Research Agent's entity resolution deterministic;
   // see resolveRunEntity in lib/research.ts.
   ein: string | null;
+  // EINs this prospect previously operated under, after a merger or rename.
+  // Supplied by a person -- a merged predecessor and an unrelated namesake are
+  // indistinguishable in search results, so this is knowledge, not inference.
+  predecessor_eins: string[] | null;
   legal_name: string | null;
   aliases: string[] | null;
   // Funder intelligence -- populated from AI research when

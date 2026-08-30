@@ -141,6 +141,29 @@ export default function ResearchTab({
         />
       )}
 
+      {/* Signals, not a verdict. Each has an innocent reading -- a funder can
+          go quiet, change fiscal year, or be described loosely by a source --
+          so this asks a question rather than answering one. Deciding needs
+          context we do not have and a person does. */}
+      {intelligence.lifecycle.signals.length > 0 && (
+        <div style={{ ...sectionStyle, borderLeft: `3px solid ${colors.danger}` }}>
+          <h3 style={{ fontSize: 14, margin: 0 }}>Is this organization still operating?</h3>
+          <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+            The research below may describe an organization that has since merged, been renamed, or wound up. Worth
+            checking before you spend time on it:
+          </p>
+          <ul style={{ fontSize: 12.5, color: colors.text, margin: 0, paddingLeft: 18, display: "grid", gap: 3 }}>
+            {intelligence.lifecycle.signals.map((s) => (
+              <li key={s.kind}>{s.detail}</li>
+            ))}
+          </ul>
+          <p style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.sm, marginBottom: 0 }}>
+            If it merged into another organization, confirm the surviving one under Identity — research will then be
+            about the entity that still exists.
+          </p>
+        </div>
+      )}
+
       {preliminary && (
         <div style={{ ...sectionStyle, borderLeft: `3px solid #b8860b` }}>
           <h3 style={{ fontSize: 14, margin: 0 }}>Preliminary — screening only</h3>
