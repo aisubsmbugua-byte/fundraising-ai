@@ -157,11 +157,16 @@ export default function EntityResolver({
                   }}
                 >
                   <div style={{ minWidth: 200, flex: 1 }}>
-                    <div style={{ fontSize: 13.5, color: colors.text }}>{c.name ?? c.ein}</div>
+                    {/* When no name was captured the website is a better
+                        heading than the EIN -- and the EIN line below would
+                        otherwise print it twice. */}
+                    <div style={{ fontSize: 13.5, color: colors.text }}>{c.name ?? c.website ?? `EIN ${c.ein}`}</div>
                     <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
-                      {[c.location, c.orgType, c.website].filter(Boolean).join(" · ")}
+                      {[c.location, c.orgType, c.name ? c.website : null].filter(Boolean).join(" · ")}
                     </div>
-                    <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 2, fontFamily: "monospace" }}>EIN {c.ein}</div>
+                    {(c.name || c.website) && (
+                      <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 2, fontFamily: "monospace" }}>EIN {c.ein}</div>
+                    )}
                     {c.whyMatch.length > 0 && (
                       <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 2 }}>{c.whyMatch.join(" · ")}</div>
                     )}

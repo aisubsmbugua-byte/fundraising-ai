@@ -719,10 +719,16 @@ export function isAggregatorUrl(url: string): boolean {
 export function cleanEntityName(title: string | null | undefined): string | null {
   if (!title) return null;
   const head = title.split(/\s+[-|–—]\s+/)[0].trim();
-  // A name needs at least two words: a bare domain or a single token tells a
-  // reader nothing and is what produced the URL rows.
-  if (!head.includes(" ")) return null;
   if (/^https?:/i.test(head)) return null;
+  // Words, ignoring identifiers. "EIN 13-3462549" has a space and so passed a
+  // two-word test, and was then shown to a user as the organization's name --
+  // above a line repeating the same EIN. An identifier is not a name however
+  // many spaces it contains.
+  const words = head
+    .split(/\s+/)
+    .filter((w) => /[A-Za-z]{2}/.test(w))
+    .filter((w) => !/^ein$/i.test(w));
+  if (words.length < 2) return null;
   return head;
 }
 
@@ -730,11 +736,38 @@ const US_STATES =
   "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC";
 
 // "Newport Beach, CA" out of whatever prose the evidence happens to be.
+const STATE_NAMES: Record<string, string> = {
+  alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
+  connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI", idaho: "ID",
+  illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY", louisiana: "LA",
+  maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN",
+  mississippi: "MS", missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV",
+  "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+  "north carolina": "NC", "north dakota": "ND", ohio: "OH", oklahoma: "OK", oregon: "OR",
+  pennsylvania: "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD",
+  tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT", virginia: "VA", washington: "WA",
+  "west virginia": "WV", wisconsin: "WI", wyoming: "WY",
+};
+
+// Postal code or spelled out -- a source writing "Louisville, Kentucky" was
+// invisible to a pattern that only knew "KY", which is why the real
+// candidates showed no location at all.
 export function extractLocation(texts: string[]): string | null {
-  const pattern = new RegExp(`\\b([A-Z][A-Za-z.'-]+(?: [A-Z][A-Za-z.'-]+){0,2}),\\s*(${US_STATES})\\b`);
+  const abbrev = new RegExp(`\\b([A-Z][A-Za-z.'-]+(?: [A-Z][A-Za-z.'-]+){0,2}),\\s*(${US_STATES})\\b`);
+  // No "i" flag: it would make [A-Z] match lowercase too, so the city group
+  // swallowed the words before it -- "Offices in Louisville, Kentucky" gave
+  // "Offices in Louisville". State names are matched as written instead.
+  const titleCase = (n: string) => n.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  const spelled = new RegExp(
+    `\\b([A-Z][A-Za-z.'-]+(?: [A-Z][A-Za-z.'-]+){0,2}),\\s*(${Object.keys(STATE_NAMES).map(titleCase).join("|")})\\b`
+  );
   for (const t of texts) {
-    const m = t.match(pattern);
+    const m = t.match(abbrev);
     if (m) return `${m[1]}, ${m[2]}`;
+  }
+  for (const t of texts) {
+    const m = t.match(spelled);
+    if (m) return `${m[1]}, ${STATE_NAMES[m[2].toLowerCase()]}`;
   }
   return null;
 }
@@ -791,8 +824,17 @@ export function buildEntityCandidates(input: {
   sources: { url: string; title: string | null; sourceEin: string | null; status: string | null; texts: string[] }[];
   nameToken: string;
   prospectLocation: string | null;
+  prospectWebsite?: string | null;
 }): EntityCandidate[] {
-  const { sources, nameToken, prospectLocation } = input;
+  const { sources, nameToken, prospectLocation, prospectWebsite } = input;
+  const prospectHost = (() => {
+    if (!prospectWebsite) return null;
+    try {
+      return new URL(prospectWebsite).hostname.replace(/^www\./, "");
+    } catch {
+      return null;
+    }
+  })();
   const byEin = new Map<string, typeof input.sources>();
   for (const s of sources) {
     if (!s.sourceEin) continue;
@@ -809,6 +851,9 @@ export function buildEntityCandidates(input: {
     const orgType = extractOrgType(texts);
 
     const whyMatch: string[] = [];
+    // The strongest reason there is, and worth saying first: this entity is
+    // described on the funder's own site.
+    if (prospectHost && website === prospectHost) whyMatch.unshift("On this prospect's own website");
     if (nameToken && name && name.toLowerCase().includes(nameToken.toLowerCase())) {
       whyMatch.push(`Name contains "${nameToken}"`);
     }
@@ -1116,7 +1161,34 @@ export function resolveRunEntity({
   //    makes every future run of this prospect deterministic.
   if (storedEin) return { ein: storedEin, method: "stored_ein" };
 
-  // 2. An EIN stated by an authoritative filing source that also matches the
+  // 2. An EIN stated on the prospect's OWN domain. This is the organization
+  //    speaking about itself, which outranks any number of third-party
+  //    filings that merely share a word with its name.
+  //
+  //    It used to run last, reached only when nothing else matched -- so on
+  //    "Presbyterian Mission Agency" the filing check found many same-named
+  //    entities, returned ambiguous_filings immediately, and pcusa.org
+  //    stating its own EIN was never consulted. The strongest signal we have
+  //    was positioned as a fallback.
+  //
+  //    Still conservative: the host must match exactly, and the page must
+  //    name exactly ONE EIN. A denomination's site listing its agencies
+  //    resolves nothing, which is correct -- that page does not say which
+  //    one this prospect is.
+  if (prospectWebsite) {
+    try {
+      const prospectHost = new URL(prospectWebsite).hostname.replace(/^www\./, "");
+      for (const s of sources) {
+        if (new URL(s.url).hostname.replace(/^www\./, "") !== prospectHost) continue;
+        const candidates = Array.from(new Set(sourceEinCandidates(s.url, s.texts)));
+        if (candidates.length === 1) return { ein: candidates[0], method: "official_domain" };
+      }
+    } catch {
+      // malformed url -- fall through
+    }
+  }
+
+  // 3. An EIN stated by an authoritative filing source that also matches the
   //    prospect's name. Distinct competing answers here mean identity is
   //    genuinely contested and must not be guessed.
   //    A family foundation's siblings are themselves filing sources carrying
@@ -1174,20 +1246,6 @@ export function resolveRunEntity({
   }
   if (plausibleEins.size === 1) return { ein: Array.from(plausibleEins)[0], method: "authoritative_filing" };
   if (plausibleEins.size > 1) return { ein: null, method: "ambiguous_filings" };
-
-  // 3. An EIN stated on the prospect's own official domain.
-  if (prospectWebsite) {
-    try {
-      const prospectHost = new URL(prospectWebsite).hostname.replace(/^www\./, "");
-      for (const s of sources) {
-        if (new URL(s.url).hostname.replace(/^www\./, "") !== prospectHost) continue;
-        const candidates = Array.from(new Set(sourceEinCandidates(s.url, s.texts)));
-        if (candidates.length === 1) return { ein: candidates[0], method: "official_domain" };
-      }
-    } catch {
-      // malformed url -- fall through to unresolved
-    }
-  }
 
   return { ein: null, method: "unresolved" };
 }

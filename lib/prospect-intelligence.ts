@@ -3,6 +3,7 @@ import {
   APPROVED_FOR_DOWNSTREAM,
   assessEntityLifecycle,
   buildEntityCandidates,
+  contactEmailDomain,
   deriveEntityNameToken,
   presentableCandidates,
   hasStatedPeriod,
@@ -210,7 +211,7 @@ export async function loadProspectIntelligence(
   // one. Neither is derivable from the run.
   const { data: prospectRow } = await supabase
     .from("prospects")
-    .select("name, location")
+    .select("name, location, website, contact_email")
     .eq("id", prospectId)
     .maybeSingle();
 
@@ -347,6 +348,13 @@ export async function loadProspectIntelligence(
     })),
     nameToken: deriveEntityNameToken((prospectRow?.name as string | null) ?? ""),
     prospectLocation: (prospectRow?.location as string | null) ?? null,
+    // Same inference the research run uses, so the UI and the resolver agree
+    // on what this prospect's domain is.
+    prospectWebsite:
+      (prospectRow?.website as string | null) ??
+      (contactEmailDomain(prospectRow?.contact_email as string | null)
+        ? `https://${contactEmailDomain(prospectRow?.contact_email as string | null)}`
+        : null),
   });
 
   return {

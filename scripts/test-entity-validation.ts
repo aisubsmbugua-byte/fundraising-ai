@@ -679,11 +679,20 @@ check("a full-filing suffix comes off too", cleanEntityName("Dwight Presbyterian
 check("a pipe separator works the same", cleanEntityName("Overseas Council International | Charlotte, NC | Cause IQ"), "Overseas Council International");
 check("a bare URL is not a name", cleanEntityName("https://projects.propublica.org/nonprofits/organizations/546054857"), null);
 check("a single word is not a name", cleanEntityName("projects.propublica.org"), null);
+// From the Presbyterian run: a title beginning with the EIN passed the
+// two-word test and was shown as the organization's name, directly above a
+// line repeating the same EIN.
+check("an EIN is not a name, spaces notwithstanding", cleanEntityName("EIN 13-3462549"), null);
+check("nor is it when a filing label follows", cleanEntityName("EIN 13-3462549 - Full Filing - ProPublica"), null);
+check("a real name beginning with a number still works", cleanEntityName("1001 New Worshiping Communities Fund"), "1001 New Worshiping Communities Fund");
 check("no title is not a name", cleanEntityName(null), null);
 
 check("a city and state are found in prose", extractLocation(["Main address · 14 Corporate Plaza Dr Ste 200 · Newport Beach, CA 92660 United States"]), "Newport Beach, CA");
 check("two-word cities work", extractLocation(["Based in Kansas City, MO since 1997"]), "Kansas City, MO");
 check("prose with no location yields none", extractLocation(["Grants are made to preselected organizations."]), null);
+// A spelled-out state was invisible before, which is why the real
+// Presbyterian candidates showed no location at all.
+check("a spelled-out state is read too", extractLocation(["Offices in Louisville, Kentucky since 1988"]), "Louisville, KY");
 
 check(
   "an aggregator is never the funder's own site",
@@ -755,6 +764,51 @@ check("a work email yields the organization's domain", contactEmailDomain("chris
 check("a personal mailbox does not", contactEmailDomain("chris.romine@gmail.com"), null);
 check("nor does an empty contact", contactEmailDomain(null), null);
 check("nor a malformed address", contactEmailDomain("not-an-email"), null);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- the funder's own domain outranks same-named filings ---");
+
+// Presbyterian Mission Agency: many IRS filings match the token
+// "Presbyterian", so the filing check returned ambiguous and the domain
+// check -- which ran last -- was never reached. pcusa.org stating its own
+// EIN lost to a pile of third parties sharing one word.
+const pcusaSources = [
+  { url: "https://www.pcusa.org/about/", title: "About the Presbyterian Mission Agency", texts: ["EIN 13-3462549"], sourceType: "official_website" as const },
+  { url: "https://projects.propublica.org/nonprofits/organizations/911669740", title: "Presbyterian Church Usa", texts: ["Presbyterian Church Usa"], sourceType: "irs_filing" as const },
+  { url: "https://projects.propublica.org/nonprofits/organizations/231440115", title: "Presbyterian Church Usa Foundation", texts: ["Presbyterian Church Usa Foundation"], sourceType: "irs_filing" as const },
+];
+check(
+  "the organization's own site settles it",
+  resolveRunEntity({ storedEin: null, prospectName: "Presbyterian Mission Agency", prospectWebsite: "https://pcusa.org", nameToken: "presbyterian", sources: pcusaSources }),
+  { ein: "13-3462549", method: "official_domain" }
+);
+// Without the website we are back to genuinely not knowing, which is the
+// honest answer rather than a guess.
+check(
+  "without the domain it stays ambiguous",
+  resolveRunEntity({ storedEin: null, prospectName: "Presbyterian Mission Agency", prospectWebsite: null, nameToken: "presbyterian", sources: pcusaSources }),
+  { ein: null, method: "ambiguous_filings" }
+);
+// The adversarial case this promotion has to survive: a denomination's own
+// page listing several agencies does not say which one the prospect is.
+check(
+  "an own-domain page naming several EINs resolves nothing",
+  resolveRunEntity({
+    storedEin: null,
+    prospectName: "Presbyterian Mission Agency",
+    prospectWebsite: "https://pcusa.org",
+    nameToken: "presbyterian",
+    sources: [{ url: "https://www.pcusa.org/agencies/", title: "Our agencies", texts: ["EIN 13-3462549 and EIN 23-1440115"], sourceType: "official_website" as const }],
+  }),
+  { ein: null, method: "unresolved" }
+);
+// A human-confirmed EIN still beats everything, including the domain.
+check(
+  "a stored EIN still wins outright",
+  resolveRunEntity({ storedEin: "99-9999999", prospectName: "Presbyterian Mission Agency", prospectWebsite: "https://pcusa.org", nameToken: "presbyterian", sources: pcusaSources }).method,
+  "stored_ein"
+);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);
