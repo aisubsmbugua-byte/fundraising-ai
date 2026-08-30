@@ -11,7 +11,7 @@ import { channelLabel, type Channel } from "@/lib/prospects";
 import { bestEffortLookup } from "@/lib/propublica";
 import type { OrgProfile } from "@/lib/organization";
 import { upsertContact } from "@/lib/contacts";
-import { candidateDedupeKey, type WebsiteStatus } from "@/lib/candidates";
+import { attestationCorpus, candidateDedupeKey, candidateDisplayName, isAttested, type WebsiteStatus } from "@/lib/candidates";
 import { isAggregatorUrl } from "@/lib/research";
 
 // Root cause of the scope-3 reliability problem was traced to
@@ -302,7 +302,7 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
                       opportunity_name: {
                         type: "string",
                         description:
-                          "The specific program, fund or grant, if any -- e.g. '1001 New Worshiping Communities'. Omit when the funder itself is the opportunity.",
+                          "The program, fund or grant AS THE FUNDER THEMSELVES NAMES IT -- e.g. '1001 New Worshiping Communities'. This is a proper name you saw on the source, not a description of the opportunity and never a suggested approach to them. Omit it when the funder itself is the opportunity, or when you did not see a named program. This field is checked against the cited source's own text, so a phrase you composed will be discarded.",
                       },
                       source_index: {
                         type: "integer",
@@ -391,24 +391,54 @@ ${findings || "(no findings)"}`,
           ? "third_party_source"
           : null;
 
+      // Test what the model TYPED against what the search CAPTURED. Only
+      // meaningful where a source was actually captured -- with no corpus,
+      // every field would fail, and "we could not check" must not be recorded
+      // as "we checked and it failed" (asserted_fields stays null).
+      const corpus = attestationCorpus(source);
+      const funderAttested = source ? isAttested(c.funder_name ?? c.name, corpus) : true;
+      const opportunityAttested = source ? isAttested(c.opportunity_name, corpus) : true;
+      const assertedFields: string[] | null = source
+        ? [...(funderAttested ? [] : ["funder_name"]), ...(opportunityAttested ? [] : ["opportunity_name"])]
+        : null;
+
       return {
         ...c,
+        // Derived, not retyped -- the display name can no longer contradict
+        // the structured fields it is built from.
+        name: candidateDisplayName({
+          funderName: c.funder_name,
+          opportunityName: c.opportunity_name,
+          opportunityAttested,
+          fallback: c.name,
+        }),
         // Only a website we believe is the funder's own is carried forward as
         // `website`; everything else stays in source_url as provenance.
         website: officialCandidate ? `https://${officialCandidate}` : null,
         source_url: source?.url ?? null,
         source_domain: sourceDomain,
+        source_title: source?.title ?? null,
         official_website_candidate: officialCandidate,
         website_status: websiteStatus,
         capture_status: source ? "captured" : "source_missing",
+        asserted_fields: assertedFields,
         dedupe_key: candidateDedupeKey({
           sourceDomain,
           funderName: c.funder_name,
           opportunityName: c.opportunity_name,
+          opportunityAttested,
           name: c.name,
         }),
       };
     });
+
+    const unattested = found.filter((c) => c.asserted_fields && c.asserted_fields.length > 0);
+    if (unattested.length > 0) {
+      console.log(
+        `[discovery-search] channel=${channel} ${unattested.length} candidate(s) with unattested fields: ` +
+          unattested.map((c) => `${c.funder_name ?? c.name} [${c.asserted_fields!.join(",")}]`).join("; ")
+      );
+    }
 
     const sourceless = found.filter((c) => c.capture_status === "source_missing").length;
     if (sourceless > 0) {
@@ -438,22 +468,28 @@ ${findings || "(no findings)"}`,
     // within-run duplicates (the same funder turning up twice in one
     // search) still get caught since each insert updates this list
     // before the next candidate is checked.
-    let candidatesQuery = supabase.from("candidates").select("name, organization");
+    let candidatesQuery = supabase.from("candidates").select("name, organization, dedupe_key");
     let prospectsQuery = supabase.from("prospects").select("name, organization");
     if (organizationId) {
       candidatesQuery = candidatesQuery.eq("organization_id", organizationId);
       prospectsQuery = prospectsQuery.eq("organization_id", organizationId);
     }
     const [{ data: knownCandidates }, { data: knownProspects }] = await Promise.all([
-      candidatesQuery.returns<KnownOrg[]>(),
+      candidatesQuery.returns<(KnownOrg & { dedupe_key: string | null })[]>(),
       prospectsQuery.returns<KnownOrg[]>(),
     ]);
     const known: KnownOrg[] = [...(knownCandidates ?? []), ...(knownProspects ?? [])];
+    // Exact-key matching runs ALONGSIDE name matching, not instead of it.
+    // Prospects carry no dedupe_key (they have no source domain), and rows
+    // predating 0055 have none either -- dropping the name check would stop
+    // catching both. The key is the precise instrument; the name check is the
+    // net underneath it.
+    const knownKeys = new Set((knownCandidates ?? []).map((c) => c.dedupe_key).filter((k): k is string => !!k));
 
     let inserted = 0;
     let skippedDuplicates = 0;
     for (const found_candidate of found) {
-      if (isAlreadyKnown(known, found_candidate.name, found_candidate.organization)) {
+      if (knownKeys.has(found_candidate.dedupe_key) || isAlreadyKnown(known, found_candidate.name, found_candidate.organization)) {
         skippedDuplicates++;
         continue;
       }
@@ -487,9 +523,11 @@ ${findings || "(no findings)"}`,
         opportunity_name: found_candidate.opportunity_name || null,
         source_url: found_candidate.source_url,
         source_domain: found_candidate.source_domain,
+        source_title: found_candidate.source_title,
         official_website_candidate: found_candidate.official_website_candidate,
         website_status: found_candidate.website_status,
         capture_status: found_candidate.capture_status,
+        asserted_fields: found_candidate.asserted_fields,
         dedupe_key: found_candidate.dedupe_key,
       };
 
@@ -520,6 +558,7 @@ ${findings || "(no findings)"}`,
           organizationId,
         });
         known.push({ name: candidate.name, organization: candidate.organization });
+        if (candidate.dedupe_key) knownKeys.add(candidate.dedupe_key);
         inserted++;
       }
     }

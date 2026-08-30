@@ -48,6 +48,10 @@ export default function OpportunityDetail({
     candidate.fitPercentage == null ? null : candidate.fitPercentage >= 0.7 ? "teal" : candidate.fitPercentage >= 0.4 ? "amber" : "red";
   const confidenceLabel =
     candidate.fitPercentage == null ? null : candidate.fitPercentage >= 0.7 ? "High confidence" : candidate.fitPercentage >= 0.4 ? "Medium confidence" : "Low confidence";
+  // Null means attestation never ran (every row predating it), which is not
+  // the same fact as "ran and found nothing wrong" -- neither shows a caution,
+  // but they must not be collapsed in the data.
+  const assertedFields = candidate.asserted_fields ?? [];
   const rationale = typeof candidate.raw?.rationale === "string" ? candidate.raw.rationale : null;
   // Light re-presentation of the same rationale text as separate
   // points instead of one paragraph -- not new content, just
@@ -104,6 +108,53 @@ export default function OpportunityDetail({
         <Stat icon={Building2} label="Funder type" value={candidate.funder_type ?? "—"} />
         <Stat icon={Database} label="Source" value={candidate.source ?? "unknown"} />
       </div>
+
+      {/* Provenance was captured from the moment Donor Finder started keeping
+          the URLs the search actually visited, but it lived only in the
+          database -- a reviewer deciding whether to accept could not see where
+          any of this came from. Stored-but-unseen is the same half-wired shape
+          as stored-but-unread. */}
+      {(candidate.source_url || assertedFields.length > 0) && (
+        <div
+          style={{
+            marginTop: spacing.lg,
+            padding: spacing.md,
+            borderRadius: radiusSm,
+            border: `1px solid ${colors.border}`,
+            display: "grid",
+            gap: 6,
+          }}
+        >
+          <h3 style={{ fontSize: 14, margin: 0 }}>Where this came from</h3>
+
+          {candidate.source_url && (
+            <div style={{ fontSize: 13, color: colors.textMuted }}>
+              {candidate.source_title && <div style={{ color: colors.text, marginBottom: 2 }}>{candidate.source_title}</div>}
+              <a href={candidate.source_url} target="_blank" rel="noreferrer" style={{ color: colors.textMuted, wordBreak: "break-all" }}>
+                {candidate.source_domain ?? candidate.source_url}
+              </a>
+            </div>
+          )}
+
+          {/* The distinction the whole capture contract exists to protect: a
+              page ABOUT a funder is not the funder speaking. */}
+          {candidate.website_status === "third_party_source" && (
+            <p style={{ fontSize: 12, color: colors.textMuted, margin: 0 }}>
+              Found on a third party&apos;s page, not the funder&apos;s own site. Research will establish their website.
+            </p>
+          )}
+
+          {assertedFields.length > 0 && (
+            <p style={{ fontSize: 12, color: colors.textMuted, margin: 0 }}>
+              {assertedFields.includes("opportunity_name") && assertedFields.includes("funder_name")
+                ? "The organization and programme names below weren't found in the source text, so treat both as unconfirmed."
+                : assertedFields.includes("funder_name")
+                  ? "This organization's name wasn't found in the source text, so treat it as unconfirmed until Research runs."
+                  : "A programme name was suggested that doesn't appear in the source, so it has been left out of the title above."}
+            </p>
+          )}
+        </div>
+      )}
 
       {rationalePoints.length > 0 && (
         <div style={{ marginTop: spacing.lg }}>
