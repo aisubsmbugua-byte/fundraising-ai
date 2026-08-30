@@ -329,6 +329,7 @@ export default async function ProspectDetailPage({
                   lastCompletedAt={workflow.lastCompletedAt}
                   approvedClaimCount={workflow.approvedClaimCount}
                   prospectEin={prospect.ein}
+                  prospectPredecessorEins={prospect.predecessor_eins ?? []}
                 />
               )}
               {activeTab === "strategy" && strategyRun?.strategy && !strategyRun.approved_intelligence_run_id && (

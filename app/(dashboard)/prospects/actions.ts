@@ -251,6 +251,28 @@ export async function updateAskAmount(prospectId: string, askAmount: number | nu
 // a required step of the workflow whenever research finds several
 // organizations sharing a name, and a mandatory step only a superadmin can
 // take is a dead end for everyone else. RLS scopes the prospect row.
+// Confirming an identity is a decision, and a decision a person cannot revise
+// is a trap. Overseas Council International showed why: its EIN was confirmed
+// before anyone knew the organization had merged, and once stored there was
+// no route back -- the picker only appears when nothing is saved, so the
+// prospect was pinned to a defunct entity by a click.
+//
+// Clearing is safe: the EIN is a pointer, and nothing that depends on it is
+// deleted. The next run simply resolves from search again.
+export async function clearProspectEin(prospectId: string) {
+  await requireUser();
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from("prospects")
+    .update({ ein: null, predecessor_eins: null, updated_at: new Date().toISOString() })
+    .eq("id", prospectId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/prospects/${prospectId}`);
+  revalidatePath("/admin/research");
+}
+
 // predecessorEins is how a person says "these are the same organization at
 // different times". The resolver cannot work that out -- a merged predecessor
 // and an unrelated namesake look identical in search results -- so it is

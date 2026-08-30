@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { confirmProspectEin } from "../actions";
+import { clearProspectEin, confirmProspectEin } from "../actions";
 import { buttonSecondary, chipStyle, colors, sectionStyle, spacing } from "@/lib/ui";
 
 const METHOD_LABEL: Record<string, string> = {
@@ -26,6 +26,7 @@ export default function EntityResolver({
   candidates,
   blocked,
   savedEin,
+  predecessorEins,
 }: {
   prospectId: string;
   confirmedEin: string | null;
@@ -37,6 +38,8 @@ export default function EntityResolver({
   // without this the choice saved correctly and the screen did not change by
   // so much as a word, which is indistinguishable from a broken button.
   savedEin: string | null;
+  // What it used to be, after a merger or rename the user recorded.
+  predecessorEins: string[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -45,7 +48,24 @@ export default function EntityResolver({
   // organization it had applied to.
   const [savingEin, setSavingEin] = useState<string | null>(null);
   const [merged, setMerged] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Shared by both entry points -- while a run is blocked, and after a stored
+  // EIN has resolved one. Same operation either way.
+  function clearSavedEin() {
+    setError(null);
+    setClearing(true);
+    startTransition(async () => {
+      try {
+        await clearProspectEin(prospectId);
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not clear the saved EIN.");
+        setClearing(false);
+      }
+    });
+  }
 
   return (
     <div style={sectionStyle}>
@@ -74,10 +94,26 @@ export default function EntityResolver({
       {blocked && savedEin && (
         <div style={{ marginTop: spacing.sm }}>
           <span style={chipStyle("teal")}>Identity confirmed · {savedEin}</span>
-          <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
+          {predecessorEins.length > 0 && (
+            <div style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs }}>
+              Previously {predecessorEins.join(", ")}.
+            </div>
+          )}
+          <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.xs }}>
             Saved to this prospect. The research below was gathered before this was settled, so it may still describe
             a different organization — run research again and it will resolve to this EIN directly.
           </p>
+          {/* A confirmation a person cannot revise is a trap. This prospect
+              was pinned to a pre-merger entity by one click, with the picker
+              hidden from then on because something was saved. */}
+          <button
+            type="button"
+            disabled={clearing}
+            style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
+            onClick={clearSavedEin}
+          >
+            {clearing ? "Clearing…" : "Choose a different organization"}
+          </button>
         </div>
       )}
 
@@ -164,7 +200,34 @@ export default function EntityResolver({
           "could not be established" on any run that never reached the
           blocking check. */}
       {!blocked && confirmedEin && (
-        <span style={{ ...chipStyle("teal"), display: "inline-block", marginTop: spacing.xs }}>confirmed entity</span>
+        <div style={{ marginTop: spacing.xs }}>
+          <span style={{ ...chipStyle("teal"), display: "inline-block" }}>confirmed entity</span>
+          {predecessorEins.length > 0 && (
+            <span style={{ fontSize: 12, color: colors.textMuted, marginLeft: spacing.xs }}>
+              previously {predecessorEins.join(", ")}
+            </span>
+          )}
+          {/* Reachable once a stored EIN has resolved the run, not only while
+              a run is blocked. A confirmed identity is exactly when a mistake
+              becomes invisible: research resolves cleanly, the dossier looks
+              authoritative, and every fragment about the RIGHT organization
+              is discarded as an entity mismatch. */}
+          {savedEin && (
+            <div style={{ marginTop: spacing.xs }}>
+              <button
+                type="button"
+                disabled={clearing}
+                style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
+                onClick={clearSavedEin}
+              >
+                {clearing ? "Clearing…" : "This is the wrong organization"}
+              </button>
+              <span style={{ fontSize: 12, color: colors.textMuted, marginLeft: spacing.xs }}>
+                Clears {savedEin} so you can choose again.
+              </span>
+            </div>
+          )}
+        </div>
       )}
 
       {error && <div style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{error}</div>}

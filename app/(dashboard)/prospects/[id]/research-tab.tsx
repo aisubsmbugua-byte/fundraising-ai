@@ -49,6 +49,7 @@ export default function ResearchTab({
   lastCompletedAt,
   approvedClaimCount,
   prospectEin,
+  prospectPredecessorEins,
 }: {
   prospectId: string;
   intelligence: ProspectIntelligence | null;
@@ -59,6 +60,7 @@ export default function ResearchTab({
   // Stored on the prospect by a human confirming identity. Distinct from
   // intelligence.confirmedEin, which is what a given RUN resolved to.
   prospectEin: string | null;
+  prospectPredecessorEins: string[];
 }) {
   // Kept, but collapsed and labelled: it predates entity checking and
   // verification, so presenting it beside verified intelligence without that
@@ -138,6 +140,7 @@ export default function ResearchTab({
           candidates={intelligence.candidates}
           blocked={blocked}
           savedEin={prospectEin}
+          predecessorEins={prospectPredecessorEins}
         />
       )}
 
@@ -237,6 +240,7 @@ export default function ResearchTab({
           candidates={intelligence.candidates}
           blocked={blocked}
           savedEin={prospectEin}
+          predecessorEins={prospectPredecessorEins}
         />
       )}
 
