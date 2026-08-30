@@ -29,6 +29,8 @@ import {
   type ResearchDepth,
   contactEmailDomain,
   deriveEntityNameToken,
+  buildEntityCandidates,
+  scoreEntityCandidates,
   resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
   type ResearchEntityValidationStatus,
@@ -268,6 +270,41 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     });
     const entityStatusByUrl = new Map<string, ResearchEntityValidationStatus>(classified.map((c) => [c.url, c.status]));
     const sourceEinByUrl = new Map<string, string | null>(classified.map((c) => [c.url, c.sourceEin]));
+
+    // WHICH ORGANIZATION, as a separate question from which legal entity.
+    //
+    // resolveRunEntity above answers the legal one and answers it strictly --
+    // two competing filings return no EIN at all. That strictness is right for
+    // a filing and wrong as the only answer available, because it left the run
+    // saying "could not be established" about an organization it could
+    // describe perfectly well. Scoring runs alongside it, never through it: a
+    // confident operating match does not soften the EIN test by one degree.
+    const operatingRanking = scoreEntityCandidates(
+      buildEntityCandidates({
+        sources: indexedSources.map((s) => ({
+          url: s.url,
+          title: s.title,
+          sourceEin: sourceEinByUrl.get(s.url) ?? null,
+          status: entityStatusByUrl.get(s.url) ?? null,
+          texts: textsByUrl.get(s.url) ?? [],
+        })),
+        nameToken,
+        prospectLocation: prospect.location ?? null,
+        prospectWebsite: researchProspect.website,
+        funderName: prospect.legal_name ?? null,
+        opportunityName: prospect.opportunity_name ?? null,
+        captureDomain: prospect.source_domain ?? null,
+      }),
+      {
+        prospectName: prospect.name,
+        funderName: prospect.legal_name ?? null,
+        opportunityName: prospect.opportunity_name ?? null,
+        prospectWebsite: researchProspect.website,
+        prospectLocation: prospect.location ?? null,
+        captureDomain: prospect.source_domain ?? null,
+      }
+    );
+    const operatingLeader = operatingRanking.confident ? operatingRanking.leader : null;
 
     // Written before extraction's own writes -- captures what was actually
     // searched (and how it was classified) even if extraction fails
@@ -538,6 +575,15 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         // one-click save, and once saved it drives every later run.
         confirmed_ein: confirmedEin,
         entity_resolution_method: entityResolutionMethod,
+        // The operating layer, stored alongside the legal one rather than in
+        // place of it. Written even when confirmed_ein is null -- that pairing
+        // is the whole point: we know who they are, not yet which filing is
+        // theirs, and the claims that need a filing stay withheld until it is.
+        operating_identity_name: operatingLeader?.name ?? null,
+        operating_identity_method: operatingLeader ? "scored_match" : "unresolved",
+        // Kept because the score is only meaningful against the candidate set
+        // of this run, so what a person was shown cannot be recomputed later.
+        operating_identity_evidence: operatingLeader?.evidence ?? null,
         entity_classification_version: ENTITY_CLASSIFICATION_VERSION,
         // Recorded because cost, latency and coverage are only interpretable
         // alongside the depth that produced them.

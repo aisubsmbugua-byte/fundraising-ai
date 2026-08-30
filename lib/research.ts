@@ -433,6 +433,67 @@ export const IDENTITY_GATE_KEYS = new Set<string>([
   "identity.website",
 ]);
 
+// Identity is two questions, not one, and they resolve on different evidence.
+//
+//   operating -- WHICH ORGANIZATION is this, in practice? Settled by an
+//                official page that names the opportunity, or by a scored
+//                match over everything already known about the prospect.
+//   legal     -- WHICH LEGAL ENTITY is it, by EIN? Settled only by
+//                deterministic evidence tying that organization to a filing.
+//
+// Collapsing them is what produced a three-way choice between organizations
+// where one was plainly right: the resolver could not say "I know who this is
+// but not their EIN", so it said nothing at all and asked the user to pick.
+// Splitting them lets research proceed on a known organization while the
+// claims that genuinely depend on a legal entity stay withheld.
+export const IDENTITY_LAYERS = ["operating", "legal"] as const;
+export type IdentityLayer = (typeof IDENTITY_LAYERS)[number];
+
+// How the operating organization was established. Text, not a Postgres enum --
+// this vocabulary is new and expected to move.
+export const OPERATING_IDENTITY_METHODS = [
+  // The opportunity page on the organization's own domain. Deterministic --
+  // the funder is describing its own programme, so nothing is inferred.
+  "official_opportunity_page",
+  // Won on score, by a required margin, over every other candidate.
+  "scored_match",
+  "user_selected",
+  "unresolved",
+] as const;
+export type OperatingIdentityMethod = (typeof OPERATING_IDENTITY_METHODS)[number];
+
+// Claims that are meaningless -- or actively misleading -- attached to the
+// wrong legal entity, and so stay withheld while only the operating identity
+// is known.
+//
+// The test is not "is this a number". It is "does this fact belong to an EIN".
+// A programme's deadline or geographic restriction is published by the
+// operating organization and is safe without a filing. Assets, giving figures
+// and the legal name are read OFF a filing, and attaching those to an
+// unconfirmed entity is exactly how a figure ends up describing a different
+// organization that merely shares a word with this one.
+export const LEGAL_ENTITY_DEPENDENT_KEYS = new Set<string>([
+  "identity.ein",
+  "identity.legal_name",
+  "funding.total_assets",
+  "funding.total_annual_giving",
+  "funding.charitable_disbursements",
+  "funding.median_grant_size",
+  "funding.grant_size_range",
+  "funding.grant_count_annual",
+  "funding.total_revenue",
+  "funding.total_expenses",
+  "funding.multiyear_grant_stats",
+  "funding.recent_grants",
+  // 990-PF versus public charity is a filing classification, not an
+  // observation about how the funder behaves.
+  "funding.funder_type",
+]);
+
+export function claimRequiresLegalEntity(claimKey: string): boolean {
+  return LEGAL_ENTITY_DEPENDENT_KEYS.has(claimKey);
+}
+
 // Strategy is currently the only implemented consumer, so this is the only
 // policy map. Ask-sizing and outreach get their own when they become real
 // consumers -- the notes below mark where they are already known to differ,
@@ -772,20 +833,162 @@ export function extractLocation(texts: string[]): string | null {
   return null;
 }
 
-// The organization's own site, as opposed to the aggregator we read about it
-// on. This is the single most useful thing for recognising a funder, and the
-// thing a fundraiser is most likely to already know.
-export function extractOfficialWebsite(urls: string[], texts: string[]): string | null {
-  const fromText = texts
-    .flatMap((t) => t.match(/https?:\/\/[^\s"'<>)]+/g) ?? [])
-    .find((u) => !isAggregatorUrl(u));
-  const candidate = urls.find((u) => !isAggregatorUrl(u)) ?? fromText;
-  if (!candidate) return null;
-  try {
-    return new URL(candidate).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
+// ---------------------------------------------------------------------------
+// Identity scoring
+//
+// The resolver used to take ONE token from the prospect's name -- "Discipleship"
+// out of "Discipleship Ministries - Racial Ethnic Local Church Grants (UMC)" --
+// and ask each candidate whether its name contained it. Three unrelated
+// organizations all said yes, so all three tied, and the tiebreak went to
+// whichever aggregator happened to be scraped twice. The answer was sitting in
+// the discarded part of the query: "UMC".
+//
+// Everything below scores candidates against everything already known, weights
+// tokens by how much they actually discriminate, and abstains unless one
+// candidate wins by a margin.
+// ---------------------------------------------------------------------------
+
+// Words that describe what KIND of thing an organization is. Nearly every
+// funder in this domain is a Foundation, Ministry, Church or Fund, so these
+// carry structure but almost no identity. Down-weighted rather than dropped:
+// "Church" still distinguishes a church from a foundation when nothing else
+// does.
+const STRUCTURAL_TOKENS = new Set([
+  "foundation", "foundations", "fund", "funds", "trust", "trusts", "inc", "incorporated", "llc", "corp",
+  "ministry", "ministries", "church", "churches", "chapel", "mission", "missions", "society", "association",
+  "grant", "grants", "program", "programs", "programme", "fdn", "org", "institute", "center", "centre",
+  "national", "international", "global", "america", "american", "usa", "the", "and", "for", "of", "inc.",
+]);
+
+const STRUCTURAL_TOKEN_WEIGHT = 0.25;
+const OPPORTUNITY_TOKEN_WEIGHT = 1.5;
+const ACRONYM_WEIGHT = 2.5;
+
+function normalizeForTokens(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function identityTokens(value: string | null | undefined): string[] {
+  return normalizeForTokens(value).split(" ").filter((t) => t.length >= 3);
+}
+
+// Uppercase runs are how organizations write their own initialisms -- "(UMC)",
+// "AGWM". Captured from the ORIGINAL casing, which is why this cannot run off
+// the normalized string.
+export function acronymsIn(value: string | null | undefined): string[] {
+  return [...((value ?? "").match(/\b[A-Z]{2,6}\b/g) ?? [])].map((a) => a.toLowerCase());
+}
+
+// Does this name contain a run of words whose initials spell the acronym?
+// "Board of Discipleship of the United Methodist Church" yields UMC from
+// "United Methodist Church".
+//
+// Deliberately general rather than a lookup table of known initialisms: a
+// table would have to be maintained per denomination and would silently fail
+// on the first funder nobody thought of.
+export function nameYieldsAcronym(name: string | null | undefined, acronym: string): boolean {
+  const words = normalizeForTokens(name).split(" ").filter(Boolean);
+  const target = acronym.toLowerCase();
+  if (target.length < 2 || words.length < target.length) return false;
+  for (let i = 0; i + target.length <= words.length; i++) {
+    let hit = true;
+    for (let j = 0; j < target.length; j++) {
+      if (words[i + j][0] !== target[j]) {
+        hit = false;
+        break;
+      }
+    }
+    if (hit) return true;
   }
+  return false;
+}
+
+// How much a token DISCRIMINATES, measured against the candidates actually in
+// front of us rather than a hand-maintained stoplist.
+//
+// A token present in every candidate has, by definition, zero power to choose
+// between them -- log((N+1)/(df+1)) is exactly 0 when df = N. That is why
+// "Discipleship" contributes nothing here while "Methodist" decides the
+// question, and why no one had to write either word down.
+export function tokenDiscrimination(candidateTexts: string[]): (token: string) => number {
+  const n = candidateTexts.length;
+  const docs = candidateTexts.map((t) => new Set(identityTokens(t)));
+  return (token: string) => {
+    const df = docs.filter((d) => d.has(token)).length;
+    if (df === 0) return 0; // matches nothing here, so it cannot contribute
+    return Math.log((n + 1) / (df + 1));
+  };
+}
+
+export const SOURCE_DOMAIN_CLASSES = ["official", "affiliated", "third_party", "unverified"] as const;
+export type SourceDomainClass = (typeof SOURCE_DOMAIN_CLASSES)[number];
+
+// Does a hostname carry this entity's own name? "worship.calvin.edu" carries
+// "calvin" and "worship"; "philanthropy.org" carries nothing of
+// "International Discipleship Ministries".
+function hostCarriesName(host: string, name: string | null | undefined): boolean {
+  const flat = host.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return identityTokens(name).some((t) => !STRUCTURAL_TOKENS.has(t) && t.length >= 4 && flat.includes(t));
+}
+
+function hostCarriesAcronym(host: string, name: string | null | undefined): boolean {
+  const flat = host.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const words = normalizeForTokens(name).split(" ").filter(Boolean);
+  for (let len = 2; len <= 5; len++) {
+    for (let i = 0; i + len <= words.length; i++) {
+      const initials = words.slice(i, i + len).map((w) => w[0]).join("");
+      if (initials.length >= 3 && flat.includes(initials)) return true;
+    }
+  }
+  return false;
+}
+
+// Classify BEFORE scoring. A domain earns points for what it is, and an
+// unrecognised domain earns none -- it does not get the benefit of the doubt.
+//
+// This is the inversion of the old rule. There was a denylist of eleven
+// aggregators and anything absent from it was treated as the organization's
+// own site, which is how google.com came to be displayed as a funder's
+// homepage. A denylist defaults to trust; that default was the bug.
+export function classifySourceDomain(
+  host: string | null | undefined,
+  opts: { entityName?: string | null; prospectHost?: string | null }
+): SourceDomainClass {
+  if (!host) return "unverified";
+  const h = host.toLowerCase().replace(/^www\./, "");
+  if (AGGREGATOR_DOMAINS.some((d) => h.includes(d)) || SEARCH_DOMAINS.some((d) => h.includes(d))) return "third_party";
+  if (opts.prospectHost && h === opts.prospectHost.toLowerCase().replace(/^www\./, "")) return "official";
+  if (hostCarriesName(h, opts.entityName)) return "official";
+  // nccumc.org relative to "...United Methodist Church": a body within the
+  // same denomination, not the entity itself. Real corroboration, weaker than
+  // the organization speaking on its own domain.
+  if (hostCarriesAcronym(h, opts.entityName)) return "affiliated";
+  return "unverified";
+}
+
+// Search engines are not sources. A results page was displayed as an
+// organization's website because nothing said otherwise.
+const SEARCH_DOMAINS = ["google.", "bing.com", "duckduckgo.com", "search.yahoo.", "baidu.com"];
+
+// The organization's own site, as opposed to the aggregator or search page we
+// read about it on.
+//
+// Now requires the host to actually carry the entity's name. Previously any
+// URL that was not on the aggregator denylist was returned as the official
+// website, which put philanthropy.org and google.com in front of the user as
+// two funders' homepages.
+export function extractOfficialWebsite(urls: string[], texts: string[], entityName?: string | null): string | null {
+  const candidates = [...urls, ...texts.flatMap((t) => t.match(/https?:\/\/[^\s"'<>)]+/g) ?? [])];
+  for (const raw of candidates) {
+    let host: string;
+    try {
+      host = new URL(raw).hostname.replace(/^www\./, "");
+    } catch {
+      continue;
+    }
+    if (classifySourceDomain(host, { entityName }) === "official") return host;
+  }
+  return null;
 }
 
 // Rough, and labelled as rough. "Private foundation" versus "public charity"
@@ -813,6 +1016,20 @@ export type EntityCandidate = {
   // How many independent identifying attributes it carries. Below two, a
   // person cannot tell it apart from any other row, so it is not a choice.
   attributeCount: number;
+  // Everything captured about this entity -- titles and source text -- as one
+  // haystack. A grant programme is named on the funder's PAGE, essentially
+  // never in their registered legal name, so scoring against names alone can
+  // never let the most specific thing we know corroborate anything.
+  matchText: string;
+  // Weighted total. Comparable only WITHIN one run -- token weights are
+  // computed against this candidate set, so a score of 5 in one run means
+  // nothing about a score of 5 in another.
+  score: number;
+  // The score, in the user's words. Built alongside the number from the same
+  // branches, so a signal cannot contribute to the ranking without also
+  // appearing here -- the old whyMatch was both explanation and sort key,
+  // which let an unimplemented signal silently decide the order.
+  evidence: string[];
 };
 
 // Never more than three. Beyond that a list stops being a decision and
@@ -825,6 +1042,18 @@ export function buildEntityCandidates(input: {
   nameToken: string;
   prospectLocation: string | null;
   prospectWebsite?: string | null;
+  // Everything else already known about this prospect. All of it was on the
+  // record when the resolver was offering a three-way guess; none of it was
+  // being read.
+  funderName?: string | null;
+  opportunityName?: string | null;
+  // The domain Donor Finder captured this prospect from. nccumc.org is a
+  // United Methodist body, which is corroboration for a Methodist entity and
+  // for no other candidate.
+  captureDomain?: string | null;
+  // city/state by EIN, from the filing cache. CORROBORATION ONLY -- see
+  // scoreEntityCandidates.
+  locationByEin?: Record<string, string | null>;
 }): EntityCandidate[] {
   const { sources, nameToken, prospectLocation, prospectWebsite } = input;
   const prospectHost = (() => {
@@ -846,13 +1075,15 @@ export function buildEntityCandidates(input: {
   return [...byEin.entries()].map(([ein, group]) => {
     const texts = group.flatMap((s) => [s.title ?? "", ...s.texts]).filter(Boolean);
     const name = group.map((s) => cleanEntityName(s.title)).find(Boolean) ?? null;
-    const location = extractLocation(texts);
-    const website = extractOfficialWebsite(group.map((s) => s.url), texts);
+    // A filing address corroborates; it is never the location of record. An
+    // organization can operate from a different city than it files from, and
+    // treating the filing as truth would overwrite something observed with
+    // something merely administrative.
+    const location = extractLocation(texts) ?? input.locationByEin?.[ein] ?? null;
+    const website = extractOfficialWebsite(group.map((s) => s.url), texts, name);
     const orgType = extractOrgType(texts);
 
     const whyMatch: string[] = [];
-    // The strongest reason there is, and worth saying first: this entity is
-    // described on the funder's own site.
     if (prospectHost && website === prospectHost) whyMatch.unshift("On this prospect's own website");
     if (nameToken && name && name.toLowerCase().includes(nameToken.toLowerCase())) {
       whyMatch.push(`Name contains "${nameToken}"`);
@@ -861,8 +1092,190 @@ export function buildEntityCandidates(input: {
     if (group.length > 1) whyMatch.push(`Appears in ${group.length} sources`);
 
     const attributeCount = [name, location, website, orgType].filter(Boolean).length;
-    return { ein, name, location, website, orgType, sourceCount: group.length, status: group[0].status, whyMatch, attributeCount };
+    return {
+      ein,
+      name,
+      location,
+      website,
+      orgType,
+      sourceCount: group.length,
+      status: group[0].status,
+      whyMatch,
+      attributeCount,
+      matchText: [name ?? "", ...texts].join(" "),
+      // Filled by scoreEntityCandidates, which needs the whole set at once --
+      // token weights are relative to the candidates being chosen between.
+      score: 0,
+      evidence: [],
+    };
   });
+}
+
+// Points. Tuned so that a single decisive signal (the funder's own domain, an
+// initialism only one candidate can produce) outweighs any amount of generic
+// name overlap -- which is the failure being corrected.
+const SCORE_OFFICIAL_DOMAIN = 4;
+const SCORE_AFFILIATED_DOMAIN = 2;
+const SCORE_EXACT_OPPORTUNITY = 3;
+const SCORE_LOCATION_CORROBORATION = 1.5;
+const SCORE_PER_EXTRA_SOURCE = 0.5;
+// A token found in a candidate's published material rather than its registered
+// name. Real corroboration, but weaker: a page can mention anything.
+const TEXT_MATCH_FACTOR = 0.4;
+const SCORE_MAX_SOURCE_BONUS = 1;
+
+// A leader must clear both. Either alone is insufficient: a high score with a
+// close second is a coin flip between two plausible organizations, and a wide
+// margin over nothing much is one weak candidate in an empty field.
+export const MIN_LEADER_SCORE = 3;
+export const MIN_LEADER_MARGIN = 1.5;
+
+export type EntityRanking = {
+  ranked: EntityCandidate[];
+  leader: EntityCandidate | null;
+  margin: number;
+  // True only when the leader clears both thresholds. False means abstain --
+  // fall through to the candidate list or a clarifying question.
+  confident: boolean;
+};
+
+// Score every candidate against everything known, then decide whether the
+// result is decisive enough to act on.
+export function scoreEntityCandidates(
+  candidates: EntityCandidate[],
+  known: {
+    prospectName: string;
+    funderName?: string | null;
+    opportunityName?: string | null;
+    prospectWebsite?: string | null;
+    prospectLocation?: string | null;
+    captureDomain?: string | null;
+  }
+): EntityRanking {
+  const prospectHost = (() => {
+    try {
+      return known.prospectWebsite ? new URL(known.prospectWebsite).hostname.replace(/^www\./, "") : null;
+    } catch {
+      return null;
+    }
+  })();
+  const prospectState = known.prospectLocation?.match(new RegExp(`\\b(${US_STATES})\\b`))?.[1] ?? null;
+
+  // Discrimination is measured over everything captured about the candidates
+  // actually on offer, not just their names.
+  const idf = tokenDiscrimination(candidates.map((c) => `${c.name ?? ""} ${c.matchText ?? ""}`));
+
+  // Every token we hold, each with how much it ought to matter before
+  // discrimination is applied.
+  const weights = new Map<string, number>();
+  const add = (text: string | null | undefined, weight: number) => {
+    for (const t of identityTokens(text)) {
+      weights.set(t, Math.max(weights.get(t) ?? 0, STRUCTURAL_TOKENS.has(t) ? STRUCTURAL_TOKEN_WEIGHT : weight));
+    }
+  };
+  add(known.prospectName, 1);
+  add(known.funderName, 1);
+  // The grant's own name is the most specific thing a person knows about a
+  // funding opportunity, and it was being discarded wholesale.
+  add(known.opportunityName, OPPORTUNITY_TOKEN_WEIGHT);
+
+  const acronyms = [...new Set([...acronymsIn(known.prospectName), ...acronymsIn(known.funderName), ...acronymsIn(known.opportunityName)])];
+
+  const scored = candidates.map((c) => {
+    let score = 0;
+    const evidence: string[] = [];
+
+    // 1. Weighted overlap, against the name first and their published material
+    //    second. A match in the registered name is the stronger claim -- an
+    //    organization's page can mention anything -- so a text-only match is
+    //    discounted rather than treated as equivalent.
+    const nameTokens = new Set(identityTokens(c.name));
+    const textTokens = new Set(identityTokens(c.matchText));
+    const inName: { t: string; pts: number }[] = [];
+    const inText: { t: string; pts: number }[] = [];
+    for (const [token, weight] of weights) {
+      const power = idf(token);
+      if (power <= 0) continue; // present in every candidate, so it decides nothing
+      if (nameTokens.has(token)) {
+        const pts = weight * power;
+        score += pts;
+        inName.push({ t: token, pts });
+      } else if (textTokens.has(token)) {
+        const pts = weight * power * TEXT_MATCH_FACTOR;
+        score += pts;
+        inText.push({ t: token, pts });
+      }
+    }
+    // Ordered by how much each actually moved the score, so the reason a
+    // person reads first is the reason that mattered most.
+    const say = (list: { t: string; pts: number }[]) =>
+      [...list].sort((a, b) => b.pts - a.pts).map((x) => `"${x.t}"`).join(", ");
+    if (inName.length > 0) evidence.push(`Name matches ${say(inName)}`);
+    if (inText.length > 0) evidence.push(`Their material mentions ${say(inText)}`);
+
+    // 2. Initialisms. "UMC" is three characters of the prospect's name and the
+    //    only thing that separates a Methodist agency from two unrelated
+    //    ministries that also say "Discipleship".
+    for (const a of acronyms) {
+      if (!nameYieldsAcronym(c.name, a)) continue;
+      const df = candidates.filter((o) => nameYieldsAcronym(o.name, a)).length;
+      const power = Math.log((candidates.length + 1) / (df + 1));
+      if (power <= 0) continue;
+      score += ACRONYM_WEIGHT * power;
+      evidence.push(`Name spells out "${a.toUpperCase()}"`);
+    }
+
+    // 3. The exact opportunity, named verbatim on this entity's material. The
+    //    single most specific thing a fundraiser knows about a funding
+    //    opportunity, and it was being thrown away with the rest of the name.
+    if (known.opportunityName) {
+      const phrase = normalizeForTokens(known.opportunityName);
+      if (phrase && `${normalizeForTokens(c.name)} ${normalizeForTokens(c.matchText)}`.includes(phrase)) {
+        score += SCORE_EXACT_OPPORTUNITY;
+        evidence.push(`Runs the "${known.opportunityName}" programme`);
+      }
+    }
+
+    // 4. Provenance -- but only after the domain has been classified. An
+    //    unrecognised domain scores nothing rather than being read as the
+    //    organization's own.
+    const domainClass = classifySourceDomain(known.captureDomain, { entityName: c.name, prospectHost });
+    if (domainClass === "official") {
+      score += SCORE_OFFICIAL_DOMAIN;
+      evidence.push(`Found on their own website (${known.captureDomain})`);
+    } else if (domainClass === "affiliated") {
+      score += SCORE_AFFILIATED_DOMAIN;
+      evidence.push(`Found on an affiliated site (${known.captureDomain})`);
+    }
+    if (prospectHost && c.website === prospectHost) {
+      score += SCORE_OFFICIAL_DOMAIN;
+      evidence.push("Listed on this prospect's own website");
+    }
+
+    // 5. Location. Corroboration only, and never subtractive: a filing address
+    //    can differ from where an organization actually operates, so a
+    //    mismatch is uninformative rather than disqualifying.
+    if (prospectState && c.location?.endsWith(prospectState)) {
+      score += SCORE_LOCATION_CORROBORATION;
+      evidence.push(`Based in ${c.location}, matching this prospect`);
+    }
+
+    // 6. Independent corroboration, capped -- being scraped twice by the same
+    //    aggregator is not twice the evidence.
+    if (c.sourceCount > 1) {
+      score += Math.min((c.sourceCount - 1) * SCORE_PER_EXTRA_SOURCE, SCORE_MAX_SOURCE_BONUS);
+      evidence.push(`Appears in ${c.sourceCount} independent sources`);
+    }
+
+    return { ...c, score: Math.round(score * 100) / 100, evidence };
+  });
+
+  const ranked = [...scored].sort((a, b) => b.score - a.score || b.attributeCount - a.attributeCount);
+  const leader = ranked[0] ?? null;
+  const margin = leader ? leader.score - (ranked[1]?.score ?? 0) : 0;
+  const confident = !!leader && leader.score >= MIN_LEADER_SCORE && margin >= MIN_LEADER_MARGIN;
+
+  return { ranked, leader, margin: Math.round(margin * 100) / 100, confident };
 }
 
 // What may actually be shown. Everything else stays in the audit view, where
@@ -874,9 +1287,13 @@ export function buildEntityCandidates(input: {
 // entities that assertion is false. Too many to choose between is a real
 // answer, and it routes to asking the user for a detail instead.
 export function presentableCandidates(candidates: EntityCandidate[]): EntityCandidate[] {
+  // Ordered by score, not by how many reasons the code managed to articulate.
+  // The old sort was `whyMatch.length`, which meant three candidates carrying
+  // the same single generic reason tied, and the tiebreak fell to source count
+  // -- handing first place to whichever aggregator had been scraped twice.
   const credible = candidates
     .filter((c) => c.attributeCount >= MIN_CANDIDATE_ATTRIBUTES)
-    .sort((a, b) => b.whyMatch.length - a.whyMatch.length || b.attributeCount - a.attributeCount || b.sourceCount - a.sourceCount);
+    .sort((a, b) => b.score - a.score || b.attributeCount - a.attributeCount || b.sourceCount - a.sourceCount);
   return credible.length > MAX_PRESENTED_CANDIDATES ? [] : credible;
 }
 

@@ -247,6 +247,12 @@ export async function acceptCandidate(candidateId: string) {
       // organization speaking about itself.
       website_status: candidate.website_status ?? null,
       legal_name: candidate.funder_name ?? null,
+      // Both of these used to stop here. The programme name is the most
+      // specific thing known about a funding opportunity and the capture
+      // domain is the only provenance we have -- entity resolution needs both,
+      // and was guessing without them.
+      opportunity_name: candidate.opportunity_name ?? null,
+      source_domain: candidate.source_domain ?? null,
       location: candidate.location,
       funder_type: candidate.funder_type,
       geographic_focus: candidate.geographic_focus,

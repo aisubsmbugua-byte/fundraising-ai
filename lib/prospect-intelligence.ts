@@ -6,11 +6,14 @@ import {
   contactEmailDomain,
   deriveEntityNameToken,
   presentableCandidates,
+  scoreEntityCandidates,
+  claimRequiresLegalEntity,
   hasStatedPeriod,
   isFinancialClaimKey,
   strategyFieldPolicy,
   RESEARCH_INFORMATION_SECTIONS,
   type EntityCandidate,
+  type OperatingIdentityMethod,
   type EntityLifecycleSignal,
   type ResearchConfidence,
   type ResearchEntityValidationStatus,
@@ -146,6 +149,18 @@ export type ProspectIntelligence = {
   candidates: EntityCandidate[];
   // Everything seen, for the superadmin audit view only.
   allCandidates: EntityCandidate[];
+  // The operating organization, when one candidate won by a margin. Null means
+  // the resolver abstained -- the candidate list or a clarifying question is
+  // still the right answer, and a confident-looking ranking must not be
+  // presented as one.
+  operatingIdentity: {
+    name: string | null;
+    ein: string;
+    method: OperatingIdentityMethod;
+    evidence: string[];
+    score: number;
+    margin: number;
+  } | null;
   sections: IntelligenceSection[];
   missingSections: string[];
   // Signals that this organization may not be a going concern. Reported, not
@@ -211,7 +226,7 @@ export async function loadProspectIntelligence(
   // one. Neither is derivable from the run.
   const { data: prospectRow } = await supabase
     .from("prospects")
-    .select("name, location, website, contact_email")
+    .select("name, location, website, contact_email, legal_name, opportunity_name, source_domain")
     .eq("id", prospectId)
     .maybeSingle();
 
@@ -348,6 +363,9 @@ export async function loadProspectIntelligence(
     })),
     nameToken: deriveEntityNameToken((prospectRow?.name as string | null) ?? ""),
     prospectLocation: (prospectRow?.location as string | null) ?? null,
+    funderName: (prospectRow?.legal_name as string | null) ?? null,
+    opportunityName: (prospectRow?.opportunity_name as string | null) ?? null,
+    captureDomain: (prospectRow?.source_domain as string | null) ?? null,
     // Same inference the research run uses, so the UI and the resolver agree
     // on what this prospect's domain is.
     prospectWebsite:
@@ -355,6 +373,18 @@ export async function loadProspectIntelligence(
       (contactEmailDomain(prospectRow?.contact_email as string | null)
         ? `https://${contactEmailDomain(prospectRow?.contact_email as string | null)}`
         : null),
+  });
+
+  // Rank once, here, so the picker and any downstream consumer read the same
+  // ordering and the same reasons. Scoring is relative to this candidate set,
+  // so it cannot be meaningfully recomputed anywhere else.
+  const ranking = scoreEntityCandidates(allCandidates, {
+    prospectName: (prospectRow?.name as string | null) ?? "",
+    funderName: (prospectRow?.legal_name as string | null) ?? null,
+    opportunityName: (prospectRow?.opportunity_name as string | null) ?? null,
+    prospectWebsite: (prospectRow?.website as string | null) ?? null,
+    prospectLocation: (prospectRow?.location as string | null) ?? null,
+    captureDomain: (prospectRow?.source_domain as string | null) ?? null,
   });
 
   return {
@@ -370,8 +400,23 @@ export async function loadProspectIntelligence(
     // Only what a person could actually choose between. The rest stays in
     // allCandidates for the audit view -- completeness belongs there, not in
     // front of someone trying to identify a funder.
-    candidates: presentableCandidates(allCandidates),
-    allCandidates,
+    candidates: presentableCandidates(ranking.ranked),
+    allCandidates: ranking.ranked,
+    // The operating organization, when one candidate wins by a margin. Null
+    // means abstain -- fall through to the candidate list or a clarifying
+    // question, exactly as before. A better-looking ranking must not become an
+    // answer it hasn't earned.
+    operatingIdentity:
+      ranking.confident && ranking.leader
+        ? {
+            name: ranking.leader.name,
+            ein: ranking.leader.ein,
+            method: "scored_match" as OperatingIdentityMethod,
+            evidence: ranking.leader.evidence,
+            score: ranking.leader.score,
+            margin: ranking.margin,
+          }
+        : null,
     sections,
     missingSections,
     // Computed from the raw rows rather than the shaped claims: reporting
@@ -432,6 +477,10 @@ export type ApprovedClaim = {
 // last one of these went unnoticed for a whole build.
 export type WithheldClaim = {
   claimKey: string;
+  // Carried so a person can see WHAT was withheld, not just that something
+  // was. "A giving figure was withheld" is actionable; "something was
+  // withheld" is not.
+  claim?: string;
   reason: string;
 };
 
@@ -478,17 +527,30 @@ export async function loadApprovedIntelligence(
 ): Promise<ApprovedIntelligence | null> {
   const { data: run } = await supabase
     .from("research_runs")
-    .select("id, version, confirmed_ein, dossier_confirmed")
+    .select("id, version, confirmed_ein, dossier_confirmed, operating_identity_name, operating_identity_method")
     .eq("prospect_id", prospectId)
     .eq("status", "ready")
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  // Unresolved identity is disqualifying outright. Research about an
-  // organization we could not identify has nothing to contribute to a
-  // strategy for this one, however well-supported its individual claims are.
-  if (!run || !run.dossier_confirmed) return null;
+  // Unknown ORGANIZATION is still disqualifying outright. Research about an
+  // organization we could not identify has nothing to contribute to a strategy
+  // for this one, however well-supported its individual claims are.
+  //
+  // An unknown LEGAL ENTITY no longer is. Knowing this is Discipleship
+  // Ministries of the UMC, without yet having tied it to a filing, is enough
+  // to reason about their programme, their deadlines and their restrictions --
+  // and refusing everything on that basis is what made the resolver ask a
+  // person to pick between three organizations it could already tell apart.
+  const operatingKnown =
+    !!run?.dossier_confirmed ||
+    (!!run?.operating_identity_name && run?.operating_identity_method !== "unresolved" && !!run?.operating_identity_method);
+  if (!run || !operatingKnown) return null;
+
+  // What is NOT settled decides which claims travel. Anything read off a
+  // filing stays behind until the filing is known to be the right one.
+  const legalEntityConfirmed = !!run.confirmed_ein;
 
   const [{ data: claims }, { data: verifications }, { data: approvals }, { data: links }] = await Promise.all([
     supabase.from("research_claims").select("id, claim_key, claim, reporting_period, evidence_missing").eq("research_run_id", run.id),
@@ -532,6 +594,20 @@ export async function loadApprovedIntelligence(
     const verified = verdictByClaim.get(c.id as string) === "supported";
     const policy = strategyFieldPolicy(c.claim_key as string);
     if (policy === "unused") continue;
+
+    // The second identity layer, enforced. A giving total or an asset figure
+    // is read off a specific filing; attached to an entity that merely shares
+    // a word with this one it is not weak evidence, it is a different
+    // organization's money. Withheld and SAID, not dropped -- a strategy that
+    // silently lost its capacity figures would read as a funder with none.
+    if (!legalEntityConfirmed && claimRequiresLegalEntity(c.claim_key as string)) {
+      withheld.push({
+        claimKey: c.claim_key as string,
+        claim: decision?.corrected || (c.claim as string),
+        reason: "the legal entity behind this organization is not confirmed yet, so figures read from a filing cannot be attributed to it",
+      });
+      continue;
+    }
 
     // Advisory fields enter without individual approval, which is the whole
     // point -- they were never verifiable in the first place, so demanding a

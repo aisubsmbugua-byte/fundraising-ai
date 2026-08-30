@@ -32,6 +32,7 @@ export default function EntityResolver({
   confirmedEin,
   resolutionMethod,
   candidates,
+  operatingIdentity,
   blocked,
   savedEin,
   predecessorEins,
@@ -41,6 +42,13 @@ export default function EntityResolver({
   resolutionMethod: string | null;
   // Already filtered to what can be recognised -- see presentableCandidates.
   candidates: EntityCandidate[];
+  // The organization the resolver settled on, when one candidate won by a
+  // margin. Null means it abstained and the list below is still the answer.
+  operatingIdentity: {
+    name: string | null;
+    ein: string;
+    evidence: string[];
+  } | null;
   blocked: boolean;
   // The EIN stored on the PROSPECT, which is what confirming writes. Everything
   // else here comes from the completed run, and a run is immutable -- so
@@ -59,8 +67,32 @@ export default function EntityResolver({
   const [merged, setMerged] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clue, setClue] = useState("");
+  // The full list stays one click away when a leader is shown. Hiding it
+  // entirely would be the old failure inverted -- asserting an answer with no
+  // way to disagree.
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
   const [savingClue, setSavingClue] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // One writer for the confirm, used by the leading-candidate button and by
+  // every row in the list. Two copies of this would eventually disagree about
+  // what a confirmation means -- which predecessors it records, in particular.
+  function save(ein: string) {
+    setError(null);
+    setSavingEin(ein);
+    startTransition(async () => {
+      try {
+        await confirmProspectEin(prospectId, ein, merged ? candidates.filter((o) => o.ein !== ein).map((o) => o.ein) : []);
+        // revalidatePath marks the cache stale but does not re-render a client
+        // component's server-supplied props, so without this the picker stays
+        // put and the click looks broken.
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not save that choice.");
+        setSavingEin(null);
+      }
+    });
+  }
 
   // Shared by both entry points -- while a run is blocked, and after a stored
   // EIN has resolved one. Same operation either way.
@@ -93,10 +125,57 @@ export default function EntityResolver({
           </>
         ) : savedEin ? (
           <>This run could not establish the organization{resolutionMethod ? ` — ${METHOD_LABEL[resolutionMethod] ?? resolutionMethod}` : ""}.</>
+        ) : operatingIdentity ? (
+          // The organization is known even though the filing is not. Saying
+          // "not established" here would be false, and it is what turned a
+          // question the system could answer into a three-way guess for the
+          // user.
+          <>Organization identified. The legal entity behind it is still being confirmed.</>
         ) : (
           <>Not established{resolutionMethod ? ` — ${METHOD_LABEL[resolutionMethod] ?? resolutionMethod}` : ""}.</>
         )}
       </div>
+
+      {/* One candidate won by a margin, so lead with the answer instead of a
+          list. The evidence is shown in the order it moved the score -- a
+          person deciding whether to accept this needs to see WHY, and "it
+          scored 9.7" is not why. */}
+      {operatingIdentity && !confirmedEin && !savedEin && (
+        <div style={{ marginTop: spacing.sm, padding: spacing.md, border: `1px solid ${colors.border}`, borderRadius: 8 }}>
+          <div style={{ fontSize: 13.5, color: colors.text }}>
+            <strong>Strong match: {operatingIdentity.name}</strong>
+          </div>
+          {operatingIdentity.evidence.length > 0 && (
+            <ul style={{ margin: `${spacing.xs}px 0 0`, paddingLeft: 18, display: "grid", gap: 3 }}>
+              {operatingIdentity.evidence.map((e, i) => (
+                <li key={i} style={{ fontSize: 12.5, color: colors.textMuted }}>
+                  {e}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p style={{ fontSize: 12.5, color: colors.textMuted, margin: `${spacing.sm}px 0 0` }}>
+            Legal-entity confirmation is still being checked, so figures read from a tax filing stay out of the strategy
+            until it settles.
+          </p>
+          <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.sm, flexWrap: "wrap" }}>
+            {/* Confirming the EIN remains a human act. The system may say
+                which organization this is; it may not decide which filing
+                speaks for it. */}
+            <button
+              type="button"
+              disabled={savingEin !== null}
+              style={buttonPrimary}
+              onClick={() => save(operatingIdentity.ein)}
+            >
+              {savingEin === operatingIdentity.ein ? "Confirming..." : "Confirm this is the right entity"}
+            </button>
+            <button type="button" style={buttonSecondary} onClick={() => setShowAllCandidates((v) => !v)}>
+              {showAllCandidates ? "Hide other candidates" : "Not this one"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Settled since this run finished. The run itself cannot be updated --
           its findings were gathered before anyone knew which organization
@@ -123,7 +202,7 @@ export default function EntityResolver({
         </div>
       )}
 
-      {blocked && !savedEin && candidates.length > 0 && (
+      {blocked && !savedEin && candidates.length > 0 && (!operatingIdentity || showAllCandidates) && (
         <>
           <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.xs }}>
             {candidates.length === 1 ? "One organization" : `${candidates.length} organizations`} could be this
@@ -209,7 +288,7 @@ export default function EntityResolver({
           listing twenty EINs they cannot tell apart -- and beats a bare "we
           could not identify it", which hands the problem back with no route
           through. */}
-      {blocked && !savedEin && candidates.length === 0 && (
+      {blocked && !savedEin && !operatingIdentity && candidates.length === 0 && (
         <div style={{ marginTop: spacing.sm }}>
           <p style={{ fontSize: 13, color: colors.text, marginBottom: spacing.xs }}>
             Several organizations share this name and we could not tell them apart. Add one detail to help us identify

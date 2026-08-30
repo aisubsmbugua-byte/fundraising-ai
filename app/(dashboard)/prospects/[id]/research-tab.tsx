@@ -138,6 +138,7 @@ export default function ResearchTab({
           confirmedEin={intelligence.confirmedEin}
           resolutionMethod={intelligence.resolutionMethod}
           candidates={intelligence.candidates}
+          operatingIdentity={intelligence.operatingIdentity}
           blocked={blocked}
           savedEin={prospectEin}
           predecessorEins={prospectPredecessorEins}
@@ -238,6 +239,7 @@ export default function ResearchTab({
           confirmedEin={intelligence.confirmedEin}
           resolutionMethod={intelligence.resolutionMethod}
           candidates={intelligence.candidates}
+          operatingIdentity={intelligence.operatingIdentity}
           blocked={blocked}
           savedEin={prospectEin}
           predecessorEins={prospectPredecessorEins}

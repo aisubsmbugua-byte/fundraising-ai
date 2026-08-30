@@ -702,8 +702,17 @@ check(
 );
 check(
   "the funder's own domain is picked out",
-  extractOfficialWebsite(["https://projects.propublica.org/x"], ["See more at https://www.maclellan.net/about"]),
+  extractOfficialWebsite(["https://projects.propublica.org/x"], ["See more at https://www.maclellan.net/about"], "Maclellan Foundation"),
   "maclellan.net"
+);
+// The inversion, asserted directly: a domain has to CARRY the entity's name to
+// be called theirs. Previously anything absent from the eleven-domain
+// aggregator denylist was returned as official, which is how philanthropy.org
+// and google.com were displayed to a user as two funders' homepages.
+check(
+  "an unrecognised domain is not promoted to official",
+  extractOfficialWebsite(["https://projects.propublica.org/x"], ["Listed at https://philanthropy.org/profile/123"], "Maclellan Foundation"),
+  null
 );
 
 check("a 990-PF filer reads as a private foundation", extractOrgType(["Form 990-PF filed for tax year 2024"]), "Private foundation");
