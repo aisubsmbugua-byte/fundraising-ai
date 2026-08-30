@@ -405,6 +405,35 @@ export type ApprovedIntelligence = {
   withheld: WithheldClaim[];
 };
 
+export type StrategyReadiness = { ready: boolean; reason: string | null };
+
+// Whether a strategy can be generated at all, and if not, why in words a
+// person can act on.
+//
+// One definition, used by the guard that enforces it AND the UI that decides
+// whether to offer the button. Keeping them separate is what produced a
+// "Retry strategy" control whose only possible outcome was a refusal -- and,
+// before that refusal was returned rather than thrown, a 500.
+export async function strategyReadiness(supabase: SupabaseClient, prospectId: string): Promise<StrategyReadiness> {
+  const approved = await loadApprovedIntelligence(supabase, prospectId);
+  if (!approved) {
+    return {
+      ready: false,
+      reason: "There is no confirmed research to build a strategy from. Run research and confirm the organization's identity first.",
+    };
+  }
+  // every() on an empty list is true, which is the wanted answer: a payload
+  // of nothing, and a payload of advisory context only, are both too thin to
+  // write a strategy from.
+  if (approved.claims.every((c) => c.advisory)) {
+    return {
+      ready: false,
+      reason: "No intelligence has been approved yet. Approve the claims the strategy should be written from first.",
+    };
+  }
+  return { ready: true, reason: null };
+}
+
 export async function loadApprovedIntelligence(
   supabase: SupabaseClient,
   prospectId: string

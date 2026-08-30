@@ -6,7 +6,9 @@ import CollapsibleField from "@/components/CollapsibleField";
 import ControlledListInput from "@/components/ControlledListInput";
 import LoadingStatus from "@/components/LoadingStatus";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, cardStyle } from "@/lib/ui";
+import Link from "next/link";
 import type { StrategyRun, Strategy, OrganizationIntel } from "@/lib/strategy";
+import type { StrategyReadiness } from "@/lib/prospect-intelligence";
 
 const RUNNING_STATUSES = new Set(["researching", "analyzing"]);
 
@@ -21,10 +23,15 @@ const emptyIntel: OrganizationIntel = {
 export default function StrategyPanel({
   prospectId,
   initialRun,
+  readiness,
   onApproved,
 }: {
   prospectId: string;
   initialRun: StrategyRun | null;
+  // Whether a strategy CAN be generated, from the same check the action
+  // enforces. A button whose only possible outcome is a refusal is not a
+  // control, it is a trap -- so when this says no, the reason replaces it.
+  readiness: StrategyReadiness;
   // Optional -- lets a caller like Strategy Review's split-pane
   // workspace know a strategy was just approved (so it can drop the
   // item out of its "waiting on review" list) without this panel
@@ -119,6 +126,16 @@ export default function StrategyPanel({
             {run.status_message}
             {run.error_message ? `: ${run.error_message}` : ""}
           </p>
+          {!readiness.ready ? (
+            <div style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.sm }}>
+              {readiness.reason}{" "}
+              <Link href={`/prospects/${prospectId}?tab=research`} style={{ color: colors.text }}>
+                Go to Research
+              </Link>
+              .
+            </div>
+          ) : (
+            <>
           <button
             type="button"
             disabled={isPending}
@@ -141,6 +158,8 @@ export default function StrategyPanel({
           </button>
           {retryError && (
             <div style={{ fontSize: 12.5, color: colors.danger, marginTop: spacing.xs }}>{retryError}</div>
+          )}
+            </>
           )}
         </div>
       )}
@@ -208,29 +227,41 @@ export default function StrategyPanel({
                   )}
                 </div>
               </div>
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() =>
-                  startTransition(async () => {
-                    setRetryError(null);
-                    const result = await retryStrategy(prospectId);
-                    if ("error" in result) {
-                      setRetryError(result.error);
-                      return;
+              {!readiness.ready ? (
+                <div style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.md }}>
+                  This strategy cannot be regenerated yet — {readiness.reason?.replace(/^[A-Z]/, (m) => m.toLowerCase())}{" "}
+                  <Link href={`/prospects/${prospectId}?tab=research`} style={{ color: colors.text }}>
+                    Go to Research
+                  </Link>
+                  . The approved strategy above is unaffected.
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() =>
+                      startTransition(async () => {
+                        setRetryError(null);
+                        const result = await retryStrategy(prospectId);
+                        if ("error" in result) {
+                          setRetryError(result.error);
+                          return;
+                        }
+                        const newRunId = result.runId;
+                        const latest = await fetchRun();
+                        setRun(latest);
+                        runStrategy(newRunId, prospectId);
+                      })
                     }
-                    const newRunId = result.runId;
-                    const latest = await fetchRun();
-                    setRun(latest);
-                    runStrategy(newRunId, prospectId);
-                  })
-                }
-                style={{ ...buttonSecondary, marginTop: spacing.md }}
-              >
-                {isPending ? "Regenerating…" : "Regenerate strategy"}
-              </button>
-              {retryError && (
-                <div style={{ fontSize: 12.5, color: colors.danger, marginTop: spacing.xs }}>{retryError}</div>
+                    style={{ ...buttonSecondary, marginTop: spacing.md }}
+                  >
+                    {isPending ? "Regenerating…" : "Regenerate strategy"}
+                  </button>
+                  {retryError && (
+                    <div style={{ fontSize: 12.5, color: colors.danger, marginTop: spacing.xs }}>{retryError}</div>
+                  )}
+                </>
               )}
               <p style={{ fontSize: 11, color: colors.textFaint, marginTop: spacing.xs }}>
                 Useful if your Organization Profile has changed since this was approved, or to pick up

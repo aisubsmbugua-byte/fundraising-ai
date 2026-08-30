@@ -12,7 +12,7 @@ import MoveStageControl from "@/app/(dashboard)/pipeline/move-stage-control";
 import RightRail from "./right-rail";
 import OverviewTab from "./overview-tab";
 import ResearchTab from "./research-tab";
-import { loadProspectIntelligence } from "@/lib/prospect-intelligence";
+import { loadProspectIntelligence, strategyReadiness } from "@/lib/prospect-intelligence";
 import { loadProspectWorkflow } from "@/lib/prospect-workflow";
 import ActivityTab from "./activity-tab";
 import ContactsTab from "./contacts-tab";
@@ -58,9 +58,10 @@ export default async function ProspectDetailPage({
   // Workflow state covers runs still in flight, which loadProspectIntelligence
   // deliberately cannot see (it only reads finished ones) -- so both are
   // needed, and neither is derivable from the other.
-  const [intelligence, workflow] = await Promise.all([
+  const [intelligence, workflow, readiness] = await Promise.all([
     loadProspectIntelligence(supabase, prospect.id),
     loadProspectWorkflow(supabase, prospect.id),
+    strategyReadiness(supabase, prospect.id),
   ]);
 
   const [
@@ -353,7 +354,7 @@ export default async function ProspectDetailPage({
                   <MoveStageControl prospectId={prospect.id} prospectName={prospect.name} currentStage={prospect.stage} />
                   <div style={{ marginTop: spacing.lg }}>
                     {strategyRun ? (
-                      <StrategyPanel prospectId={prospect.id} initialRun={strategyRun} />
+                      <StrategyPanel prospectId={prospect.id} initialRun={strategyRun} readiness={readiness} />
                     ) : (
                       // A strategy is generated from approved intelligence, so
                       // an empty Strategy tab has a cause, and it is always on

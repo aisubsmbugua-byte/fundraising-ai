@@ -6,8 +6,9 @@ import { channelLabel, type Prospect } from "@/lib/prospects";
 import StrategyPanel from "../[id]/strategy-panel";
 import { spacing, colors, radiusSm } from "@/lib/ui";
 import type { StrategyRun } from "@/lib/strategy";
+import type { StrategyReadiness } from "@/lib/prospect-intelligence";
 
-type Item = { prospect: Prospect; run: StrategyRun };
+type Item = { prospect: Prospect; run: StrategyRun; readiness: StrategyReadiness };
 
 export default function StrategyReviewWorkspace({ items }: { items: Item[] }) {
   // Approving is tracked locally so the item drops out of the queue
@@ -110,6 +111,7 @@ export default function StrategyReviewWorkspace({ items }: { items: Item[] }) {
               key={selected.prospect.id}
               prospectId={selected.prospect.id}
               initialRun={selected.run}
+              readiness={selected.readiness}
               onApproved={() => setApprovedIds((prev) => new Set(prev).add(selected.prospect.id))}
             />
           </div>

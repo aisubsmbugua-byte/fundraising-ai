@@ -3,6 +3,7 @@ import { colors } from "@/lib/ui";
 import type { Prospect } from "@/lib/prospects";
 import type { StrategyRun } from "@/lib/strategy";
 import StrategyReviewWorkspace from "./strategy-review-workspace";
+import { strategyReadiness, type StrategyReadiness } from "@/lib/prospect-intelligence";
 
 export default async function ReviewStrategiesPage() {
   const supabase = createClient();
@@ -33,12 +34,18 @@ export default async function ReviewStrategiesPage() {
     : { data: [] as Prospect[] };
   const prospectById = new Map((prospects ?? []).map((p) => [p.id, p]));
 
-  const items = readyRuns
-    .map((run) => {
-      const prospect = prospectById.get(run.prospect_id);
-      return prospect ? { prospect, run } : null;
-    })
-    .filter((item): item is { prospect: Prospect; run: StrategyRun } => item !== null);
+  // Readiness per prospect, so this queue offers "Regenerate strategy" only
+  // where regenerating is actually possible -- the same rule the action
+  // enforces. Bounded work: this list is only strategies awaiting review.
+  const items = (
+    await Promise.all(
+      readyRuns.map(async (run) => {
+        const prospect = prospectById.get(run.prospect_id);
+        if (!prospect) return null;
+        return { prospect, run, readiness: await strategyReadiness(supabase, prospect.id) };
+      })
+    )
+  ).filter((item): item is { prospect: Prospect; run: StrategyRun; readiness: StrategyReadiness } => item !== null);
 
   return (
     <div>

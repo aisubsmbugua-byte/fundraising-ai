@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
-import { loadApprovedIntelligence, type ApprovedClaim } from "@/lib/prospect-intelligence";
+import { loadApprovedIntelligence, strategyReadiness, type ApprovedClaim } from "@/lib/prospect-intelligence";
 import { approveVerifiedIntelligence } from "./research-actions";
 import { hasStatedPeriod } from "@/lib/research";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
@@ -336,20 +336,12 @@ async function createStrategyRun(prospectId: string): Promise<string> {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const approved = await loadApprovedIntelligence(supabase, prospectId);
-  if (!approved) {
-    throw new Error(
-      "This prospect has no confirmed research to build a strategy from. Run research and confirm the organization's identity first."
-    );
-  }
-  // Counts CONFIRMED claims only. Advisory context enters the payload without
-  // individual approval, so counting the whole payload would let a strategy
-  // be generated from nothing but unverified context while looking as though
-  // a human had approved something. Advisory material shapes a strategy; it
-  // may not be the sole basis for one.
-  if (approved.claims.every((c) => c.advisory)) {
-    throw new Error("No intelligence has been approved yet. Approve the claims the strategy should be written from first.");
-  }
+  // The same check the Strategy tab uses to decide whether to offer the
+  // button at all, so the control on screen and the rule behind it cannot
+  // disagree. Advisory context shapes a strategy; it may not be the sole
+  // basis for one.
+  const readiness = await strategyReadiness(supabase, prospectId);
+  if (!readiness.ready) throw new Error(readiness.reason ?? "A strategy cannot be generated for this prospect yet.");
 
   const { data: prospect } = await supabase.from("prospects").select("name").eq("id", prospectId).single();
   if (!prospect) throw new Error("Prospect not found");
