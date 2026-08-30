@@ -251,6 +251,48 @@ export async function updateAskAmount(prospectId: string, askAmount: number | nu
 // a required step of the workflow whenever research finds several
 // organizations sharing a name, and a mandatory step only a superadmin can
 // take is a dead end for everyone else. RLS scopes the prospect row.
+// The user's answer to "which organization is this?", given in the terms they
+// actually have. Free text on purpose: a website, a city, a denomination, a
+// program name and "the conference where I met them" are all useful and none
+// of them fits a field we could have designed in advance.
+//
+// A clue that looks like a domain is also written to `website` when none is
+// set, because domain matching is the strongest resolution signal we have --
+// it short-circuits the whole ambiguity rather than merely narrowing a search.
+export async function saveIdentityClue(
+  prospectId: string,
+  clue: string
+): Promise<{ error: string } | { success: true }> {
+  try {
+    await requireUser();
+    const supabase = createClient();
+    const trimmed = clue.trim();
+    if (!trimmed) return { error: "Add a detail first." };
+
+    const { data: prospect } = await supabase.from("prospects").select("website").eq("id", prospectId).maybeSingle();
+
+    // Bare domain or full URL, and nothing that is merely a sentence with a
+    // dot in it -- a false positive here would overwrite a real website.
+    const domainish = trimmed.match(/^(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:\/\S*)?$/i);
+    const website = !prospect?.website && domainish ? `https://${domainish[1]}` : undefined;
+
+    const { error } = await supabase
+      .from("prospects")
+      .update({
+        identity_hint: trimmed,
+        ...(website ? { website } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", prospectId);
+    if (error) return { error: error.message };
+
+    revalidatePath(`/prospects/${prospectId}`);
+    return { success: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not save that detail." };
+  }
+}
+
 // Confirming an identity is a decision, and a decision a person cannot revise
 // is a trap. Overseas Council International showed why: its EIN was confirmed
 // before anyone knew the organization had merged, and once stored there was

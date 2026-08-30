@@ -32,6 +32,11 @@ export async function searchFunderWeb(
     // only by the identity preflight, where a stored city/state is a useful
     // disambiguator between similarly-named organizations.
     location?: string | null;
+    // A detail a person supplied because the name alone was ambiguous --
+    // "PCUSA", "Chattanooga TN", "the fund that sponsors the Timothy
+    // Initiative". Free text, so it goes into the prompt as the user wrote
+    // it rather than being parsed into fields we would have to guess at.
+    identity_hint?: string | null;
   },
   purpose: "combined" | "research_only" = "combined",
   // Only meaningful for research_only. "screen" skips page fetching
@@ -80,7 +85,7 @@ export async function searchFunderWeb(
   // _20260209-or-later tool versions default to -- extra latency-variance
   // machinery this call doesn't need (Discovery Search's repeated timeouts
   // were traced to this same tool version's default behavior).
-  const researchOnlyPrompt = `Research this specific funding organization for a nonprofit's fact-finding record: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+  const researchOnlyPrompt = `Research this specific funding organization for a nonprofit's fact-finding record: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.${prospect.identity_hint ? ` The user, who knows this funder, adds: "${prospect.identity_hint}" -- use this to pick out the right organization from any others sharing the name.` : ""}
 
 Work in two passes:
 1. SEARCH to locate the authoritative sources for this organization.
@@ -106,7 +111,7 @@ Only report things you actually find -- do not invent facts. If something isn't 
   // depth expensive. Asking for it here would either be ignored or answered
   // from unreliable snippets, and an undated figure from a snippet is worse
   // than no figure at all.
-  const screenPrompt = `Screen this funding organization for a nonprofit's prospect triage: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+  const screenPrompt = `Screen this funding organization for a nonprofit's prospect triage: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.${prospect.identity_hint ? ` The user, who knows this funder, adds: "${prospect.identity_hint}" -- use this to pick out the right organization from any others sharing the name.` : ""}
 
 This is a fast first pass to decide whether the funder is worth pursuing -- not a full dossier. A few well-chosen searches, no exhaustive research.
 
@@ -125,7 +130,7 @@ Financial figures must be dated or omitted. If a figure appears with its fiscal 
   // organizations can share a name -- one prospect had four -- and the
   // failure this prevents is spending full dossier price only to discover
   // identity was ambiguous, which accounted for 45% of Stage-1-era spend.
-  const identityPrompt = `Identify precisely which legal organization is meant by "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}${prospect.location ? `, said to be located in ${prospect.location}` : ""}.
+  const identityPrompt = `Identify precisely which legal organization is meant by "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}${prospect.location ? `, said to be located in ${prospect.location}` : ""}.${prospect.identity_hint ? ` The user, who knows this funder, adds: "${prospect.identity_hint}" -- use this to pick out the right organization from any others sharing the name.` : ""}
 
 This is a short identity check, not research. Two searches at most. Do not investigate their giving, priorities or application process -- that happens later and only once identity is settled.
 
@@ -135,7 +140,7 @@ Several distinct real organizations often share a similar name. If you find more
 
 Only report what you actually find. If no EIN is publicly stated, say so rather than guessing one.`;
 
-  const combinedPrompt = `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.
+  const combinedPrompt = `Research this specific funding organization to help a nonprofit advancement team decide how to approach them: "${prospect.name}"${prospect.organization ? ` (${prospect.organization})` : ""}${prospect.website ? `, website: ${prospect.website}` : ""}. This is a ${channelLabel(prospect.channel)} channel funder.${prospect.identity_hint ? ` The user, who knows this funder, adds: "${prospect.identity_hint}" -- use this to pick out the right organization from any others sharing the name.` : ""}
 
 Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`;
 

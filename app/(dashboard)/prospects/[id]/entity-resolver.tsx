@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { clearProspectEin, confirmProspectEin } from "../actions";
-import { buttonSecondary, chipStyle, colors, sectionStyle, spacing } from "@/lib/ui";
+import { clearProspectEin, confirmProspectEin, saveIdentityClue } from "../actions";
+import { buttonPrimary, buttonSecondary, chipStyle, colors, fieldStyle, labelStyle, sectionStyle, spacing } from "@/lib/ui";
+import type { EntityCandidate } from "@/lib/research";
 
 const METHOD_LABEL: Record<string, string> = {
   stored_ein: "confirmed on this prospect",
@@ -15,10 +16,17 @@ const METHOD_LABEL: Record<string, string> = {
 
 // Identity, and the choice a person makes when research could not settle it.
 //
-// The candidates are the organizations this run actually encountered, so the
-// question put to the user is concrete -- "which of these four is your
-// funder" -- rather than asking them to supply an EIN from memory. Confirming
-// one stores it, and every later run resolves to it directly.
+// The previous version listed every EIN the run touched -- twenty rows on a
+// generic name, most labelled with a bare aggregator URL, each claiming one
+// source. That asks someone to identify an organization by EIN, which is the
+// knowledge they came here lacking. It is the system that holds EINs; what a
+// fundraiser holds is a website, a city, a denomination, or where they came
+// across the funder.
+//
+// So the list is now a last resort rather than the default: at most three
+// candidates, each carrying enough to be recognised, and only when the run
+// could describe them that well. Otherwise the question changes to one the
+// user can actually answer.
 export default function EntityResolver({
   prospectId,
   confirmedEin,
@@ -31,7 +39,8 @@ export default function EntityResolver({
   prospectId: string;
   confirmedEin: string | null;
   resolutionMethod: string | null;
-  candidates: { ein: string; label: string; sourceCount: number; status: string | null }[];
+  // Already filtered to what can be recognised -- see presentableCandidates.
+  candidates: EntityCandidate[];
   blocked: boolean;
   // The EIN stored on the PROSPECT, which is what confirming writes. Everything
   // else here comes from the completed run, and a run is immutable -- so
@@ -43,12 +52,14 @@ export default function EntityResolver({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  // Per-candidate, not one shared flag: a single `pending` put all fifteen
-  // rows into the same state at once, so the click gave no indication which
+  // Per-candidate, not one shared flag: a single `pending` put every row into
+  // the same state at once, so the click gave no indication which
   // organization it had applied to.
   const [savingEin, setSavingEin] = useState<string | null>(null);
   const [merged, setMerged] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [clue, setClue] = useState("");
+  const [savingClue, setSavingClue] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Shared by both entry points -- while a run is blocked, and after a stored
@@ -106,52 +117,59 @@ export default function EntityResolver({
           {/* A confirmation a person cannot revise is a trap. This prospect
               was pinned to a pre-merger entity by one click, with the picker
               hidden from then on because something was saved. */}
-          <button
-            type="button"
-            disabled={clearing}
-            style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
-            onClick={clearSavedEin}
-          >
+          <button type="button" disabled={clearing} style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }} onClick={clearSavedEin}>
             {clearing ? "Clearing…" : "Choose a different organization"}
           </button>
         </div>
       )}
 
-      {blocked && !savedEin && candidates.length > 1 && (
+      {blocked && !savedEin && candidates.length > 0 && (
         <>
           <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.xs }}>
-            Research found {candidates.length} organizations matching this name.{" "}
-            {merged ? "Which one is the organization that exists today?" : "Which one is this prospect?"}
+            {candidates.length === 1 ? "One organization" : `${candidates.length} organizations`} could be this
+            prospect. {merged ? "Which exists today?" : "Which is it?"}
           </p>
 
-          {/* The question the resolver cannot ask. A merged predecessor and an
-              unrelated namesake look identical in search results, so "these
-              are one organization at different times" is knowledge a person
-              has and the system does not. Without this the list forces a
-              single choice and the older entity looks like the right answer,
-              which is how a defunct EIN gets confirmed. */}
+          {/* A merged predecessor and an unrelated namesake look identical in
+              search results, so "these are one organization at different
+              times" is knowledge a person has and the system does not. */}
           <label style={{ display: "flex", alignItems: "flex-start", gap: spacing.xs, fontSize: 12.5, color: colors.textMuted, marginBottom: spacing.sm, cursor: "pointer" }}>
             <input type="checkbox" checked={merged} onChange={(e) => setMerged(e.target.checked)} style={{ marginTop: 2 }} />
-            <span>
-              These are the same organization at different times — it merged or changed its name. Choosing will record
-              the others as what it used to be, instead of discarding them.
-            </span>
+            <span>These are the same organization at different times — it merged or changed its name.</span>
           </label>
-          <div style={{ display: "grid", gap: spacing.xs }}>
+
+          <div style={{ display: "grid", gap: spacing.sm }}>
             {candidates.map((c) => {
               const saving = savingEin === c.ein;
               const otherSaving = savingEin !== null && !saving;
               return (
-                <div key={c.ein} style={{ display: "flex", alignItems: "center", gap: spacing.xs, flexWrap: "wrap", opacity: otherSaving ? 0.45 : 1 }}>
-                  <span style={{ fontFamily: "monospace", fontSize: 12, minWidth: 92 }}>{c.ein}</span>
-                  <span style={{ fontSize: 13, flex: 1, minWidth: 170 }}>{c.label}</span>
-                  <span style={{ fontSize: 11, color: colors.textFaint }}>
-                    {c.sourceCount} source{c.sourceCount === 1 ? "" : "s"}
-                  </span>
+                <div
+                  key={c.ein}
+                  style={{
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 6,
+                    padding: spacing.sm,
+                    opacity: otherSaving ? 0.45 : 1,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: spacing.sm,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ minWidth: 200, flex: 1 }}>
+                    <div style={{ fontSize: 13.5, color: colors.text }}>{c.name ?? c.ein}</div>
+                    <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+                      {[c.location, c.orgType, c.website].filter(Boolean).join(" · ")}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 2, fontFamily: "monospace" }}>EIN {c.ein}</div>
+                    {c.whyMatch.length > 0 && (
+                      <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 2 }}>{c.whyMatch.join(" · ")}</div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={savingEin !== null}
-                    style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12, minWidth: 74 }}
+                    style={{ ...buttonSecondary, padding: "4px 10px", fontSize: 12, alignSelf: "center", minWidth: 84 }}
                     onClick={() => {
                       setError(null);
                       setSavingEin(c.ein);
@@ -162,11 +180,9 @@ export default function EntityResolver({
                             c.ein,
                             merged ? candidates.filter((o) => o.ein !== c.ein).map((o) => o.ein) : []
                           );
-                          // Deliberate: revalidatePath marks the cache stale
-                          // but this component's own props come from a server
-                          // render, so without an explicit refresh the page
-                          // keeps showing the picker as though nothing was
-                          // saved.
+                          // revalidatePath marks the cache stale but does not
+                          // re-render a client component's server-supplied
+                          // props, so without this the picker stays put.
                           router.refresh();
                         } catch (err) {
                           setError(err instanceof Error ? err.message : "Could not save that choice.");
@@ -175,30 +191,69 @@ export default function EntityResolver({
                       });
                     }}
                   >
-                    {saving ? "Saving…" : merged ? "The current one" : "This one"}
+                    {saving ? "Saving…" : merged ? "Current one" : "This one"}
                   </button>
                 </div>
               );
             })}
           </div>
-          <p style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
-            Choosing stores the EIN on this prospect. Research will then resolve to it directly, and the next run
-            will be about the right organization.
-          </p>
         </>
       )}
 
-      {blocked && !savedEin && candidates.length <= 1 && (
-        <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
-          Research could not establish which organization this is. Adding the EIN on the prospect record will settle
-          it for every future run.
-        </p>
+      {/* Nothing recognisable to offer. Asking for a detail the user has beats
+          listing twenty EINs they cannot tell apart -- and beats a bare "we
+          could not identify it", which hands the problem back with no route
+          through. */}
+      {blocked && !savedEin && candidates.length === 0 && (
+        <div style={{ marginTop: spacing.sm }}>
+          <p style={{ fontSize: 13, color: colors.text, marginBottom: spacing.xs }}>
+            Several organizations share this name and we could not tell them apart. Add one detail to help us identify
+            the right one.
+          </p>
+          <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: 0, marginBottom: spacing.xs }}>
+            Their website is best. A city or state, denomination or parent body, a grant program name, or where you
+            came across them all help too.
+          </p>
+          <div style={{ display: "flex", gap: spacing.xs, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <input
+              value={clue}
+              onChange={(e) => setClue(e.target.value)}
+              placeholder="e.g. maclellan.net, or Chattanooga TN, or PCUSA"
+              style={{ ...fieldStyle, flex: 1, minWidth: 220, maxWidth: 420 }}
+            />
+            <button
+              type="button"
+              disabled={savingClue || clue.trim().length === 0}
+              style={{ ...buttonPrimary, opacity: savingClue || !clue.trim() ? 0.6 : 1 }}
+              onClick={() => {
+                setError(null);
+                setSavingClue(true);
+                startTransition(async () => {
+                  const result = await saveIdentityClue(prospectId, clue.trim());
+                  if ("error" in result) {
+                    setError(result.error);
+                    setSavingClue(false);
+                    return;
+                  }
+                  setClue("");
+                  setSavingClue(false);
+                  router.refresh();
+                });
+              }}
+            >
+              {savingClue ? "Saving…" : "Save detail"}
+            </button>
+          </div>
+          <p style={{ ...labelStyle, marginTop: spacing.xs, marginBottom: 0, fontSize: 11.5, color: colors.textFaint }}>
+            Saved to the prospect, then used the next time research runs. If you don&apos;t know any of these, leave it —
+            the research stays marked unresolved rather than guessing.
+          </p>
+        </div>
       )}
 
       {/* Requires an actual EIN, not merely the absence of a block. Without
           that second condition this rendered "confirmed entity" underneath
-          "could not be established" on any run that never reached the
-          blocking check. */}
+          "could not be established". */}
       {!blocked && confirmedEin && (
         <div style={{ marginTop: spacing.xs }}>
           <span style={{ ...chipStyle("teal"), display: "inline-block" }}>confirmed entity</span>
@@ -214,12 +269,7 @@ export default function EntityResolver({
               is discarded as an entity mismatch. */}
           {savedEin && (
             <div style={{ marginTop: spacing.xs }}>
-              <button
-                type="button"
-                disabled={clearing}
-                style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
-                onClick={clearSavedEin}
-              >
+              <button type="button" disabled={clearing} style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }} onClick={clearSavedEin}>
                 {clearing ? "Clearing…" : "This is the wrong organization"}
               </button>
               <span style={{ fontSize: 12, color: colors.textMuted, marginLeft: spacing.xs }}>

@@ -76,6 +76,9 @@ export type Prospect = {
   // Supplied by a person -- a merged predecessor and an unrelated namesake are
   // indistinguishable in search results, so this is knowledge, not inference.
   predecessor_eins: string[] | null;
+  // A human-supplied detail that identifies this funder when its name is
+  // ambiguous. Reaches the research search verbatim.
+  identity_hint: string | null;
   legal_name: string | null;
   aliases: string[] | null;
   // Funder intelligence -- populated from AI research when

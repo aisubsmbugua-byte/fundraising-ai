@@ -12,7 +12,7 @@
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
 import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, claimSpansMultiplePeriods, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections, strategyFieldPolicy, IDENTITY_GATE_KEYS, STRATEGY_FIELD_POLICY, RESEARCH_CLAIM_KEYS } from "../lib/research";
 import { deriveStrategyUse } from "../lib/prospect-intelligence";
-import { assessEntityLifecycle, mentionsSuccession, reportingPeriodYear } from "../lib/research";
+import { contactEmailDomain, assessEntityLifecycle, mentionsSuccession, reportingPeriodYear, cleanEntityName, extractLocation, extractOfficialWebsite, extractOrgType, buildEntityCandidates, presentableCandidates, MIN_CANDIDATE_ATTRIBUTES, MAX_PRESENTED_CANDIDATES } from "../lib/research";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -666,6 +666,95 @@ check(
   false
 );
 check("plain grantmaking prose is silent", mentionsSuccession("Grants are made to preselected charitable organizations."), false);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- candidates a person can actually recognise ---");
+
+// The real list, from a Presbyterian-named prospect: 20 rows, 12 of them
+// labelled with a bare ProPublica URL because no page title was captured.
+// A row nobody can identify is not a choice.
+check("an aggregator page title becomes a name", cleanEntityName("Presbyterian Church Usa Foundation - Nonprofit Explorer - ProPublica"), "Presbyterian Church Usa Foundation");
+check("a full-filing suffix comes off too", cleanEntityName("Dwight Presbyterian Mission Inc - Full Filing - Nonprofit Explorer - ProPublica"), "Dwight Presbyterian Mission Inc");
+check("a pipe separator works the same", cleanEntityName("Overseas Council International | Charlotte, NC | Cause IQ"), "Overseas Council International");
+check("a bare URL is not a name", cleanEntityName("https://projects.propublica.org/nonprofits/organizations/546054857"), null);
+check("a single word is not a name", cleanEntityName("projects.propublica.org"), null);
+check("no title is not a name", cleanEntityName(null), null);
+
+check("a city and state are found in prose", extractLocation(["Main address · 14 Corporate Plaza Dr Ste 200 · Newport Beach, CA 92660 United States"]), "Newport Beach, CA");
+check("two-word cities work", extractLocation(["Based in Kansas City, MO since 1997"]), "Kansas City, MO");
+check("prose with no location yields none", extractLocation(["Grants are made to preselected organizations."]), null);
+
+check(
+  "an aggregator is never the funder's own site",
+  extractOfficialWebsite(["https://projects.propublica.org/nonprofits/organizations/626041468"], []),
+  null
+);
+check(
+  "the funder's own domain is picked out",
+  extractOfficialWebsite(["https://projects.propublica.org/x"], ["See more at https://www.maclellan.net/about"]),
+  "maclellan.net"
+);
+
+check("a 990-PF filer reads as a private foundation", extractOrgType(["Form 990-PF filed for tax year 2024"]), "Private foundation");
+check("unrecognised prose yields no type", extractOrgType(["Some text about giving"]), null);
+
+// The threshold that turns a dump into a shortlist.
+const built = buildEntityCandidates({
+  sources: [
+    // Recognisable: name + location + type.
+    { url: "https://projects.propublica.org/nonprofits/organizations/626041468", title: "Maclellan Foundation Inc - Nonprofit Explorer - ProPublica", sourceEin: "62-6041468", status: null, texts: ["Chattanooga, TN 37402", "Form 990-PF"] },
+    // Unrecognisable: no title, no evidence. This is the row type that made
+    // the real list unusable.
+    { url: "https://projects.propublica.org/nonprofits/organizations/546054857", title: null, sourceEin: "54-6054857", status: null, texts: [] },
+  ],
+  nameToken: "maclellan",
+  prospectLocation: "Chattanooga, TN",
+});
+const presentable = presentableCandidates(built);
+check("both entities are built", built.length, 2);
+check("only the recognisable one may be shown", presentable.map((c) => c.ein), ["62-6041468"]);
+check("...with a name", presentable[0].name, "Maclellan Foundation Inc");
+check("...a location", presentable[0].location, "Chattanooga, TN");
+check("...and a reason it might be the one", presentable[0].whyMatch.length > 0, true);
+check(
+  "a bare-URL entity carries too little to offer",
+  built.find((c) => c.ein === "54-6054857")!.attributeCount < MIN_CANDIDATE_ATTRIBUTES,
+  true
+);
+
+// Beyond three, a list stops being a decision.
+const many = buildEntityCandidates({
+  sources: Array.from({ length: 8 }, (_, i) => ({
+    url: `https://projects.propublica.org/nonprofits/organizations/1234567${i}`,
+    title: `Presbyterian Mission Fund ${i} - Nonprofit Explorer - ProPublica`,
+    sourceEin: `12-345678${i}`,
+    status: null,
+    texts: ["Louisville, KY 40202", "Form 990-PF"],
+  })),
+  nameToken: "presbyterian",
+  prospectLocation: null,
+});
+check("eight credible entities are all built", many.length, 8);
+// The distinction that matters: too many is a different answer from a few.
+// Showing the "best" three would assert the answer is among them, which with
+// eight near-identical Presbyterian entities is untrue -- and is the original
+// twenty-row failure at smaller scale.
+check("more than three credible -> show none, ask instead", presentableCandidates(many), []);
+check(
+  "exactly three credible are all shown",
+  presentableCandidates(many.slice(0, 3)).length,
+  3
+);
+
+
+// A work email identifies the organization as well as a website field does.
+// The real prospect that prompted this asked "which of twenty organizations
+// is this?" while its contact record read chris.romine@pcusa.org.
+check("a work email yields the organization's domain", contactEmailDomain("chris.romine@pcusa.org"), "pcusa.org");
+check("a personal mailbox does not", contactEmailDomain("chris.romine@gmail.com"), null);
+check("nor does an empty contact", contactEmailDomain(null), null);
+check("nor a malformed address", contactEmailDomain("not-an-email"), null);
 
 console.log(`\n${pass} passed, ${fail} failed.`);
 if (fail > 0) process.exit(1);

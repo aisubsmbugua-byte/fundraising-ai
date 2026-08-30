@@ -2,10 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   APPROVED_FOR_DOWNSTREAM,
   assessEntityLifecycle,
+  buildEntityCandidates,
+  deriveEntityNameToken,
+  presentableCandidates,
   hasStatedPeriod,
   isFinancialClaimKey,
   strategyFieldPolicy,
   RESEARCH_INFORMATION_SECTIONS,
+  type EntityCandidate,
   type EntityLifecycleSignal,
   type ResearchConfidence,
   type ResearchEntityValidationStatus,
@@ -135,8 +139,12 @@ export type ProspectIntelligence = {
   identityConfirmed: boolean;
   confirmedEin: string | null;
   resolutionMethod: string | null;
-  // Competing organizations this run saw, for the disambiguation prompt.
-  candidates: { ein: string; label: string; sourceCount: number; status: ResearchEntityValidationStatus | null }[];
+  // At most three, each carrying enough to be recognised. Empty when the
+  // run could not describe any well enough to offer -- which is a real
+  // answer, not a gap to paper over.
+  candidates: EntityCandidate[];
+  // Everything seen, for the superadmin audit view only.
+  allCandidates: EntityCandidate[];
   sections: IntelligenceSection[];
   missingSections: string[];
   // Signals that this organization may not be a going concern. Reported, not
@@ -182,8 +190,29 @@ export async function loadProspectIntelligence(
       .select("claim_id, verdict, period_verdict, reason, created_at")
       .eq("research_run_id", run.id)
       .order("created_at", { ascending: false }),
-    supabase.from("research_sources").select("url, title, source_ein, entity_validation_status").eq("research_run_id", run.id),
+    supabase.from("research_sources").select("id, url, title, source_ein, entity_validation_status").eq("research_run_id", run.id),
   ]);
+
+  // Evidence text per source, so a candidate can be described by what was
+  // actually captured about it rather than by its URL.
+  const { data: evidenceRows } = await supabase
+    .from("research_evidence")
+    .select("source_id, exact_text")
+    .eq("research_run_id", run.id);
+  const textsBySource = new Map<string, string[]>();
+  for (const e of evidenceRows ?? []) {
+    const id = e.source_id as string;
+    textsBySource.set(id, [...(textsBySource.get(id) ?? []), e.exact_text as string]);
+  }
+
+  // The prospect's own name and location: one is what the candidates are
+  // being matched against, the other is a reason a row might be the right
+  // one. Neither is derivable from the run.
+  const { data: prospectRow } = await supabase
+    .from("prospects")
+    .select("name, location")
+    .eq("id", prospectId)
+    .maybeSingle();
 
   const { data: approvals } = await supabase
     .from("research_claim_approvals")
@@ -307,21 +336,18 @@ export async function loadProspectIntelligence(
   }
   const missingSections = sections.filter((s) => s.missing).map((s) => s.section);
 
-  // Distinct entities this run encountered -- the disambiguation choices.
-  const byEin = new Map<string, ProspectIntelligence["candidates"][number]>();
-  for (const s of sources ?? []) {
-    const ein = s.source_ein as string | null;
-    if (!ein) continue;
-    const title = (s.title as string | null) ?? "";
-    const usable = title.includes(" ") ? title : "";
-    const existing = byEin.get(ein);
-    if (!existing) {
-      byEin.set(ein, { ein, label: usable || (s.url as string), sourceCount: 1, status: s.entity_validation_status as ResearchEntityValidationStatus | null });
-    } else {
-      existing.sourceCount++;
-      if (!existing.label.includes(" ") && usable) existing.label = usable;
-    }
-  }
+  // Every entity the run touched, described well enough to be recognised.
+  const allCandidates = buildEntityCandidates({
+    sources: (sources ?? []).map((s) => ({
+      url: s.url as string,
+      title: (s.title as string | null) ?? null,
+      sourceEin: (s.source_ein as string | null) ?? null,
+      status: (s.entity_validation_status as string | null) ?? null,
+      texts: textsBySource.get(s.id as string) ?? [],
+    })),
+    nameToken: deriveEntityNameToken((prospectRow?.name as string | null) ?? ""),
+    prospectLocation: (prospectRow?.location as string | null) ?? null,
+  });
 
   return {
     runId: run.id as string,
@@ -333,7 +359,11 @@ export async function loadProspectIntelligence(
     identityConfirmed: !!run.dossier_confirmed,
     confirmedEin: (run.confirmed_ein as string | null) ?? null,
     resolutionMethod: (run.entity_resolution_method as string | null) ?? null,
-    candidates: Array.from(byEin.values()).sort((a, b) => b.sourceCount - a.sourceCount),
+    // Only what a person could actually choose between. The rest stays in
+    // allCandidates for the audit view -- completeness belongs there, not in
+    // front of someone trying to identify a funder.
+    candidates: presentableCandidates(allCandidates),
+    allCandidates,
     sections,
     missingSections,
     // Computed from the raw rows rather than the shaped claims: reporting

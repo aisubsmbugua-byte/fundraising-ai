@@ -641,6 +641,201 @@ export function hasStatedPeriod(reportingPeriod: string | null | undefined): boo
 }
 
 // ---------------------------------------------------------------------------
+// Candidate identity
+//
+// The disambiguation list was not a shortlist, it was a byproduct: every
+// distinct EIN the run touched anywhere, unfiltered, labelled with a page
+// title or -- when no title was captured -- a bare aggregator URL. On a
+// generic name it produced twenty rows, most of them unchoosable, each
+// claiming one source.
+//
+// That asks the person who does not know the organization to identify it by
+// EIN, which is exactly the knowledge they came here lacking. A candidate is
+// only worth offering if it can be RECOGNISED, so each one has to carry
+// enough to recognise it: a real name, where it is, its website, what kind
+// of body it is, and why we think it might be the one.
+
+// Sites that aggregate filings. Their domains are never a funder's own, and
+// their titles carry boilerplate that has to come off a name before it reads
+// like an organization.
+const AGGREGATOR_DOMAINS = [
+  "propublica.org",
+  "causeiq.com",
+  "guidestar.org",
+  "charitynavigator.org",
+  "getholdings.com",
+  "grantmakers.io",
+  "candid.org",
+  "irs.gov",
+  "taxexemptworld.com",
+  "nonprofitlight.com",
+  "opencorporates.com",
+];
+
+// Free mailbox providers. A contact at one of these tells us about a person,
+// not an organization.
+const CONSUMER_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "yahoo.com",
+  "ymail.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "protonmail.com",
+  "proton.me",
+  "comcast.net",
+  "verizon.net",
+  "att.net",
+  "msn.com",
+]);
+
+// The organization's domain, inferred from a contact we already hold.
+//
+// Found on a real prospect: the page asked "which of these twenty
+// organizations is this?" while the contact record read
+// chris.romine@pcusa.org. The answer was already in the CRM. Asking a user
+// for a website we could have derived is asking them to supply what we are
+// sitting on -- and identity resolution treats a domain as its strongest
+// signal, so this is not a hint, it is the resolution.
+export function contactEmailDomain(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const domain = email.trim().toLowerCase().split("@")[1];
+  if (!domain || !domain.includes(".")) return null;
+  if (CONSUMER_EMAIL_DOMAINS.has(domain)) return null;
+  return domain;
+}
+
+export function isAggregatorUrl(url: string): boolean {
+  return AGGREGATOR_DOMAINS.some((d) => url.toLowerCase().includes(d));
+}
+
+// "Servants Heart Foundation Inc - Full Filing - Nonprofit Explorer -
+// ProPublica" is a page title, not a name. Everything after the first
+// separator is the publisher describing itself.
+export function cleanEntityName(title: string | null | undefined): string | null {
+  if (!title) return null;
+  const head = title.split(/\s+[-|–—]\s+/)[0].trim();
+  // A name needs at least two words: a bare domain or a single token tells a
+  // reader nothing and is what produced the URL rows.
+  if (!head.includes(" ")) return null;
+  if (/^https?:/i.test(head)) return null;
+  return head;
+}
+
+const US_STATES =
+  "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC";
+
+// "Newport Beach, CA" out of whatever prose the evidence happens to be.
+export function extractLocation(texts: string[]): string | null {
+  const pattern = new RegExp(`\\b([A-Z][A-Za-z.'-]+(?: [A-Z][A-Za-z.'-]+){0,2}),\\s*(${US_STATES})\\b`);
+  for (const t of texts) {
+    const m = t.match(pattern);
+    if (m) return `${m[1]}, ${m[2]}`;
+  }
+  return null;
+}
+
+// The organization's own site, as opposed to the aggregator we read about it
+// on. This is the single most useful thing for recognising a funder, and the
+// thing a fundraiser is most likely to already know.
+export function extractOfficialWebsite(urls: string[], texts: string[]): string | null {
+  const fromText = texts
+    .flatMap((t) => t.match(/https?:\/\/[^\s"'<>)]+/g) ?? [])
+    .find((u) => !isAggregatorUrl(u));
+  const candidate = urls.find((u) => !isAggregatorUrl(u)) ?? fromText;
+  if (!candidate) return null;
+  try {
+    return new URL(candidate).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+// Rough, and labelled as rough. "Private foundation" versus "public charity"
+// is often the difference between two same-named entities, so it earns its
+// place even when imprecise.
+export function extractOrgType(texts: string[]): string | null {
+  const joined = texts.join(" ");
+  if (/\b990-?PF\b|private (?:grantmaking )?foundation/i.test(joined)) return "Private foundation";
+  if (/\bdonor[- ]advised\b/i.test(joined)) return "Donor-advised fund sponsor";
+  if (/\bpublic charity\b/i.test(joined)) return "Public charity";
+  if (/\bchurch\b/i.test(joined)) return "Church";
+  return null;
+}
+
+export type EntityCandidate = {
+  ein: string;
+  name: string | null;
+  location: string | null;
+  website: string | null;
+  orgType: string | null;
+  sourceCount: number;
+  status: string | null;
+  // Why this one is being offered, in the user's terms.
+  whyMatch: string[];
+  // How many independent identifying attributes it carries. Below two, a
+  // person cannot tell it apart from any other row, so it is not a choice.
+  attributeCount: number;
+};
+
+// Never more than three. Beyond that a list stops being a decision and
+// becomes a lottery -- which is the failure this replaces.
+export const MAX_PRESENTED_CANDIDATES = 3;
+export const MIN_CANDIDATE_ATTRIBUTES = 2;
+
+export function buildEntityCandidates(input: {
+  sources: { url: string; title: string | null; sourceEin: string | null; status: string | null; texts: string[] }[];
+  nameToken: string;
+  prospectLocation: string | null;
+}): EntityCandidate[] {
+  const { sources, nameToken, prospectLocation } = input;
+  const byEin = new Map<string, typeof input.sources>();
+  for (const s of sources) {
+    if (!s.sourceEin) continue;
+    byEin.set(s.sourceEin, [...(byEin.get(s.sourceEin) ?? []), s]);
+  }
+
+  const prospectState = prospectLocation?.match(new RegExp(`\\b(${US_STATES})\\b`))?.[1] ?? null;
+
+  return [...byEin.entries()].map(([ein, group]) => {
+    const texts = group.flatMap((s) => [s.title ?? "", ...s.texts]).filter(Boolean);
+    const name = group.map((s) => cleanEntityName(s.title)).find(Boolean) ?? null;
+    const location = extractLocation(texts);
+    const website = extractOfficialWebsite(group.map((s) => s.url), texts);
+    const orgType = extractOrgType(texts);
+
+    const whyMatch: string[] = [];
+    if (nameToken && name && name.toLowerCase().includes(nameToken.toLowerCase())) {
+      whyMatch.push(`Name contains "${nameToken}"`);
+    }
+    if (prospectState && location?.endsWith(prospectState)) whyMatch.push(`Same state as this prospect`);
+    if (group.length > 1) whyMatch.push(`Appears in ${group.length} sources`);
+
+    const attributeCount = [name, location, website, orgType].filter(Boolean).length;
+    return { ein, name, location, website, orgType, sourceCount: group.length, status: group[0].status, whyMatch, attributeCount };
+  });
+}
+
+// What may actually be shown. Everything else stays in the audit view, where
+// completeness matters more than legibility.
+//
+// Returns NOTHING when more than three survive, rather than the best three.
+// Truncating would be the original failure in miniature: showing a short list
+// asserts the answer is in it, and with eight near-identical Presbyterian
+// entities that assertion is false. Too many to choose between is a real
+// answer, and it routes to asking the user for a detail instead.
+export function presentableCandidates(candidates: EntityCandidate[]): EntityCandidate[] {
+  const credible = candidates
+    .filter((c) => c.attributeCount >= MIN_CANDIDATE_ATTRIBUTES)
+    .sort((a, b) => b.whyMatch.length - a.whyMatch.length || b.attributeCount - a.attributeCount || b.sourceCount - a.sourceCount);
+  return credible.length > MAX_PRESENTED_CANDIDATES ? [] : credible;
+}
+
+// ---------------------------------------------------------------------------
 // Entity lifecycle
 //
 // Every check in this pipeline asks whether a claim is true OF an organization.

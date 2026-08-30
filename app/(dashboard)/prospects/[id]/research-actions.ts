@@ -26,6 +26,7 @@ import {
   missingInformationSections,
   isGrantSchedulePage,
   type ResearchDepth,
+  contactEmailDomain,
   deriveEntityNameToken,
   resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
@@ -165,6 +166,17 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
     if (!prospect) throw new ResearchError("prospect_not_found", "Prospect not found");
 
+    // Use what the CRM already holds before asking anyone for it. A work
+    // email at the funder's own domain identifies the organization as well as
+    // a website field would, and domain matching is the strongest signal
+    // entity resolution has -- so a prospect with a contact should rarely
+    // reach the "which of these do you mean" question at all.
+    const inferredDomain = contactEmailDomain(prospect.contact_email as string | null);
+    const researchProspect = {
+      ...prospect,
+      website: (prospect.website as string | null) ?? (inferredDomain ? `https://${inferredDomain}` : null),
+    };
+
     // Depth follows pipeline stage unless the caller overrides it: a
     // Discovery candidate gets a cheap screen, anything accepted gets the
     // full dossier. See defaultDepthForStage in lib/research.ts.
@@ -182,7 +194,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       searchesUsed,
       fetchAttempts,
       fetchFailures,
-    } = await searchFunderWeb(prospect, "research_only", depth).catch((err) => {
+    } = await searchFunderWeb(researchProspect, "research_only", depth).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
 
@@ -222,13 +234,13 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     const { ein: confirmedEin, method: entityResolutionMethod } = resolveRunEntity({
       storedEin: prospect.ein ?? null,
       prospectName: prospect.legal_name || prospect.name,
-      prospectWebsite: prospect.website,
+      prospectWebsite: researchProspect.website,
       nameToken,
       sources: indexedSources.map((s) => ({
         url: s.url,
         texts: textsByUrl.get(s.url) ?? [],
         title: s.title,
-        sourceType: classifySourceType(s.url, prospect.website),
+        sourceType: classifySourceType(s.url, researchProspect.website),
       })),
     });
 
@@ -238,7 +250,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     // establish instead of failing the name check alone.
     const classified = classifyRunSources({
       sources: indexedSources.map((s) => ({ url: s.url, texts: textsByUrl.get(s.url) ?? [] })),
-      prospectWebsite: prospect.website,
+      prospectWebsite: researchProspect.website,
       prospectLocation: prospect.location ?? null,
       nameToken,
       confirmedEin,
@@ -260,7 +272,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
             research_run_id: runId,
             url: s.url,
             title: s.title,
-            source_type: classifySourceType(s.url, prospect.website),
+            source_type: classifySourceType(s.url, researchProspect.website),
             page_age: s.pageAge,
             entity_validation_status: entityStatusByUrl.get(s.url) ?? null,
             source_ein: sourceEinByUrl.get(s.url) ?? null,
@@ -460,7 +472,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         officialSiteFetched = null;
       }
     }
-    const filingFetched = fetchedSources.some((f) => classifySourceType(f.url, prospect.website) === "irs_filing");
+    const filingFetched = fetchedSources.some((f) => classifySourceType(f.url, researchProspect.website) === "irs_filing");
     const capturedChars = allFragments.reduce((n, f) => n + f.exactText.length, 0);
 
     // A grant schedule counts as missing only when one was actually there:
