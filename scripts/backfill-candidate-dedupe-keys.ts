@@ -45,6 +45,7 @@ async function main() {
 
   let changed = 0;
   let unchanged = 0;
+  const byKey = new Map<string, string[]>();
 
   for (const c of candidates) {
     // An unattested opportunity is excluded from the key. Where attestation
@@ -58,6 +59,8 @@ async function main() {
       opportunityAttested,
       name: c.name,
     });
+
+    byKey.set(next, [...(byKey.get(next) ?? []), c.name]);
 
     if (next === c.dedupe_key) {
       unchanged++;
@@ -73,16 +76,13 @@ async function main() {
 
   console.log(`\n${candidates.length} candidates: ${changed} to update, ${unchanged} already correct.`);
 
-  // Surface collisions rather than resolving them. Two rows sharing a key are
-  // duplicates that were written before the key could catch them; which one to
-  // keep is a judgement about real funders, not something a backfill should
-  // decide on its own.
-  const byKey = new Map<string, string[]>();
-  for (const c of candidates) {
-    const k = c.dedupe_key;
-    if (!k) continue;
-    byKey.set(k, [...(byKey.get(k) ?? []), c.name]);
-  }
+  // Collisions are computed on the NEW keys, not the stored ones. Reporting
+  // against stored keys would miss precisely the duplicates the changed
+  // derivation exists to catch -- they collide only once recomputed.
+  //
+  // Surfaced, never resolved. Two rows sharing a key are duplicates written
+  // before the key could catch them; which one to keep is a judgement about
+  // real funders, not something a backfill should make on its own.
   const collisions = [...byKey.entries()].filter(([, names]) => names.length > 1);
   if (collisions.length > 0) {
     console.log(`\n${collisions.length} existing duplicate group(s) -- review by hand:`);
