@@ -10,7 +10,8 @@
 // Usage: npx tsx scripts/test-entity-validation.ts
 
 import { EXCLUDED_ENTITY_STATUSES } from "../lib/ai/research-extract";
-import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, claimSpansMultiplePeriods, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections } from "../lib/research";
+import { isMaterialClaimKey, assessDossierState, claimFiguresAppearInEvidence, claimSpansMultiplePeriods, distinctiveNumbers, isGrantSchedulePage, isQuantitativeClaimKey, missingInformationSections, strategyFieldPolicy, IDENTITY_GATE_KEYS, STRATEGY_FIELD_POLICY, RESEARCH_CLAIM_KEYS } from "../lib/research";
+import { deriveStrategyUse } from "../lib/prospect-intelligence";
 import {
   classifyRunSources,
   entityStatusMeaning,
@@ -519,6 +520,83 @@ check(
   "a non-financial key is out of scope",
   claimSpansMultiplePeriods("funding.focus_areas", "Has funded education across all years on record"),
   false
+);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- per-consumer field policy (Strategy) ---");
+
+// The guard that matters most. A key added to the vocabulary without a
+// policy would otherwise pick up a silent default -- exactly how the display
+// sections fell behind the vocabulary and hid 16 claims from a reviewer.
+const unpoliced = RESEARCH_CLAIM_KEYS.map((k) => k.key).filter(
+  (k) => !IDENTITY_GATE_KEYS.has(k) && !(k in STRATEGY_FIELD_POLICY)
+);
+check("every claim key has a policy or is an identity gate", unpoliced, []);
+
+check("identity is a run gate, not a Strategy policy", strategyFieldPolicy("identity.ein"), "identity_gate");
+check("eligibility gates the strategy", strategyFieldPolicy("application.foreign_org_eligibility"), "required");
+check("ask sizing gates the strategy", strategyFieldPolicy("funding.median_grant_size"), "required");
+check("funder type gates the strategy", strategyFieldPolicy("funding.funder_type"), "required");
+check("focus areas are advisory", strategyFieldPolicy("funding.focus_areas"), "advisory");
+check("key contacts are advisory for Strategy", strategyFieldPolicy("people.key_contacts"), "advisory");
+check("phone is unused by Strategy", strategyFieldPolicy("identity.phone"), "unused");
+
+// The geography split: a stated rule gates, a description of past giving
+// does not. Two keys rather than one, so the distinction is decided at
+// extraction where the sentence is visible.
+check("a geographic RESTRICTION gates", strategyFieldPolicy("funding.geographic_restriction"), "required");
+check("a geographic PATTERN is advisory", strategyFieldPolicy("funding.geographic_focus"), "advisory");
+
+// An unmapped key must never gain the authority to size an ask.
+check("an unknown key falls back to advisory, never required", strategyFieldPolicy("funding.invented_later"), "advisory");
+
+// Verification coverage is derived, so it cannot drift from the policy.
+check(
+  "everything required is verified",
+  Object.entries(STRATEGY_FIELD_POLICY)
+    .filter(([, p]) => p === "required")
+    .every(([k]) => isMaterialClaimKey(k)),
+  true
+);
+check("nothing advisory is verified", isMaterialClaimKey("funding.focus_areas"), false);
+check("identity is verified", isMaterialClaimKey("identity.ein"), true);
+
+
+// ---------------------------------------------------------------------------
+console.log("\n--- what may reach Strategy ---");
+
+const use = (over: Partial<Parameters<typeof deriveStrategyUse>[0]> = {}) =>
+  deriveStrategyUse({
+    claimKey: "funding.focus_areas",
+    decision: null,
+    supported: false,
+    hasVerdict: false,
+    contradicted: false,
+    evidenceMissing: false,
+    withheldReason: null,
+    ...over,
+  });
+
+check("an unchecked advisory field enters as context", use(), "advisory_context");
+check(
+  "an unchecked REQUIRED field does not",
+  use({ claimKey: "funding.median_grant_size" }),
+  "not_verified"
+);
+// "Advisory" means unconfirmed, not disproven.
+check("a contradicted advisory field is excluded", use({ contradicted: true, hasVerdict: true }), "held_back");
+check("an advisory field with no captured evidence is excluded", use({ evidenceMissing: true }), "held_back");
+check(
+  "a reviewer's exclusion outranks the advisory path",
+  use({ decision: "excluded" }),
+  "excluded_by_you"
+);
+check("an unused field never appears", use({ claimKey: "identity.phone" }), "not_used_field");
+check(
+  "an approved required claim with no period is approved but not used",
+  use({ claimKey: "funding.total_assets", decision: "approved", withheldReason: "no reporting period" }),
+  "approved_not_used"
 );
 
 console.log(`\n${pass} passed, ${fail} failed.`);

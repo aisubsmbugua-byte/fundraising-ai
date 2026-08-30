@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
-import { loadApprovedIntelligence } from "@/lib/prospect-intelligence";
+import { loadApprovedIntelligence, type ApprovedClaim } from "@/lib/prospect-intelligence";
 import { approveVerifiedIntelligence } from "./research-actions";
 import { hasStatedPeriod } from "@/lib/research";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
@@ -78,20 +78,31 @@ export async function runStrategy(runId: string, prospectId: string) {
     // It returns null when identity was never resolved, so a strategy can
     // never be built on research that may describe a different organization.
     const approved = await loadApprovedIntelligence(supabase, prospectId);
-    const approvedBlock = approved
-      ? `\nApproved intelligence about this funder (human-reviewed; prefer this over the raw findings where they differ):\n${approved.claims
-          .map(
-            (c) =>
-              // hasStatedPeriod, not a truthiness check: "unstated" and
-              // "not_time_bound" are internal sentinels, and rendering them
-              // raw wrote "(unstated)" into the prompt as though it were a
-              // period the evidence gave.
-              `- ${c.claim}${hasStatedPeriod(c.reportingPeriod) ? ` (${c.reportingPeriod})` : ""}${
-                c.humanOverride ? ` [accepted by a reviewer despite limited evidence${c.overrideNote ? `: ${c.overrideNote}` : ""}]` : ""
-              }`
-          )
-          .join("\n")}\n`
-      : "";
+
+    // hasStatedPeriod, not a truthiness check: "unstated" and
+    // "not_time_bound" are internal sentinels, and rendering them raw wrote
+    // "(unstated)" into the prompt as though it were a period the evidence
+    // gave.
+    const line = (c: ApprovedClaim) =>
+      `- ${c.claim}${hasStatedPeriod(c.reportingPeriod) ? ` (${c.reportingPeriod})` : ""}${
+        c.limitation ? ` [${c.limitation}]` : ""
+      }${c.humanOverride ? ` [accepted by a reviewer despite limited evidence${c.overrideNote ? `: ${c.overrideNote}` : ""}]` : ""}`;
+
+    // Two blocks, not one list with a mixed caveat. Confirmed facts and
+    // unconfirmed context are different kinds of input and a model given
+    // them as one list will treat them as one kind. Each advisory line also
+    // carries its own limitation inline, because a caveat in a heading does
+    // not reliably reach the twentieth bullet beneath it.
+    const confirmed = (approved?.claims ?? []).filter((c) => !c.advisory);
+    const advisory = (approved?.claims ?? []).filter((c) => c.advisory);
+    const approvedBlock = [
+      confirmed.length
+        ? `\nConfirmed intelligence about this funder (checked against sources and human-approved; prefer this over the raw findings where they differ):\n${confirmed.map(line).join("\n")}\n`
+        : "",
+      advisory.length
+        ? `\nUnconfirmed context (NOT verified and NOT approved -- use only to shape framing and tone. Never state any of this to the funder as fact, never size an ask from it, and never treat it as an eligibility rule):\n${advisory.map(line).join("\n")}\n`
+        : "",
+    ].join("");
     // Logged, not silent: a withheld claim is one a person approved and the
     // strategy never saw, and that gap should be findable in the run log
     // rather than only by reading the gate.
@@ -331,7 +342,12 @@ async function createStrategyRun(prospectId: string): Promise<string> {
       "This prospect has no confirmed research to build a strategy from. Run research and confirm the organization's identity first."
     );
   }
-  if (approved.claims.length === 0) {
+  // Counts CONFIRMED claims only. Advisory context enters the payload without
+  // individual approval, so counting the whole payload would let a strategy
+  // be generated from nothing but unverified context while looking as though
+  // a human had approved something. Advisory material shapes a strategy; it
+  // may not be the sole basis for one.
+  if (approved.claims.every((c) => c.advisory)) {
     throw new Error("No intelligence has been approved yet. Approve the claims the strategy should be written from first.");
   }
 

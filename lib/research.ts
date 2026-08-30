@@ -35,7 +35,15 @@ export const RESEARCH_CLAIM_KEYS = [
   { key: "identity.website", category: "Identity", label: "Website", description: "The funder's official website" },
   { key: "identity.phone", category: "Identity", label: "Phone", description: "A publicly listed phone number for the funder or its grants office" },
   { key: "funding.funder_type", category: "Funding profile", label: "Funder type", description: "e.g. private foundation, corporate giving program, family foundation, denominational fund, individual/DAF" },
-  { key: "funding.geographic_focus", category: "Funding profile", label: "Geographic focus", description: "Domestic priority region(s) this funder gives to, e.g. 'primarily Tennessee, Georgia, and Florida' -- not whether it also funds internationally (see international_reach)" },
+  { key: "funding.geographic_focus", category: "Funding profile", label: "Geographic focus", description: "Where this funder's grants have HISTORICALLY gone, as a description of past behaviour, e.g. 'primarily Tennessee, Georgia, and Florida' -- use geographic_restriction instead if the source states a rule about where it WILL fund. Not whether it also funds internationally (see international_reach)" },
+  // Split from geographic_focus deliberately. "Grants only to organizations
+  // in the Southeast" and "most grants have gone to the Southeast" read
+  // almost identically and mean entirely different things: one disqualifies
+  // us, the other colours the pitch. The distinction is visible at
+  // extraction, where a model is looking at the sentence, and invisible
+  // downstream -- so it is recorded as two keys rather than left for a
+  // consumer to infer from wording.
+  { key: "funding.geographic_restriction", category: "Funding profile", label: "Geographic eligibility restriction", description: "A stated RULE limiting where a grantee may be based or where funded work may happen, e.g. 'grants are made only to organizations located in Georgia' or 'does not fund outside the United States'. Only use when the source states a limit, not merely a pattern of past giving" },
   { key: "funding.international_reach", category: "Funding profile", label: "International reach", description: "Whether/how this funder gives outside its home country -- a distinct fact from its domestic geographic priority" },
   { key: "funding.grant_count_annual", category: "Funding profile", label: "Annual grant count", description: "Number of grants awarded in a specific, named reporting period, e.g. '160 grants in Tax Year 2024'" },
   { key: "funding.total_annual_giving", category: "Funding profile", label: "Total annual giving (sum of listed grants)", description: "Total dollar amount of grants awarded/listed in a specific, named reporting period -- this is a sum of individual grants, NOT the same figure as charitable_disbursements (a filing-level total that can legitimately differ); never conflate the two into one generic figure" },
@@ -285,7 +293,7 @@ export const RESEARCH_INFORMATION_SECTIONS = [
   { section: "funding_priorities", label: "Funding priorities", keys: ["funding.focus_areas", "funding.geographic_focus", "funding.international_reach", "funding.funder_type"] },
   { section: "financial_capacity", label: "Financial capacity", keys: ["funding.total_assets", "funding.total_annual_giving", "funding.charitable_disbursements", "funding.grant_size_range", "funding.median_grant_size", "funding.grant_count_annual"] },
   { section: "recent_grants", label: "Recent grants", keys: ["funding.recent_grants"] },
-  { section: "eligibility", label: "Eligibility", keys: ["application.eligible_org_types", "application.foreign_org_eligibility", "application.fiscal_sponsorship_rules", "application.mission_alignment_requirement", "application.excluded_recipients", "application.prohibited_activities"] },
+  { section: "eligibility", label: "Eligibility", keys: ["application.eligible_org_types", "application.foreign_org_eligibility", "application.fiscal_sponsorship_rules", "application.mission_alignment_requirement", "application.excluded_recipients", "application.prohibited_activities", "funding.geographic_restriction"] },
   { section: "application_access", label: "Application access", keys: ["application.accepts_unsolicited", "application.invitation_mechanism", "application.submission_method", "application.deadline"] },
   { section: "leadership", label: "Leadership", keys: ["people.key_contacts"] },
 ] as const;
@@ -398,40 +406,100 @@ export type ResearchVerificationVerdict = (typeof RESEARCH_VERIFICATION_VERDICTS
 export const RESEARCH_PERIOD_VERDICTS = ["stated", "unverified", "not_applicable"] as const;
 export type ResearchPeriodVerdict = (typeof RESEARCH_PERIOD_VERDICTS)[number];
 
-// What Stage 5 checks. Verification costs a model call, so it is pointed at
-// the claims a fundraiser would actually act on or be embarrassed by --
-// identity, eligibility, restrictions, financial capacity, application
-// access, recent giving. Focus areas, funder type and geography are
-// deliberately excluded: they are numerous, low-stakes, and a wrong one
-// costs a wasted conversation rather than a wasted application.
-export const MATERIAL_CLAIM_KEYS = new Set<string>([
-  // Identity -- wrong here invalidates everything downstream
+// How each field may be used by a given consumer. Three states, chosen
+// because each is something code can act on:
+//
+//   required  must be approved and supported, or it is withheld
+//   advisory  may be used, labelled, and never presented as verified
+//   unused    excluded from this consumer entirely
+//
+// Materiality is a property of a claim FOR A USE, not of the claim alone.
+// The same key is graded differently by different consumers: key contacts
+// are context when planning an approach and material when addressing an
+// email. The previous single MATERIAL_CLAIM_KEYS set collapsed those into
+// one answer and so had to be wrong for at least one of them.
+//
+// Identity is deliberately not in here. It gates the RUN -- if we cannot say
+// which organization this is, no consumer gets anything, however well
+// evidenced the individual claims are. Grading it per-consumer would imply
+// a strategy could proceed on unidentified research.
+export const STRATEGY_FIELD_POLICIES = ["required", "advisory", "unused"] as const;
+export type StrategyFieldPolicy = (typeof STRATEGY_FIELD_POLICIES)[number];
+
+export const IDENTITY_GATE_KEYS = new Set<string>([
   "identity.legal_name",
   "identity.ein",
   "identity.location",
   "identity.website",
+]);
+
+// Strategy is currently the only implemented consumer, so this is the only
+// policy map. Ask-sizing and outreach get their own when they become real
+// consumers -- the notes below mark where they are already known to differ,
+// so the split is visible before it is built.
+export const STRATEGY_FIELD_POLICY: Record<string, StrategyFieldPolicy> = {
   // Eligibility -- whether we can apply at all
-  "application.eligible_org_types",
-  "application.foreign_org_eligibility",
-  "application.fiscal_sponsorship_rules",
-  "application.mission_alignment_requirement",
+  "application.eligible_org_types": "required",
+  "application.foreign_org_eligibility": "required",
+  "application.fiscal_sponsorship_rules": "required",
+  "application.mission_alignment_requirement": "required",
   // Restrictions -- what would disqualify us
-  "application.excluded_recipients",
-  "application.prohibited_activities",
-  // Financial capacity -- whether an ask of our size is plausible
-  "funding.total_assets",
-  "funding.total_annual_giving",
-  "funding.charitable_disbursements",
-  "funding.grant_size_range",
-  "funding.median_grant_size",
-  // Application access -- how and when to approach
-  "application.accepts_unsolicited",
-  "application.invitation_mechanism",
-  "application.submission_method",
-  "application.deadline",
-  // Recent giving -- evidence of actual behaviour
-  "funding.recent_grants",
-  "funding.grant_count_annual",
+  "application.excluded_recipients": "required",
+  "application.prohibited_activities": "required",
+  "funding.geographic_restriction": "required",
+  // Access -- whether and how an approach is even possible
+  "application.accepts_unsolicited": "required",
+  "application.invitation_mechanism": "required",
+  "application.deadline": "required",
+  // Capacity -- whether an ask of our size is plausible
+  "funding.total_assets": "required",
+  "funding.total_annual_giving": "required",
+  "funding.charitable_disbursements": "required",
+  "funding.median_grant_size": "required",
+  "funding.grant_size_range": "required",
+  // Channel -- wrong here means the whole approach is wrong, not just weaker
+  "funding.funder_type": "required",
+  "funding.international_reach": "required",
+
+  // Advisory -- shapes framing, cannot disqualify or mis-size an ask
+  "funding.focus_areas": "advisory",
+  "funding.geographic_focus": "advisory",
+  "funding.recent_grants": "advisory", // required for outreach: naming a real past grant
+  "funding.grant_count_annual": "advisory",
+  "funding.total_revenue": "advisory",
+  "funding.total_expenses": "advisory",
+  "funding.multiyear_grant_stats": "advisory",
+  "application.submission_method": "advisory", // required at proposal stage
+  "application.required_documents": "advisory",
+  "application.multiyear_grant_rules": "advisory",
+  "application.decision_timeframe": "advisory",
+  "people.key_contacts": "advisory", // required for outreach: addressing a person
+
+  // Unused -- contact data with no bearing on approach or sizing
+  "identity.phone": "unused",
+};
+
+// Identity keys answer "identity_gate" rather than a policy, because the
+// question "how may Strategy use this" does not apply to them.
+export function strategyFieldPolicy(claimKey: string): StrategyFieldPolicy | "identity_gate" {
+  if (IDENTITY_GATE_KEYS.has(claimKey)) return "identity_gate";
+  // An unmapped key is treated as advisory, never required: a claim key
+  // added to the vocabulary without a policy must not silently acquire the
+  // authority to size an ask. The test suite asserts the map is complete, so
+  // this is a safety net rather than a normal path.
+  return STRATEGY_FIELD_POLICY[claimKey] ?? "advisory";
+}
+
+// What Stage 5 checks: everything a consumer requires, plus identity.
+// Derived rather than listed, so verification coverage cannot drift away
+// from the policy that depends on it -- the previous hand-maintained set
+// verified submission_method and recent_grants while never verifying
+// funder_type, which no policy asked for either way.
+export const MATERIAL_CLAIM_KEYS = new Set<string>([
+  ...IDENTITY_GATE_KEYS,
+  ...Object.entries(STRATEGY_FIELD_POLICY)
+    .filter(([, policy]) => policy === "required")
+    .map(([key]) => key),
 ]);
 
 export function isMaterialClaimKey(claimKey: string): boolean {

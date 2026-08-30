@@ -31,9 +31,13 @@ const REVIEW_STATE: Record<IntelligenceReviewState, { label: string; tone: "teal
 const STRATEGY_USE: Record<StrategyUse, { label: string; tone: "teal" | "amber" | "red" | "neutral" }> = {
   in_strategy: { label: "In Strategy", tone: "teal" },
   ready_to_approve: { label: "Ready to approve", tone: "teal" },
+  // Enters as background, labelled unconfirmed. No decision is outstanding,
+  // so it must not be listed as though one were.
+  advisory_context: { label: "Context only", tone: "neutral" },
   approved_not_used: { label: "Approved · not used", tone: "amber" },
   held_back: { label: "Not used unless you resolve it", tone: "neutral" },
   not_verified: { label: "Not used — never checked", tone: "neutral" },
+  not_used_field: { label: "Not used for strategy", tone: "neutral" },
   excluded_by_you: { label: "Excluded by you", tone: "neutral" },
 };
 

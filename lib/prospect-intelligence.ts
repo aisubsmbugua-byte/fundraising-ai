@@ -3,6 +3,7 @@ import {
   APPROVED_FOR_DOWNSTREAM,
   hasStatedPeriod,
   isFinancialClaimKey,
+  strategyFieldPolicy,
   RESEARCH_INFORMATION_SECTIONS,
   type ResearchConfidence,
   type ResearchEntityValidationStatus,
@@ -36,11 +37,13 @@ export type IntelligenceReviewState = "verified" | "partial" | "interpretation" 
 // obligation into a much shorter list of genuine choices.
 export const STRATEGY_USE_STATES = [
   "in_strategy",
+  "advisory_context",
   "approved_not_used",
   "excluded_by_you",
   "ready_to_approve",
   "held_back",
   "not_verified",
+  "not_used_field",
 ] as const;
 export type StrategyUse = (typeof STRATEGY_USE_STATES)[number];
 
@@ -50,20 +53,36 @@ export type StrategyUse = (typeof STRATEGY_USE_STATES)[number];
 // diverged from the gate would be the same class of lie this whole change
 // is removing. Where they disagree, the UI now shows both.
 export function deriveStrategyUse(input: {
+  claimKey: string;
   decision: string | null;
   supported: boolean;
   // Whether verification reached this claim at all. Never checked and
   // checked-then-flagged both end up unused, but they are not the same
   // situation and a reviewer can only act usefully on the second.
   hasVerdict: boolean;
+  contradicted: boolean;
+  evidenceMissing: boolean;
   withheldReason: string | null;
 }): StrategyUse {
-  const { decision, supported, hasVerdict, withheldReason } = input;
+  const { claimKey, decision, supported, hasVerdict, contradicted, evidenceMissing, withheldReason } = input;
+  const policy = strategyFieldPolicy(claimKey);
+
+  if (policy === "unused") return "not_used_field";
   // Widened deliberately: this reads decision strings straight out of the
   // database, which is a text column, so a value the TS union does not know
   // about must fall through to "not approved" rather than fail to compile.
   if (decision && !(APPROVED_FOR_DOWNSTREAM as ReadonlySet<string>).has(decision)) return "excluded_by_you";
   if (decision) return withheldReason ? "approved_not_used" : "in_strategy";
+
+  // An advisory field needs no decision to be used, so it must not be listed
+  // as though one were outstanding -- that mislabelling is what made the
+  // queue look four times its real size. It is still excluded when the
+  // evidence contradicts it or there is no evidence at all.
+  if (policy === "advisory") {
+    if (contradicted || evidenceMissing) return "held_back";
+    return supported ? "ready_to_approve" : "advisory_context";
+  }
+
   if (supported) return "ready_to_approve";
   return hasVerdict ? "held_back" : "not_verified";
 }
@@ -225,9 +244,12 @@ export async function loadProspectIntelligence(
       confidence: c.confidence as ResearchConfidence,
       confidenceReason: (c.confidence_reason as string | null) ?? null,
       strategyUse: deriveStrategyUse({
+        claimKey: c.claim_key as string,
         decision: decision?.decision ?? null,
         supported: verdict?.verdict === "supported",
         hasVerdict: !!verdict,
+        contradicted: verdict?.verdict === "unsupported" || verdict?.verdict === "contradicted",
+        evidenceMissing: !!c.evidence_missing,
         withheldReason,
       }),
       withheldReason,
@@ -337,6 +359,13 @@ export type ApprovedClaim = {
   claimKey: string;
   claim: string;
   reportingPeriod: string | null;
+  // Advisory claims enter without individual approval, so they must never be
+  // readable as confirmed fact. The limitation travels WITH the claim rather
+  // than sitting in a heading above a list, because a model reading a block
+  // of bullets does not reliably carry a caveat from a header down to the
+  // twentieth line under it.
+  advisory: boolean;
+  limitation: string | null;
   // True when a person accepted this over the evidence -- their note travels
   // with it so a downstream reader knows it rests on human knowledge.
   humanOverride: boolean;
@@ -380,7 +409,7 @@ export async function loadApprovedIntelligence(
   if (!run || !run.dossier_confirmed) return null;
 
   const [{ data: claims }, { data: verifications }, { data: approvals }, { data: links }] = await Promise.all([
-    supabase.from("research_claims").select("id, claim_key, claim, reporting_period").eq("research_run_id", run.id),
+    supabase.from("research_claims").select("id, claim_key, claim, reporting_period, evidence_missing").eq("research_run_id", run.id),
     supabase.from("research_claim_verifications").select("claim_id, verdict, created_at").eq("research_run_id", run.id).order("created_at", { ascending: false }),
     supabase.from("research_claim_approvals").select("claim_id, decision, note, corrected_claim, created_at").eq("research_run_id", run.id).order("created_at", { ascending: false }),
     supabase.from("research_claim_sources").select("claim_id, research_sources(url, title)").eq("research_run_id", run.id),
@@ -413,10 +442,47 @@ export async function loadApprovedIntelligence(
   for (const c of claims ?? []) {
     const decision = decisionByClaim.get(c.id as string);
     // An explicit exclusion always wins, even over a clean verdict: a person
-    // who has seen a claim and rejected it outranks the check.
+    // who has seen a claim and rejected it outranks the check. It wins over
+    // the advisory path too -- a reviewer who rejected something must not
+    // see it reappear as "context".
     if (decision && !["approved", "approved_with_note", "corrected"].includes(decision.decision)) continue;
 
     const verified = verdictByClaim.get(c.id as string) === "supported";
+    const policy = strategyFieldPolicy(c.claim_key as string);
+    if (policy === "unused") continue;
+
+    // Advisory fields enter without individual approval, which is the whole
+    // point -- they were never verifiable in the first place, so demanding a
+    // decision on them produced a queue nobody could act on. Two limits keep
+    // that from becoming a channel for known-wrong content:
+    //
+    //   nothing the verifier CONTRADICTED gets in, at any label. "Advisory"
+    //   means unconfirmed, not disproven.
+    //
+    //   nothing with evidence_missing gets in. There is no captured source
+    //   behind it, so there is nothing for a limitation label to describe.
+    if (policy === "advisory" && !verified) {
+      const verdict = verdictByClaim.get(c.id as string);
+      if (c.evidence_missing) continue;
+      if (verdict && verdict !== "partially_supported") continue;
+
+      approved.push({
+        claimKey: c.claim_key as string,
+        claim: decision?.corrected || (c.claim as string),
+        reportingPeriod: (c.reporting_period as string | null) ?? null,
+        advisory: true,
+        limitation: decision
+          ? "accepted by a reviewer, not confirmed against evidence"
+          : verdict === "partially_supported"
+            ? "the evidence supports only part of this"
+            : "not checked against its evidence",
+        humanOverride: false,
+        overrideNote: decision?.note ?? null,
+        sources: sourcesByClaim.get(c.id as string) ?? [],
+      });
+      continue;
+    }
+
     if (!verified && !decision) continue;
 
     // An undated financial figure is withheld from strategy even when a
@@ -444,6 +510,8 @@ export async function loadApprovedIntelligence(
       claimKey: c.claim_key as string,
       claim: decision?.corrected || (c.claim as string),
       reportingPeriod: (c.reporting_period as string | null) ?? null,
+      advisory: false,
+      limitation: null,
       humanOverride: !verified,
       overrideNote: decision?.note ?? null,
       sources: sourcesByClaim.get(c.id as string) ?? [],
