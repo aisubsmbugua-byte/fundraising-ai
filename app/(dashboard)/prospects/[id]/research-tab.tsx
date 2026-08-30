@@ -48,6 +48,7 @@ export default function ResearchTab({
   workflow,
   lastCompletedAt,
   approvedClaimCount,
+  prospectEin,
 }: {
   prospectId: string;
   intelligence: ProspectIntelligence | null;
@@ -55,6 +56,9 @@ export default function ResearchTab({
   workflow: ProspectWorkflow;
   lastCompletedAt: string | null;
   approvedClaimCount: number;
+  // Stored on the prospect by a human confirming identity. Distinct from
+  // intelligence.confirmedEin, which is what a given RUN resolved to.
+  prospectEin: string | null;
 }) {
   // Kept, but collapsed and labelled: it predates entity checking and
   // verification, so presenting it beside verified intelligence without that
@@ -102,6 +106,10 @@ export default function ResearchTab({
   const identityUnresolved =
     intelligence.resolutionMethod === "unresolved" || intelligence.resolutionMethod === "ambiguous_filings";
   const blocked = intelligence.state === "blocked" || identityUnresolved;
+  // A person has since said who this is, but the run predates that. Not the
+  // same as "we don't know", and telling someone their confirmation never
+  // happened is how a working button reads as broken.
+  const identitySettledSince = blocked && !!prospectEin;
   const verifying = intelligence.verificationState === "pending" || intelligence.verificationState === "in_progress";
   const verifyFailed = intelligence.verificationState === "failed";
   const gaps = intelligence.sections.filter((s) => s.missing);
@@ -129,6 +137,7 @@ export default function ResearchTab({
           resolutionMethod={intelligence.resolutionMethod}
           candidates={intelligence.candidates}
           blocked={blocked}
+          savedEin={prospectEin}
         />
       )}
 
@@ -145,10 +154,12 @@ export default function ResearchTab({
 
       {/* The one thing to read first. A blocked dossier says so plainly
           rather than presenting facts that may describe another organization. */}
-      <div style={{ ...sectionStyle, borderLeft: `3px solid ${blocked ? colors.danger : verifying || verifyFailed ? "#b8860b" : gaps.length ? "#b8860b" : colors.text}` }}>
+      <div style={{ ...sectionStyle, borderLeft: `3px solid ${blocked ? (identitySettledSince ? "#b8860b" : colors.danger) : verifying || verifyFailed ? "#b8860b" : gaps.length ? "#b8860b" : colors.text}` }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>
           {blocked
-            ? "Identity not confirmed"
+            ? identitySettledSince
+              ? "Research is out of date"
+              : "Identity not confirmed"
             : verifying
               ? "Checking claims against their sources"
               : verifyFailed
@@ -159,7 +170,9 @@ export default function ResearchTab({
         </h3>
         <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
           {blocked
-            ? "Several organizations share this name and research could not tell which is meant. Everything below may describe a different organization — confirm the entity before relying on any of it."
+            ? identitySettledSince
+              ? "You confirmed this organization after the research below was gathered, so it may still describe a different one. Run research again and it will resolve to the saved EIN directly."
+              : "Several organizations share this name and research could not tell which is meant. Everything below may describe a different organization — confirm the entity before relying on any of it."
             : verifying
               ? "Research is complete and shown below. Each claim is being checked against the evidence it cites; review states will appear shortly."
               : verifyFailed
@@ -200,6 +213,7 @@ export default function ResearchTab({
           resolutionMethod={intelligence.resolutionMethod}
           candidates={intelligence.candidates}
           blocked={blocked}
+          savedEin={prospectEin}
         />
       )}
 

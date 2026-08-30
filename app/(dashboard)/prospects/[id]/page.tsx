@@ -157,23 +157,40 @@ export default async function ProspectDetailPage({
           a HUMAN decision, and a fundraiser may well know which foundation
           this is when our resolver could not tell from search results.
           Automated consumers (Strategy) are gated separately and strictly. */}
+      {/* Two different situations, and telling them apart is the whole point:
+          nobody has said who this is, versus somebody has and the research
+          predates it. The second used to render as the first, so a person who
+          had just confirmed the entity was told their work had not happened. */}
       {intelligence?.state === "blocked" && (
         <div
           style={{
             marginTop: spacing.md,
             padding: spacing.sm,
-            border: `1px solid ${colors.danger}`,
+            border: `1px solid ${prospect.ein ? "#b8860b" : colors.danger}`,
             borderRadius: 6,
             fontSize: 13,
             color: colors.text,
           }}
         >
-          <strong>Identity not confirmed.</strong> Research found more than one organization matching this name and
-          could not tell which is meant, so its findings may describe a different one.{" "}
-          <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: colors.danger }}>
-            Confirm the entity in Research
-          </Link>{" "}
-          before relying on this research or generating a strategy from it.
+          {prospect.ein ? (
+            <>
+              <strong>Research is out of date.</strong> You confirmed this organization as {prospect.ein} after this
+              research ran, so its findings may still describe a different one.{" "}
+              <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: "#8a6508" }}>
+                Run research again
+              </Link>{" "}
+              and it will resolve to that EIN directly.
+            </>
+          ) : (
+            <>
+              <strong>Identity not confirmed.</strong> Research found more than one organization matching this name and
+              could not tell which is meant, so its findings may describe a different one.{" "}
+              <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: colors.danger }}>
+                Confirm the entity in Research
+              </Link>{" "}
+              before relying on this research or generating a strategy from it.
+            </>
+          )}
         </div>
       )}
 
@@ -311,6 +328,7 @@ export default async function ProspectDetailPage({
                   workflow={workflow}
                   lastCompletedAt={workflow.lastCompletedAt}
                   approvedClaimCount={workflow.approvedClaimCount}
+                  prospectEin={prospect.ein}
                 />
               )}
               {activeTab === "strategy" && strategyRun?.strategy && !strategyRun.approved_intelligence_run_id && (
