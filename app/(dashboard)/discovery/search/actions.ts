@@ -274,7 +274,13 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
     const extractResponse = await anthropic.messages.create(
       {
         model: DRAFT_MODEL,
-        max_tokens: 2500,
+        // Raised with the capture contract: each candidate now also carries
+        // funder_name, opportunity_name and source_index. At 2500 the tool
+        // call truncated mid-JSON, which surfaced as
+        // "(_.input.candidates ?? []).filter is not a function" -- a partial
+        // tool input is not the array the schema promises. The Research
+        // Agent hit this same wall and the lesson had not been carried over.
+        max_tokens: 8000,
         tools: [
           {
             name: "submit_candidates",
@@ -342,9 +348,23 @@ ${findings || "(no findings)"}`,
       throw new Error("AI did not return a structured result. Try again.");
     }
 
-    const rawFound = ((toolUse.input as { candidates?: FoundCandidate[] }).candidates ?? []).filter(
-      (c) => c && c.name
-    );
+    // A truncated tool call yields a PARTIAL input object, so `candidates`
+    // may be a half-written string or absent entirely -- calling .filter on
+    // it threw a TypeError that told the user nothing. Say what actually
+    // happened instead, and name truncation when that is what it was.
+    const rawCandidates = (toolUse.input as { candidates?: unknown }).candidates;
+    if (!Array.isArray(rawCandidates)) {
+      console.error(
+        `[discovery-search] channel=${channel} malformed tool input: stop_reason=${extractResponse.stop_reason}, candidates=${typeof rawCandidates}`
+      );
+      throw new Error(
+        extractResponse.stop_reason === "max_tokens"
+          ? "The search found more than could be written out in one response. Try a narrower channel, or run it again."
+          : "The AI returned a result we could not read. Running the search again usually clears it."
+      );
+    }
+
+    const rawFound = (rawCandidates as FoundCandidate[]).filter((c) => c && c.name);
 
     // Attribute every candidate to a URL the search actually visited, and
     // classify that URL deterministically. A directory or news page is not
