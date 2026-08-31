@@ -107,7 +107,13 @@ async function main() {
   const tally = new Map<Gate, string[]>(GATES.map((g) => [g, [] as string[]]));
   let totalSpend = 0;
   let totalRuns = 0;
-  const rows: Array<{ name: string; gate: Gate; note: string; spend: number; runCount: number }> = [];
+  const rows: Array<{ name: string; gate: Gate; note: string; spend: number; runCount: number; ageDays: number }> = [];
+
+  // How long a prospect has been sitting at its gate. Without this, a
+  // backlog of prospects accepted yesterday and a prospect abandoned three
+  // months ago are the same row, and "never researched" reads as neglect
+  // when it may only mean "arrived last night".
+  const ageOf = (iso: string) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 86_400_000));
 
   for (const p of prospects) {
     const mine = (runsByProspect.get(p.id as string) ?? []) as NonNullable<typeof runs>;
@@ -154,7 +160,7 @@ async function main() {
     }
 
     tally.get(gate)!.push(p.name as string);
-    rows.push({ name: p.name as string, gate, note, spend, runCount: mine.length });
+    rows.push({ name: p.name as string, gate, note, spend, runCount: mine.length, ageDays: ageOf(p.created_at as string) });
   }
 
   console.log(`\n=== PIPELINE READINESS -- ${prospects.length} prospects, ${totalRuns} research runs ===\n`);
@@ -179,12 +185,34 @@ async function main() {
     `COST PER DELIVERED PROSPECT  ${delivered ? `$${(totalSpend / delivered).toFixed(2)}` : red("undefined -- nothing delivered")}`
   );
 
+  // Age at the gate, per gate. A gate holding only new arrivals is a queue;
+  // a gate holding month-old prospects is a blockage. The report must not
+  // let those look alike.
+  console.log("\nHOW LONG PROSPECTS HAVE WAITED AT THEIR GATE (days)");
+  for (const g of GATES) {
+    const at = rows.filter((r) => r.gate === g);
+    if (!at.length) continue;
+    const ages = at.map((r) => r.ageDays).sort((a, b) => a - b);
+    console.log(
+      `  ${g.padEnd(44)} n=${String(at.length).padStart(3)}  newest ${String(ages[0]).padStart(3)}d  median ${String(ages[Math.floor(ages.length / 2)]).padStart(3)}d  oldest ${String(ages[ages.length - 1]).padStart(3)}d`
+    );
+  }
+
   const reruns = rows.filter((r) => r.runCount > 1);
   if (reruns.length) {
-    const wasted = reruns.reduce((s, r) => s + r.spend, 0);
+    // NOT presented as waste. A heavily re-run prospect is usually a test
+    // fixture -- the way a change to the pipeline gets validated. That is a
+    // deliberate method, and reading it as failed retries would both slander
+    // the method and inflate the apparent cost of production research.
+    // What the number actually measures is how much of our validation loop
+    // is paid, live and non-deterministic rather than replayed from stored
+    // evidence (cf. scripts/replay-extraction.ts).
+    const onFixtures = reruns.reduce((s, r) => s + r.spend, 0);
     console.log(
-      `\nRE-RUNS  ${reruns.length} prospects were researched more than once ($${wasted.toFixed(2)} total on them).`
+      `\nRE-RUN PROSPECTS  ${reruns.length} researched more than once -- $${onFixtures.toFixed(2)} (${((onFixtures / totalSpend) * 100).toFixed(0)}% of spend).`
     );
+    console.log(dim("  Mostly test fixtures. This is the cost of validating changes against the live web"));
+    console.log(dim("  instead of against stored evidence -- the gap replay tooling closes."));
     for (const r of reruns.slice(0, 10)) {
       console.log(`  ${String(r.runCount).padStart(2)} runs  $${r.spend.toFixed(2).padStart(6)}  ${r.name.slice(0, 60)}`);
     }
