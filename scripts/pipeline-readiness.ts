@@ -37,6 +37,22 @@ const admin = createClient(url, key, { auth: { autoRefreshToken: false, persistS
 
 const detail = process.argv.includes("--detail");
 
+// "How is the platform performing right now" is a different question from
+// "what is in the pipeline", and mixing them produces a number that answers
+// neither. A prospect that arrived before the capture contract carries no
+// opportunity_name, source_domain or website -- so a resolver failure on it
+// says nothing about the resolver, only that it was handed nothing to
+// resolve with. Grading current behaviour on those inputs understates it;
+// grading it on the whole book hides it entirely.
+//
+// The cut is deliberately a property of the ROW, not a date. "Did this
+// prospect arrive with capture provenance" is the thing that actually
+// changes what the resolver sees; a cutoff date is a proxy for it that goes
+// wrong the moment a legacy row gets backfilled.
+const CURRENT_ONLY = process.argv.includes("--current");
+const arrivedThroughCurrentPipeline = (p: { source_domain: string | null; opportunity_name: string | null }) =>
+  Boolean(p.source_domain || p.opportunity_name);
+
 // The first gate a prospect fails, in blocking order. Named for what a
 // person would have to do next, not for the internal state -- "blocked on a
 // question only the user can answer" is actionable; "operating_identity_method
@@ -57,13 +73,30 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
 async function main() {
-  const { data: prospects, error: pErr } = await admin
+  const { data: allProspects, error: pErr } = await admin
     .from("prospects")
     .select("id, name, ein, website, opportunity_name, source_domain, created_at")
     .order("created_at", { ascending: true });
   if (pErr) throw pErr;
-  if (!prospects?.length) {
+  if (!allProspects?.length) {
     console.log("No prospects.");
+    return;
+  }
+
+  const current = allProspects.filter((p) =>
+    arrivedThroughCurrentPipeline(p as { source_domain: string | null; opportunity_name: string | null })
+  );
+  const prospects = CURRENT_ONLY ? current : allProspects;
+  console.log(
+    `\n${current.length} of ${allProspects.length} prospects arrived with capture provenance (current pipeline).` +
+      (CURRENT_ONLY ? " Reporting on those only." : " Reporting on all -- pass --current to isolate them.")
+  );
+  if (prospects.length === 0) {
+    console.log(
+      "\nNo prospect has yet been through the current pipeline end to end, so the platform's\n" +
+        "present performance is UNMEASURED. Past runs cannot stand in for it: they were handed\n" +
+        "inputs the current resolver was not designed around.\n"
+    );
     return;
   }
 
