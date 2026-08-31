@@ -348,3 +348,40 @@ export async function confirmProspectEin(prospectId: string, ein: string, predec
   revalidatePath(`/prospects/${prospectId}`);
   revalidatePath("/admin/research");
 }
+
+// Confirm WHICH ORGANIZATION this is, without claiming to know which
+// registered entity it is.
+//
+// The two-layer rule in practice: a person can recognise their funder's own
+// website at a glance and cannot be expected to recognise an EIN, so this is
+// the confirmation most users are actually able to give. It deliberately does
+// not write `ein` -- an operating confirmation is not evidence about a filing,
+// and quietly promoting one to the other is exactly the conflation the layers
+// exist to prevent.
+//
+// Writing `website` is not merely a record: it is the input the official-domain
+// path needs. Once set, the NEXT run can resolve the EIN deterministically from
+// a page on that host, so confirming the organization is what lets the system
+// settle the legal identity by itself instead of asking again.
+export async function confirmProspectOperatingIdentity(prospectId: string, domain: string) {
+  await requireUser();
+  const supabase = createClient();
+
+  const host = domain.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
+  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(host)) {
+    return { error: "That does not look like a website address." };
+  }
+
+  const { error } = await supabase
+    .from("prospects")
+    .update({ website: `https://${host}`, updated_at: new Date().toISOString() })
+    .eq("id", prospectId);
+  // Server Actions must return the failure, never throw it -- Next redacts a
+  // thrown message in production, so throwing here would show the user
+  // "An error occurred in the Server Components render" and nothing else.
+  if (error) return { error: error.message };
+
+  revalidatePath(`/prospects/${prospectId}`);
+  revalidatePath("/admin/research");
+  return { error: null };
+}

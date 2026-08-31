@@ -580,7 +580,16 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         // is the whole point: we know who they are, not yet which filing is
         // theirs, and the claims that need a filing stay withheld until it is.
         operating_identity_name: operatingLeader?.name ?? null,
-        operating_identity_method: operatingLeader ? "scored_match" : "unresolved",
+        // An operating candidate IS the funder's own site describing itself,
+        // so the organization is established rather than inferred from a
+        // comparison between filings. Recording both as "scored_match" would
+        // lose the distinction that decides whether the next run can settle
+        // the EIN by itself.
+        operating_identity_method: operatingLeader
+          ? operatingLeader.layer === "operating"
+            ? "official_opportunity_page"
+            : "scored_match"
+          : "unresolved",
         // Kept because the score is only meaningful against the candidate set
         // of this run, so what a person was shown cannot be recomputed later.
         operating_identity_evidence: operatingLeader?.evidence ?? null,

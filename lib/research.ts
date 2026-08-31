@@ -793,6 +793,61 @@ export function cleanEntityName(title: string | null | undefined): string | null
   return head;
 }
 
+// An organization's name, out of the page titles of its own website.
+//
+// cleanEntityName takes the HEAD of a title, which is right for a directory
+// page ("Maclellan Foundation Inc - ProPublica") and exactly wrong for the
+// organization's own site, where the head is the page and the org is the tail:
+// "Multi-Year Grant Request | Maclellan Foundation". Applying the directory
+// rule to a funder's own domain produced candidates named "Multi-Year Grant
+// Request" and "Welcome to the Stewardship Foundation" -- a page presented to
+// a user as an organization.
+//
+// The signal that actually identifies the site is REPETITION: a site puts its
+// own name in every page title and the page's own subject in none of the
+// others. So segment the titles and take what recurs, rather than guessing at
+// which end the name sits.
+const PAGE_TITLE_BOILERPLATE = /^(welcome\s+to\s+(the\s+)?|home\s*[-|:]\s*|about\s+(us\s*)?[-|:]\s*)/i;
+
+export function siteNameFromTitles(titles: (string | null)[], nameToken?: string | null): string | null {
+  const segmentsPerTitle = titles
+    .filter((t): t is string => Boolean(t))
+    .map((t) =>
+      t
+        .replace(PAGE_TITLE_BOILERPLATE, "")
+        .split(/\s*[|–—]\s*|\s+-\s+|\s*:\s+/)
+        .map((s) => s.trim())
+        .filter((s) => s.split(/\s+/).filter((w) => /[A-Za-z]{2}/.test(w)).length >= 2)
+    );
+
+  const titlesContaining = new Map<string, { count: number; display: string }>();
+  for (const segments of segmentsPerTitle) {
+    for (const seg of new Set(segments.map((s) => s.toLowerCase()))) {
+      const display = segments.find((s) => s.toLowerCase() === seg)!;
+      const prev = titlesContaining.get(seg);
+      titlesContaining.set(seg, { count: (prev?.count ?? 0) + 1, display: prev?.display ?? display });
+    }
+  }
+
+  const recurring = [...titlesContaining.values()]
+    .filter((v) => v.count > 1)
+    .sort((a, b) => b.count - a.count || a.display.length - b.display.length);
+  if (recurring.length > 0) return recurring[0].display;
+
+  // Nothing recurred -- a single captured page, usually. Fall back to the
+  // segment that carries the funder's distinctive token, shortest first: an
+  // organization's name is shorter than a sentence about it.
+  if (nameToken) {
+    const token = nameToken.toLowerCase();
+    const carrying = segmentsPerTitle
+      .flat()
+      .filter((s) => s.toLowerCase().includes(token))
+      .sort((a, b) => a.length - b.length);
+    if (carrying.length > 0) return carrying[0];
+  }
+  return null;
+}
+
 const US_STATES =
   "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC";
 
@@ -833,6 +888,38 @@ export function extractLocation(texts: string[]): string | null {
   return null;
 }
 
+// The state a location string refers to, however it was written.
+//
+// Exists because the two sides of the location comparison were produced by
+// different code and normalized differently. extractLocation always returns
+// an abbreviation ("Tacoma, WA"), while a prospect's stored location is
+// whatever a person or a search result wrote -- "Tacoma, Washington". The
+// comparison was `candidate.location.endsWith(prospectState)` where
+// prospectState came from an abbreviation-only regex, so a spelled-out state
+// yielded null and location was silently never scored. On the one prospect
+// to go through the current pipeline, the correct answer was the only
+// candidate in the prospect's own state and that signal contributed nothing.
+//
+// Comparing states rather than trailing substrings also removes a subtler
+// bug: "Springfield, MA".endsWith("MA") is true, and so is
+// "Tacoma".endsWith("MA").
+export function stateOf(location: string | null | undefined): string | null {
+  if (!location) return null;
+  const abbrev = location.match(new RegExp(`\\b(${US_STATES})\\b`));
+  if (abbrev) return abbrev[1];
+  const lower = location.toLowerCase();
+  // Longest first: "west virginia" must not be decided by "virginia".
+  for (const name of Object.keys(STATE_NAMES).sort((a, b) => b.length - a.length)) {
+    if (new RegExp(`\\b${name}\\b`).test(lower)) return STATE_NAMES[name];
+  }
+  return null;
+}
+
+export function sameState(a: string | null | undefined, b: string | null | undefined): boolean {
+  const sa = stateOf(a);
+  return sa !== null && sa === stateOf(b);
+}
+
 // ---------------------------------------------------------------------------
 // Identity scoring
 //
@@ -860,7 +947,6 @@ const STRUCTURAL_TOKENS = new Set([
   "national", "international", "global", "america", "american", "usa", "the", "and", "for", "of", "inc.",
 ]);
 
-const STRUCTURAL_TOKEN_WEIGHT = 0.25;
 const OPPORTUNITY_TOKEN_WEIGHT = 1.5;
 const ACRONYM_WEIGHT = 2.5;
 
@@ -1004,7 +1090,28 @@ export function extractOrgType(texts: string[]): string | null {
 }
 
 export type EntityCandidate = {
-  ein: string;
+  // Which identity question this candidate answers.
+  //
+  //   legal      -- an EIN. Answers "which registered entity is this".
+  //   operating  -- a domain. Answers "which organization is this".
+  //
+  // Both are real answers and they are not interchangeable. An organization
+  // publishes its name and its programmes on its own website and essentially
+  // never its EIN; a filing states an EIN and says nothing about what the
+  // organization is doing this year. Requiring an EIN before a source could
+  // become a candidate meant the funder's own website -- captured five times
+  // for Stewardship, seven for Discipleship, always classified
+  // official_domain_confirmed -- could not be chosen at all, and the resolver
+  // was left picking between whichever filings a directory happened to list.
+  layer: IdentityLayer;
+  // Null on an operating candidate. The whole point of the two layers is that
+  // an organization can be identified before its EIN is known.
+  ein: string | null;
+  // Set on an operating candidate: the host this identity was built from.
+  domain: string | null;
+  // Whatever identifies this candidate within its layer. Stable, so a caller
+  // can key on it without caring which layer produced it.
+  key: string;
   name: string | null;
   location: string | null;
   website: string | null;
@@ -1070,9 +1177,39 @@ export function buildEntityCandidates(input: {
     byEin.set(s.sourceEin, [...(byEin.get(s.sourceEin) ?? []), s]);
   }
 
-  const prospectState = prospectLocation?.match(new RegExp(`\\b(${US_STATES})\\b`))?.[1] ?? null;
+  // Sources that state no EIN, grouped by the host that served them. A host
+  // only qualifies if it plausibly belongs to the organization being
+  // researched -- it either IS the prospect's recorded website, or it carries
+  // a distinctive token of the prospect's name. Aggregators, directories and
+  // search engines are excluded outright.
+  //
+  // The name test is what keeps this from becoming a list of every site the
+  // run happened to open: grantstation.com, grantable.co and
+  // fconline.foundationcenter.org all served EIN-less pages about the
+  // Stewardship Foundation and none of them is the Stewardship Foundation.
+  // stewardshipfdn.org and umcdiscipleship.org both pass, which is the whole
+  // point.
+  const byDomain = new Map<string, typeof input.sources>();
+  for (const s of sources) {
+    if (s.sourceEin) continue;
+    let host: string;
+    try {
+      host = new URL(s.url).hostname.replace(/^www\./, "").toLowerCase();
+    } catch {
+      continue;
+    }
+    if (AGGREGATOR_DOMAINS.some((d) => host.includes(d))) continue;
+    if (SEARCH_DOMAINS.some((d) => host.includes(d))) continue;
+    const isProspectSite = prospectHost !== null && host === prospectHost;
+    const carriesName =
+      hostCarriesName(host, input.funderName) ||
+      hostCarriesName(host, nameToken) ||
+      hostCarriesAcronym(host, input.funderName);
+    if (!isProspectSite && !carriesName) continue;
+    byDomain.set(host, [...(byDomain.get(host) ?? []), s]);
+  }
 
-  return [...byEin.entries()].map(([ein, group]) => {
+  const legal = [...byEin.entries()].map(([ein, group]) => {
     const texts = group.flatMap((s) => [s.title ?? "", ...s.texts]).filter(Boolean);
     const name = group.map((s) => cleanEntityName(s.title)).find(Boolean) ?? null;
     // A filing address corroborates; it is never the location of record. An
@@ -1088,12 +1225,15 @@ export function buildEntityCandidates(input: {
     if (nameToken && name && name.toLowerCase().includes(nameToken.toLowerCase())) {
       whyMatch.push(`Name contains "${nameToken}"`);
     }
-    if (prospectState && location?.endsWith(prospectState)) whyMatch.push(`Same state as this prospect`);
+    if (sameState(location, prospectLocation)) whyMatch.push(`Same state as this prospect`);
     if (group.length > 1) whyMatch.push(`Appears in ${group.length} sources`);
 
     const attributeCount = [name, location, website, orgType].filter(Boolean).length;
     return {
+      layer: "legal" as const,
       ein,
+      domain: null,
+      key: ein,
       name,
       location,
       website,
@@ -1109,6 +1249,43 @@ export function buildEntityCandidates(input: {
       evidence: [],
     };
   });
+
+  const operating = [...byDomain.entries()].map(([host, group]) => {
+    const texts = group.flatMap((s) => [s.title ?? "", ...s.texts]).filter(Boolean);
+    // What recurs across this site's page titles -- see siteNameFromTitles.
+    // Never cleanEntityName, which would name the organization after whichever
+    // of its pages happened to be captured first.
+    const name = siteNameFromTitles(group.map((s) => s.title), nameToken);
+    const location = extractLocation(texts);
+    const orgType = extractOrgType(texts);
+
+    const whyMatch: string[] = [`Their own website (${host})`];
+    if (sameState(location, prospectLocation)) whyMatch.push("Same state as this prospect");
+    if (group.length > 1) whyMatch.push(`Appears in ${group.length} sources`);
+
+    return {
+      layer: "operating" as const,
+      ein: null,
+      domain: host,
+      key: host,
+      name,
+      location,
+      website: host,
+      orgType,
+      sourceCount: group.length,
+      status: group[0].status,
+      whyMatch,
+      // The domain itself is an identifying attribute, and a strong one -- it
+      // is the thing that will let the NEXT run resolve the EIN
+      // deterministically through the official-domain path.
+      attributeCount: [name, location, orgType].filter(Boolean).length + 1,
+      matchText: [name ?? "", ...texts].join(" "),
+      score: 0,
+      evidence: [],
+    };
+  });
+
+  return [...legal, ...operating];
 }
 
 // Points. Tuned so that a single decisive signal (the funder's own domain, an
@@ -1127,8 +1304,26 @@ const SCORE_MAX_SOURCE_BONUS = 1;
 // A leader must clear both. Either alone is insufficient: a high score with a
 // close second is a coin flip between two plausible organizations, and a wide
 // margin over nothing much is one weak candidate in an empty field.
-export const MIN_LEADER_SCORE = 3;
-export const MIN_LEADER_MARGIN = 1.5;
+//
+// Both are FRACTIONS, not point totals, because a score has no fixed scale.
+// It is a sum over the signals this particular prospect happens to carry, so
+// its maximum moves with the name. "The Stewardship Foundation" contributes
+// exactly one distinctive token, no initialism and no programme name; its
+// arithmetic ceiling was about 2 against an absolute threshold of 3, so it
+// could not have been resolved by any evidence whatsoever. Meanwhile
+// "Assemblies of God World Missions -- Unreached People Groups Fund" clears 3
+// on name overlap alone. An absolute cut therefore did not measure confidence,
+// it measured how many words were in the funder's name -- and it failed in the
+// direction that looks responsible, which is why it survived review.
+export const MIN_LEADER_SCORE_FRACTION = 0.45;
+export const MIN_LEADER_MARGIN_FRACTION = 0.35;
+
+// Below this, the prospect carries too little distinguishing information for
+// any fraction of it to mean anything -- 60% of almost nothing is still almost
+// nothing. This is the one absolute floor, and it applies to what we HOLD
+// rather than to what a candidate scored, which is the distinction the old
+// threshold collapsed.
+export const MIN_ACHIEVABLE_SIGNAL = 3;
 
 export type EntityRanking = {
   ranked: EntityCandidate[];
@@ -1137,6 +1332,16 @@ export type EntityRanking = {
   // True only when the leader clears both thresholds. False means abstain --
   // fall through to the candidate list or a clarifying question.
   confident: boolean;
+  // The best score this prospect's signals could possibly produce, for a
+  // hypothetical candidate that matched every one of them. Reported so a
+  // person (or explain-entity-resolution) can see that a leader scoring 1.6
+  // out of a possible 2.1 is strong, while 1.6 out of 9 is not -- the raw
+  // number cannot distinguish those and the old threshold treated them alike.
+  achievable: number;
+  // Why the resolver abstained, in the terms a reader can act on. Empty when
+  // confident. Never "several organizations share this name" unless that is
+  // literally what the ranking showed.
+  abstainReasons: string[];
 };
 
 // Score every candidate against everything known, then decide whether the
@@ -1159,18 +1364,27 @@ export function scoreEntityCandidates(
       return null;
     }
   })();
-  const prospectState = known.prospectLocation?.match(new RegExp(`\\b(${US_STATES})\\b`))?.[1] ?? null;
-
   // Discrimination is measured over everything captured about the candidates
   // actually on offer, not just their names.
   const idf = tokenDiscrimination(candidates.map((c) => `${c.name ?? ""} ${c.matchText ?? ""}`));
 
   // Every token we hold, each with how much it ought to matter before
   // discrimination is applied.
+  //
+  // Structural tokens are dropped outright rather than down-weighted. IDF
+  // rewards rarity, and a stopword that is rare among the CANDIDATE names
+  // scores as highly distinctive however common it is in English: on the
+  // Stewardship run "the" measured 1.386 against "stewardship" at 0.470,
+  // making it the most discriminating token in the whole ranking. A small
+  // weight only shrank that; it still moved the score and it still reached
+  // the user, who was told the evidence for their funder's identity was
+  // "Their material mentions 'the'". A word that cannot identify anybody
+  // should contribute nothing, not a little.
   const weights = new Map<string, number>();
   const add = (text: string | null | undefined, weight: number) => {
     for (const t of identityTokens(text)) {
-      weights.set(t, Math.max(weights.get(t) ?? 0, STRUCTURAL_TOKENS.has(t) ? STRUCTURAL_TOKEN_WEIGHT : weight));
+      if (STRUCTURAL_TOKENS.has(t)) continue;
+      weights.set(t, Math.max(weights.get(t) ?? 0, weight));
     }
   };
   add(known.prospectName, 1);
@@ -1247,15 +1461,26 @@ export function scoreEntityCandidates(
       score += SCORE_AFFILIATED_DOMAIN;
       evidence.push(`Found on an affiliated site (${known.captureDomain})`);
     }
-    if (prospectHost && c.website === prospectHost) {
+    // An operating candidate IS a website that carries this organization's
+    // name, which is the strongest single signal available for "which
+    // organization" -- so it is credited here rather than left to the
+    // capture-domain branch above, which only ever looks at where Donor
+    // Finder found the prospect. Guarded against also firing below, so the
+    // funder's own site is worth four points and not eight.
+    const ownSite = c.layer === "operating" || (prospectHost !== null && c.website === prospectHost);
+    if (ownSite) {
       score += SCORE_OFFICIAL_DOMAIN;
-      evidence.push("Listed on this prospect's own website");
+      evidence.push(
+        c.layer === "operating"
+          ? `Their own website (${c.domain})${c.sourceCount > 1 ? `, captured ${c.sourceCount} times` : ""}`
+          : "Listed on this prospect's own website"
+      );
     }
 
     // 5. Location. Corroboration only, and never subtractive: a filing address
     //    can differ from where an organization actually operates, so a
     //    mismatch is uninformative rather than disqualifying.
-    if (prospectState && c.location?.endsWith(prospectState)) {
+    if (sameState(c.location, known.prospectLocation)) {
       score += SCORE_LOCATION_CORROBORATION;
       evidence.push(`Based in ${c.location}, matching this prospect`);
     }
@@ -1270,12 +1495,60 @@ export function scoreEntityCandidates(
     return { ...c, score: Math.round(score * 100) / 100, evidence };
   });
 
+  // What a perfect candidate could have scored on this prospect's signals --
+  // every token in its registered name, the initialism, the programme, its own
+  // domain, the right state, corroborated more than once. Built from the same
+  // constants the scorer uses, so a new signal cannot be added to one and
+  // forgotten in the other.
+  const achievable =
+    [...weights.entries()].reduce((sum, [t, w]) => sum + w * Math.max(idf(t), 0), 0) +
+    acronyms.reduce((sum, a) => {
+      const df = candidates.filter((o) => nameYieldsAcronym(o.name, a)).length;
+      return sum + ACRONYM_WEIGHT * Math.max(Math.log((candidates.length + 1) / (df + 1)), 0);
+    }, 0) +
+    (known.opportunityName ? SCORE_EXACT_OPPORTUNITY : 0) +
+    SCORE_OFFICIAL_DOMAIN +
+    (stateOf(known.prospectLocation) ? SCORE_LOCATION_CORROBORATION : 0) +
+    SCORE_MAX_SOURCE_BONUS;
+
   const ranked = [...scored].sort((a, b) => b.score - a.score || b.attributeCount - a.attributeCount);
   const leader = ranked[0] ?? null;
   const margin = leader ? leader.score - (ranked[1]?.score ?? 0) : 0;
-  const confident = !!leader && leader.score >= MIN_LEADER_SCORE && margin >= MIN_LEADER_MARGIN;
 
-  return { ranked, leader, margin: Math.round(margin * 100) / 100, confident };
+  const abstainReasons: string[] = [];
+  if (!leader) {
+    abstainReasons.push("No candidate could be built from the sources captured.");
+  } else {
+    if (achievable < MIN_ACHIEVABLE_SIGNAL) {
+      abstainReasons.push(
+        `Too little distinguishing information about this funder to identify it: everything known adds up to ${achievable.toFixed(1)}, below the ${MIN_ACHIEVABLE_SIGNAL} needed.`
+      );
+    }
+    if (leader.score < MIN_LEADER_SCORE_FRACTION * achievable) {
+      abstainReasons.push(
+        `The best match accounts for only ${Math.round((leader.score / achievable) * 100)}% of what is known about this funder.`
+      );
+    }
+    if (margin < MIN_LEADER_MARGIN_FRACTION * leader.score) {
+      // Deliberately names the runner-up. "Several organizations share this
+      // name" was both vague and usually false -- what is actually true is
+      // that two specific candidates scored too close together.
+      abstainReasons.push(
+        ranked[1]
+          ? `"${leader.name ?? "the leading candidate"}" and "${ranked[1].name ?? "the runner-up"}" scored too close together (${leader.score} vs ${ranked[1].score}) to tell apart.`
+          : "Only one candidate was found, with nothing to compare it against."
+      );
+    }
+  }
+
+  return {
+    ranked,
+    leader,
+    margin: Math.round(margin * 100) / 100,
+    confident: abstainReasons.length === 0,
+    achievable: Math.round(achievable * 100) / 100,
+    abstainReasons,
+  };
 }
 
 // What may actually be shown. Everything else stays in the audit view, where

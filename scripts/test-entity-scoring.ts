@@ -22,6 +22,8 @@ import {
   identityTokens,
   nameYieldsAcronym,
   scoreEntityCandidates,
+  sameState,
+  siteNameFromTitles,
   tokenDiscrimination,
   claimRequiresLegalEntity,
   type EntityCandidate,
@@ -43,11 +45,35 @@ function check(label: string, actual: unknown, expected: unknown) {
 
 function candidate(over: Partial<EntityCandidate> & { ein: string; name: string }): EntityCandidate {
   return {
+    layer: "legal",
+    domain: null,
+    key: over.ein,
     location: null,
     website: null,
     orgType: null,
     sourceCount: 1,
     status: null,
+    whyMatch: [],
+    attributeCount: 2,
+    matchText: over.name,
+    score: 0,
+    evidence: [],
+    ...over,
+  };
+}
+
+// An organization identified by its own website, with no EIN anywhere. The
+// case the resolver could not previously represent at all.
+function operatingCandidate(over: Partial<EntityCandidate> & { domain: string; name: string }): EntityCandidate {
+  return {
+    layer: "operating",
+    ein: null,
+    key: over.domain,
+    location: null,
+    website: over.domain,
+    orgType: null,
+    sourceCount: 1,
+    status: "official_domain_confirmed",
     whyMatch: [],
     attributeCount: 2,
     matchText: over.name,
@@ -203,6 +229,126 @@ check("the legal name does too", claimRequiresLegalEntity("identity.legal_name")
 check("a published deadline does not", claimRequiresLegalEntity("application.deadline"), false);
 check("a geographic restriction does not", claimRequiresLegalEntity("funding.geographic_restriction"), false);
 check("focus areas do not", claimRequiresLegalEntity("funding.focus_areas"), false);
+
+// ---------------------------------------------------------------------------
+// Operating candidates -- an organization identified by its own website
+//
+// The real Stewardship Foundation case, reduced. The funder's own domain was
+// captured five times and classified official_domain_confirmed on every one,
+// and could not become a candidate because an organization does not publish
+// its EIN. The resolver was left choosing between whichever filings a
+// directory happened to list, and abstained -- correctly, on a candidate set
+// that could not contain the answer.
+// ---------------------------------------------------------------------------
+
+const STEWARDSHIP = [
+  operatingCandidate({ domain: "stewardshipfdn.org", name: "Stewardship Foundation", sourceCount: 5, attributeCount: 3 }),
+  candidate({ ein: "91-6020515", name: "Stewardship Foundation", location: "Tacoma, WA", sourceCount: 4, attributeCount: 3 }),
+  candidate({ ein: "33-0273191", name: "Stewardship Foundation", sourceCount: 2 }),
+  candidate({ ein: "94-3375380", name: "Environmental Stewardship Foundation" }),
+  candidate({ ein: "87-2557013", name: "Hansen Stewardship Foundation" }),
+  // Present in the real run, and load-bearing here: without a candidate that
+  // does NOT say "stewardship", the token appears in every name, its
+  // discriminating power is correctly zero, and nothing scores on the name at
+  // all. Keeping it makes this set behave like the live one.
+  candidate({ ein: "59-3071337", name: "Stewards Foundation INC" }),
+];
+const stewardship = scoreEntityCandidates(STEWARDSHIP, {
+  prospectName: "The Stewardship Foundation",
+  funderName: "The Stewardship Foundation",
+  prospectWebsite: "https://stewardshipfdn.org",
+  prospectLocation: "Tacoma, Washington",
+});
+check("the funder's own website wins over lookalike filings", stewardship.leader?.domain, "stewardshipfdn.org");
+check("and that is a confident answer", stewardship.confident, true);
+// The whole point of two layers: knowing the organization is not knowing the
+// filing. Auto-confirming the EIN here would be the unsafe answer wearing the
+// safe one's clothes.
+check("without claiming to know the EIN", stewardship.leader?.ein, null);
+check("the legal layer is still offered, ranked below", stewardship.ranked[1]?.ein, "91-6020515");
+
+// A prospect whose name is one distinctive token could never reach an absolute
+// threshold of 3, however good the evidence -- so the old gate measured name
+// length, not confidence.
+check("a two-word funder can now be resolved at all", stewardship.leader!.score >= 0.45 * stewardship.achievable, true);
+
+// ---------------------------------------------------------------------------
+// Structural tokens decide nothing
+// ---------------------------------------------------------------------------
+
+// "the" measured 1.386 on the real run against "stewardship" at 0.470: rare
+// among candidate NAMES, therefore scored as highly distinctive. It reached
+// the user as "Their material mentions 'the'".
+const allEvidence = stewardship.ranked.flatMap((c) => c.evidence).join(" ");
+check("\"the\" never appears as evidence", /"the"/.test(allEvidence), false);
+check("nor does \"foundation\"", /"foundation"/.test(allEvidence), false);
+check("the distinctive token still does", /"stewardship"/.test(allEvidence), true);
+
+// ---------------------------------------------------------------------------
+// Location, however it was written
+// ---------------------------------------------------------------------------
+
+// extractLocation always yields "Tacoma, WA"; a prospect's stored location is
+// whatever a person typed. The old comparison was endsWith() against an
+// abbreviation-only regex, so a spelled-out state silently scored nothing.
+check("Washington matches WA", sameState("Tacoma, WA", "Tacoma, Washington"), true);
+check("and WA matches Washington", sameState("Seattle, Washington", "Spokane, WA"), true);
+check("West Virginia is not Virginia", sameState("Charleston, WV", "Richmond, Virginia"), false);
+check("a city ending in a state's letters is not that state", sameState("Tacoma", "Boston, MA"), false);
+check("no location is not a match", sameState(null, "Tacoma, WA"), false);
+const located = stewardship.ranked.find((c) => c.ein === "91-6020515");
+check("the filing's state now corroborates", located!.evidence.some((e) => e.includes("Tacoma")), true);
+
+// ---------------------------------------------------------------------------
+// An organization is named by what recurs across its pages
+// ---------------------------------------------------------------------------
+
+// Taking the head of a title is right for a directory ("Maclellan Foundation
+// Inc - ProPublica") and exactly wrong for the funder's own site, where the
+// head is the page: candidates arrived named "Multi-Year Grant Request".
+check(
+  "the recurring segment is the organization",
+  siteNameFromTitles(["Multi-Year Grant Request | Maclellan Foundation", "Grants | Maclellan Foundation"]),
+  "Maclellan Foundation"
+);
+check(
+  "page-title boilerplate is not a name",
+  siteNameFromTitles(["Welcome to the Stewardship Foundation"], "stewardship"),
+  "Stewardship Foundation"
+);
+check(
+  "a page whose subject is not the funder yields nothing",
+  siteNameFromTitles(["Grants Available for Local Churches"], "discipleship"),
+  null
+);
+
+// ---------------------------------------------------------------------------
+// Abstention still holds, and now says why
+// ---------------------------------------------------------------------------
+
+check("an abstention names its reason", tied.abstainReasons.length > 0, true);
+
+// The real Maclellan v23 shape: two candidates that both score well and score
+// close. This is what the copy "several organizations share this name" was
+// standing in for -- and it was usually false, because what is actually
+// ambiguous is two specific candidates, not a name.
+const NEAR = [
+  operatingCandidate({ domain: "maclellan.net", name: "Maclellan Foundation", sourceCount: 3, attributeCount: 3 }),
+  candidate({ ein: "62-6045999", name: "The Maclellan Foundation Inc", location: "Chattanooga, TN", website: "maclellan.net", sourceCount: 3, attributeCount: 3 }),
+  candidate({ ein: "23-7412370", name: "Christian Education Charitable Trust" }),
+];
+const near = scoreEntityCandidates(NEAR, {
+  prospectName: "Maclellan Foundation",
+  prospectWebsite: "https://maclellan.net",
+  prospectLocation: "Chattanooga, TN",
+});
+check("two strong close candidates abstain", near.confident, false);
+check(
+  "and the reason names both, not \"several organizations\"",
+  near.abstainReasons.some((r) => r.includes("scored too close together") && r.includes("Maclellan")),
+  true
+);
+check("a confident result gives no reasons", stewardship.abstainReasons, []);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

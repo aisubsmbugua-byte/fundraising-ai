@@ -25,8 +25,8 @@ import {
   acronymsIn,
   tokenDiscrimination,
   classifySourceDomain,
-  MIN_LEADER_SCORE,
-  MIN_LEADER_MARGIN,
+  MIN_LEADER_SCORE_FRACTION,
+  MIN_LEADER_MARGIN_FRACTION,
   MIN_CANDIDATE_ATTRIBUTES,
 } from "../lib/research";
 
@@ -156,28 +156,38 @@ async function main() {
     captureDomain: (p.source_domain as string | null) ?? null,
   });
 
-  console.log(`\nRANKING  (${candidates.length} candidates)`);
+  const legalCount = candidates.filter((c) => c.layer === "legal").length;
+  const operatingCount = candidates.filter((c) => c.layer === "operating").length;
+  console.log(`\nRANKING  (${candidates.length} candidates: ${legalCount} legal/EIN, ${operatingCount} operating/domain)`);
   for (const c of ranking.ranked) {
-    console.log(`  ${c.score.toFixed(2).padStart(6)}  ${c.name ?? "(unnamed)"}  [${c.ein}]  attrs=${c.attributeCount}${c.attributeCount < MIN_CANDIDATE_ATTRIBUTES ? " (below display floor)" : ""}`);
+    const id = c.layer === "operating" ? c.domain : c.ein;
+    console.log(
+      `  ${c.score.toFixed(2).padStart(6)}  ${c.name ?? "(unnamed)"}  [${c.layer}: ${id}]  attrs=${c.attributeCount}${c.attributeCount < MIN_CANDIDATE_ATTRIBUTES ? " (below display floor)" : ""}`
+    );
     for (const e of c.evidence) console.log(`          - ${e}`);
     if (c.evidence.length === 0) console.log("          - nothing scored");
   }
 
+  // Reported as a fraction of what was achievable, because that is what the
+  // threshold now tests. A raw score cannot be judged without knowing the
+  // ceiling: 1.6 out of 2.1 is a strong match and 1.6 out of 9 is not.
   console.log(`\nVERDICT`);
   console.log(`  leader     ${ranking.leader?.name ?? "(none)"}`);
-  console.log(`  score      ${ranking.leader?.score ?? 0} (needs >= ${MIN_LEADER_SCORE})`);
-  console.log(`  margin     ${ranking.margin} (needs >= ${MIN_LEADER_MARGIN})`);
+  console.log(`  achievable ${ranking.achievable}  (the most this prospect's signals could score)`);
+  console.log(
+    `  score      ${ranking.leader?.score ?? 0} = ${Math.round(((ranking.leader?.score ?? 0) / (ranking.achievable || 1)) * 100)}% of achievable (needs >= ${MIN_LEADER_SCORE_FRACTION * 100}%)`
+  );
+  console.log(
+    `  margin     ${ranking.margin} = ${Math.round((ranking.margin / (ranking.leader?.score || 1)) * 100)}% of the leader (needs >= ${MIN_LEADER_MARGIN_FRACTION * 100}%)`
+  );
   console.log(`  confident  ${ranking.confident}`);
   if (!ranking.confident) {
-    const reasons: string[] = [];
-    if (!ranking.leader) reasons.push("no candidates were built at all");
-    else {
-      if (ranking.leader.score < MIN_LEADER_SCORE) reasons.push(`leader scored ${ranking.leader.score}, below ${MIN_LEADER_SCORE}`);
-      if (ranking.margin < MIN_LEADER_MARGIN) reasons.push(`margin ${ranking.margin} below ${MIN_LEADER_MARGIN}`);
-    }
-    if (!p.opportunity_name) reasons.push("opportunity_name MISSING -- the programme name could not be scored");
-    if (!p.source_domain) reasons.push("source_domain MISSING -- capture provenance could not be scored");
-    console.log(`  because:   ${reasons.join("\n             ")}`);
+    // The resolver's own words, not a second explanation computed here. Two
+    // explanations of one decision drift, and the user-facing one is the one
+    // that matters -- so this prints exactly what they would be shown.
+    for (const r of ranking.abstainReasons) console.log(`  because:   ${r}`);
+    if (!p.opportunity_name) console.log(`  note:      opportunity_name MISSING -- the programme name could not be scored`);
+    if (!p.source_domain) console.log(`  note:      source_domain MISSING -- capture provenance could not be scored`);
   }
   console.log("");
 }

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { clearProspectEin, confirmProspectEin, saveIdentityClue } from "../actions";
+import { clearProspectEin, confirmProspectEin, confirmProspectOperatingIdentity, saveIdentityClue } from "../actions";
 import { buttonPrimary, buttonSecondary, chipStyle, colors, fieldStyle, labelStyle, sectionStyle, spacing } from "@/lib/ui";
 import type { EntityCandidate } from "@/lib/research";
 
@@ -46,7 +46,12 @@ export default function EntityResolver({
   // margin. Null means it abstained and the list below is still the answer.
   operatingIdentity: {
     name: string | null;
-    ein: string;
+    // Null when the organization was identified by its own website rather than
+    // by a filing. That is a complete answer to "which organization", and the
+    // UI must not treat it as a half-answer -- it is the case where the user
+    // can actually recognise what they are being shown.
+    ein: string | null;
+    domain?: string | null;
     evidence: string[];
   } | null;
   blocked: boolean;
@@ -77,12 +82,33 @@ export default function EntityResolver({
   // One writer for the confirm, used by the leading-candidate button and by
   // every row in the list. Two copies of this would eventually disagree about
   // what a confirmation means -- which predecessors it records, in particular.
+  // Confirming the ORGANIZATION, when what we hold is its website rather than
+  // a filing. Writes the domain, never an EIN -- see
+  // confirmProspectOperatingIdentity for why the two must not be conflated.
+  function saveOperating(domain: string) {
+    setError(null);
+    setSavingEin(domain);
+    startTransition(async () => {
+      const result = await confirmProspectOperatingIdentity(prospectId, domain);
+      if (result?.error) {
+        setError(result.error);
+        setSavingEin(null);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   function save(ein: string) {
     setError(null);
     setSavingEin(ein);
     startTransition(async () => {
       try {
-        await confirmProspectEin(prospectId, ein, merged ? candidates.filter((o) => o.ein !== ein).map((o) => o.ein) : []);
+        await confirmProspectEin(
+          prospectId,
+          ein,
+          merged ? candidates.filter((o) => o.ein && o.ein !== ein).map((o) => o.ein as string) : []
+        );
         // revalidatePath marks the cache stale but does not re-render a client
         // component's server-supplied props, so without this the picker stays
         // put and the click looks broken.
@@ -166,9 +192,17 @@ export default function EntityResolver({
               type="button"
               disabled={savingEin !== null}
               style={buttonPrimary}
-              onClick={() => save(operatingIdentity.ein)}
+              onClick={() =>
+                operatingIdentity.ein
+                  ? save(operatingIdentity.ein)
+                  : operatingIdentity.domain && saveOperating(operatingIdentity.domain)
+              }
             >
-              {savingEin === operatingIdentity.ein ? "Confirming..." : "Confirm this is the right entity"}
+              {savingEin !== null && savingEin === (operatingIdentity.ein ?? operatingIdentity.domain)
+                ? "Confirming..."
+                : operatingIdentity.ein
+                  ? "Confirm this is the right entity"
+                  : "Confirm this is the right organization"}
             </button>
             <button type="button" style={buttonSecondary} onClick={() => setShowAllCandidates((v) => !v)}>
               {showAllCandidates ? "Hide other candidates" : "Not this one"}
@@ -219,11 +253,14 @@ export default function EntityResolver({
 
           <div style={{ display: "grid", gap: spacing.sm }}>
             {candidates.map((c) => {
-              const saving = savingEin === c.ein;
+              // Keyed on the candidate's own identity key, not its EIN: an
+              // operating candidate has no EIN, and keying on it would collapse
+              // every such row onto the same React key and the same spinner.
+              const saving = savingEin === c.key;
               const otherSaving = savingEin !== null && !saving;
               return (
                 <div
-                  key={c.ein}
+                  key={c.key}
                   style={{
                     border: `1px solid ${colors.border}`,
                     borderRadius: 6,
@@ -243,7 +280,10 @@ export default function EntityResolver({
                     <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
                       {[c.location, c.orgType, c.name ? c.website : null].filter(Boolean).join(" · ")}
                     </div>
-                    {(c.name || c.website) && (
+                    {/* Only a legal candidate has an EIN to print. An operating
+                        candidate is identified by its website, which is already
+                        shown above -- printing "EIN null" would invent a fact. */}
+                    {c.ein && (c.name || c.website) && (
                       <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 2, fontFamily: "monospace" }}>EIN {c.ein}</div>
                     )}
                     {c.whyMatch.length > 0 && (
@@ -255,14 +295,18 @@ export default function EntityResolver({
                     disabled={savingEin !== null}
                     style={{ ...buttonSecondary, padding: "4px 10px", fontSize: 12, alignSelf: "center", minWidth: 84 }}
                     onClick={() => {
+                      if (!c.ein) {
+                        if (c.domain) saveOperating(c.domain);
+                        return;
+                      }
                       setError(null);
-                      setSavingEin(c.ein);
+                      setSavingEin(c.key);
                       startTransition(async () => {
                         try {
                           await confirmProspectEin(
                             prospectId,
-                            c.ein,
-                            merged ? candidates.filter((o) => o.ein !== c.ein).map((o) => o.ein) : []
+                            c.ein as string,
+                            merged ? candidates.filter((o) => o.ein && o.ein !== c.ein).map((o) => o.ein as string) : []
                           );
                           // revalidatePath marks the cache stale but does not
                           // re-render a client component's server-supplied

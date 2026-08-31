@@ -155,12 +155,24 @@ export type ProspectIntelligence = {
   // presented as one.
   operatingIdentity: {
     name: string | null;
-    ein: string;
+    // Null when the organization was established from its own website. That is
+    // the two-layer rule doing its job, not a missing value: we know which
+    // organization this is and we do not yet know which filing speaks for it.
+    ein: string | null;
+    domain: string | null;
     method: OperatingIdentityMethod;
     evidence: string[];
     score: number;
     margin: number;
+    // What the leader scored out of what this prospect's signals could have
+    // produced. A bare score is unreadable -- 1.6 is strong out of 2.1 and
+    // weak out of 9 -- and the old absolute threshold could not tell them
+    // apart either.
+    achievable: number;
   } | null;
+  // Why the resolver declined to name an organization, in terms a reader can
+  // act on. Empty when it did name one.
+  identityAbstainReasons: string[];
   sections: IntelligenceSection[];
   missingSections: string[];
   // Signals that this organization may not be a going concern. Reported, not
@@ -411,12 +423,20 @@ export async function loadProspectIntelligence(
         ? {
             name: ranking.leader.name,
             ein: ranking.leader.ein,
-            method: "scored_match" as OperatingIdentityMethod,
+            domain: ranking.leader.domain,
+            // An operating candidate IS the funder's own site describing
+            // itself, so the organization is established rather than inferred
+            // -- a stronger method than winning a comparison between filings.
+            method: (ranking.leader.layer === "operating"
+              ? "official_opportunity_page"
+              : "scored_match") as OperatingIdentityMethod,
             evidence: ranking.leader.evidence,
             score: ranking.leader.score,
             margin: ranking.margin,
+            achievable: ranking.achievable,
           }
         : null,
+    identityAbstainReasons: ranking.abstainReasons,
     sections,
     missingSections,
     // Computed from the raw rows rather than the shaped claims: reporting
