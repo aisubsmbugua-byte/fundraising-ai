@@ -167,7 +167,7 @@ export default async function ProspectDetailPage({
           style={{
             marginTop: spacing.md,
             padding: spacing.sm,
-            border: `1px solid ${prospect.ein ? "#b8860b" : colors.danger}`,
+            border: `1px solid ${prospect.ein || intelligence.operatingIdentity ? "#b8860b" : colors.danger}`,
             borderRadius: 6,
             fontSize: 13,
             color: colors.text,
@@ -182,10 +182,25 @@ export default async function ProspectDetailPage({
               </Link>{" "}
               and it will resolve to that EIN directly.
             </>
+          ) : intelligence.operatingIdentity ? (
+            // The organization IS established -- by its own website, which is
+            // a complete answer to "who is this" and no answer at all to
+            // "which filing is theirs". Saying "identity not confirmed" here
+            // contradicted the strong match shown one tab across, and told a
+            // reader to go and supply something the system already knew.
+            <>
+              <strong>Organization identified.</strong> The research below describes{" "}
+              {intelligence.operatingIdentity.name ?? "this organization"}. Its registered legal entity is still being
+              established, so figures read from a tax filing stay out of Strategy.{" "}
+              <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: "#8a6508" }}>
+                Review the identity in Research
+              </Link>
+              .
+            </>
           ) : (
             <>
-              <strong>Identity not confirmed.</strong> Research found more than one organization matching this name and
-              could not tell which is meant, so its findings may describe a different one.{" "}
+              <strong>Identity not confirmed.</strong> Research could not establish which organization this is, so its
+              findings may describe a different one.{" "}
               <Link href={`/prospects/${prospect.id}?tab=research`} style={{ color: colors.danger }}>
                 Confirm the entity in Research
               </Link>{" "}

@@ -112,6 +112,12 @@ export default function ResearchTab({
   // same as "we don't know", and telling someone their confirmation never
   // happened is how a working button reads as broken.
   const identitySettledSince = blocked && !!prospectEin;
+  // The operating layer, which resolutionMethod above knows nothing about.
+  // Without this the page asserted both "Strong match: Stewardship Foundation"
+  // and "several organizations share this name" in the same column -- the
+  // resolver had decided, and the banner was still reading the legal field and
+  // reporting it as the whole answer.
+  const operatingKnown = !!intelligence.operatingIdentity;
   const verifying = intelligence.verificationState === "pending" || intelligence.verificationState === "in_progress";
   const verifyFailed = intelligence.verificationState === "failed";
   const gaps = intelligence.sections.filter((s) => s.missing);
@@ -186,7 +192,9 @@ export default function ResearchTab({
           {blocked
             ? identitySettledSince
               ? "Research is out of date"
-              : "Identity not confirmed"
+              : operatingKnown
+                ? "Organization identified, legal entity pending"
+                : "Identity not confirmed"
             : verifying
               ? "Checking claims against their sources"
               : verifyFailed
@@ -199,7 +207,17 @@ export default function ResearchTab({
           {blocked
             ? identitySettledSince
               ? "You confirmed this organization after the research below was gathered, so it may still describe a different one. Run research again and it will resolve to the saved EIN directly."
-              : "Several organizations share this name and research could not tell which is meant. Everything below may describe a different organization — confirm the entity before relying on any of it."
+              : operatingKnown
+                ? `The research below describes ${intelligence.operatingIdentity!.name ?? "this organization"}. Which registered entity files its returns is still being established, so figures read from a tax filing stay out of Strategy until it settles.`
+                : // The resolver's own reasons, not a stock sentence. "Several
+                  // organizations share this name" was written for a case that
+                  // was rarely the actual one -- what is usually true is that
+                  // two specific candidates scored too close, or that too
+                  // little was known to tell anyone apart, and those call for
+                  // different things from the reader.
+                  intelligence.identityAbstainReasons.length > 0
+                  ? `${intelligence.identityAbstainReasons.join(" ")} Everything below may describe a different organization — confirm the entity before relying on any of it.`
+                  : "Research could not establish which organization this is. Everything below may describe a different organization — confirm the entity before relying on any of it."
             : verifying
               ? "Research is complete and shown below. Each claim is being checked against the evidence it cites; review states will appear shortly."
               : verifyFailed

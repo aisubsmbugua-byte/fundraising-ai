@@ -60,7 +60,10 @@ async function main() {
   }
   const p = prospects[0];
 
-  console.log(`\n=== ${p.name} ===\n`);
+  console.log(`\n=== ${p.name} ===`);
+  // The path, so a diagnosis can be checked against what the user actually
+  // sees without a second lookup.
+  console.log(`    /prospects/${p.id}\n`);
   console.log("SIGNALS THE RESOLVER RECEIVED");
   show("name", p.name);
   show("legal_name", p.legal_name);
