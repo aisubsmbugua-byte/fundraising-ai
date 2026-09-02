@@ -197,16 +197,30 @@ export async function loadProspectIntelligence(
   supabase: SupabaseClient,
   prospectId: string
 ): Promise<ProspectIntelligence | null> {
-  const { data: run } = await supabase
-    .from("research_runs")
-    .select(
-      "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures"
-    )
-    .eq("prospect_id", prospectId)
-    .eq("status", "ready")
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Both keyed by prospectId, so they go together. The prospect row used to
+  // wait for the run and then for four more queries, purely because it was
+  // written further down the file -- three round trips of latency for data
+  // that was available from the first line. On a hosted database the cost of
+  // this function is round trips, not rows: caching the ranking removed the
+  // biggest PAYLOAD and moved the total by 8%, because the payload was never
+  // what it was paying for.
+  const [{ data: run }, { data: prospectRow }] = await Promise.all([
+    supabase
+      .from("research_runs")
+      .select(
+        "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures"
+      )
+      .eq("prospect_id", prospectId)
+      .eq("status", "ready")
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("prospects")
+      .select("name, location, website, contact_email, legal_name, opportunity_name, source_domain")
+      .eq("id", prospectId)
+      .maybeSingle(),
+  ]);
   if (!run) return null;
 
   // A stored ranking is trusted only when the resolver that produced it is the
@@ -215,7 +229,7 @@ export async function loadProspectIntelligence(
   const storedRanking = (run.entity_ranking as StoredEntityRanking | null) ?? null;
   const storedRankingUsable = Boolean(storedRanking) && run.entity_ranking_version === ENTITY_RANKING_VERSION;
 
-  const [{ data: claims }, { data: links }, { data: verifications }, { data: sources }] = await Promise.all([
+  const [{ data: claims }, { data: links }, { data: verifications }, { data: sources }, { data: approvals }] = await Promise.all([
     supabase
       .from("research_claims")
       .select("id, claim_key, claim, claim_type, confidence, confidence_reason, reporting_period, evidence_missing")
@@ -236,6 +250,11 @@ export async function loadProspectIntelligence(
     storedRankingUsable
       ? Promise.resolve({ data: [] as { id: string; url: string; title: string | null; source_ein: string | null; entity_validation_status: string | null }[] })
       : supabase.from("research_sources").select("id, url, title, source_ein, entity_validation_status").eq("research_run_id", run.id),
+    supabase
+      .from("research_claim_approvals")
+      .select("claim_id, decision, note, created_at")
+      .eq("research_run_id", run.id)
+      .order("created_at", { ascending: false }),
   ]);
 
   // Evidence text per source, so a candidate can be described by what was
@@ -249,20 +268,6 @@ export async function loadProspectIntelligence(
     textsBySource.set(id, [...(textsBySource.get(id) ?? []), e.exact_text as string]);
   }
 
-  // The prospect's own name and location: one is what the candidates are
-  // being matched against, the other is a reason a row might be the right
-  // one. Neither is derivable from the run.
-  const { data: prospectRow } = await supabase
-    .from("prospects")
-    .select("name, location, website, contact_email, legal_name, opportunity_name, source_domain")
-    .eq("id", prospectId)
-    .maybeSingle();
-
-  const { data: approvals } = await supabase
-    .from("research_claim_approvals")
-    .select("claim_id, decision, note, created_at")
-    .eq("research_run_id", run.id)
-    .order("created_at", { ascending: false });
   const decisionByClaim = new Map<string, { decision: string; note: string | null }>();
   for (const a of approvals ?? []) {
     if (!decisionByClaim.has(a.claim_id as string)) decisionByClaim.set(a.claim_id as string, { decision: a.decision as string, note: (a.note as string | null) ?? null });

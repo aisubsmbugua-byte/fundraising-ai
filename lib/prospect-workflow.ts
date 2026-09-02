@@ -197,23 +197,27 @@ export async function loadProspectWorkflow(
   supabase: SupabaseClient,
   prospectId: string
 ): Promise<ProspectWorkflow & { researchRunId: string | null; approvedClaimCount: number; lastCompletedAt: string | null }> {
-  const { data: research } = await supabase
-    .from("research_runs")
-    .select(
-      "id, status, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at"
-    )
-    .eq("prospect_id", prospectId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { data: strategy } = await supabase
-    .from("strategy_runs")
-    .select("status, approved_strategy")
-    .eq("prospect_id", prospectId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<Pick<StrategyRun, "status" | "approved_strategy">>();
+  // Both keyed by prospectId and neither derived from the other, so they cost
+  // one round trip rather than two. On a hosted database this function's cost
+  // is latency, not rows.
+  const [{ data: research }, { data: strategy }] = await Promise.all([
+    supabase
+      .from("research_runs")
+      .select(
+        "id, status, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at"
+      )
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("strategy_runs")
+      .select("status, approved_strategy")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<Pick<StrategyRun, "status" | "approved_strategy">>(),
+  ]);
 
   // Distinct CLAIMS, not approval rows. Approvals are append-only and the
   // latest one wins, so a reviewer who changes their mind about a claim

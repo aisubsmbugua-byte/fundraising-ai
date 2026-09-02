@@ -15,6 +15,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { loadProspectIntelligence, strategyReadiness } from "../lib/prospect-intelligence";
+import { ENTITY_RANKING_VERSION } from "../lib/research";
 import { loadProspectWorkflow } from "../lib/prospect-workflow";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,6 +42,29 @@ async function main() {
   if (!rows?.length) throw new Error(`No prospect matching "${query}".`);
   const p = rows[0];
   console.log(`\n=== ${p.name} ===\n`);
+
+  // A performance tool that cannot say whether the cache was used is half a
+  // tool: "the number did not move" has two opposite causes -- the cache is
+  // not being hit, or it was never the expensive part -- and they call for
+  // opposite fixes.
+  const { data: run } = await admin
+    .from("research_runs")
+    .select("id, version, entity_ranking_version, entity_ranking")
+    .eq("prospect_id", p.id as string)
+    .eq("status", "ready")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const cached = run?.entity_ranking_version === ENTITY_RANKING_VERSION && Boolean(run?.entity_ranking);
+  console.log(
+    `  ranking cache: ${cached ? "HIT" : "MISS"}  (stored v${run?.entity_ranking_version ?? "none"}, code v${ENTITY_RANKING_VERSION}, ranking ${run?.entity_ranking ? "present" : "absent"})`
+  );
+  if (cached) {
+    const bytes = JSON.stringify(run!.entity_ranking).length;
+    console.log(`  cached ranking size: ${(bytes / 1024).toFixed(1)}KB\n`);
+  } else {
+    console.log("");
+  }
 
   // Sequential on purpose: the page runs these in Promise.all, so the wall
   // clock hides which one is expensive. Fixing the wrong loader is the usual
