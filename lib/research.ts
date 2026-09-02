@@ -1561,6 +1561,57 @@ export function scoreEntityCandidates(
   };
 }
 
+// Bumped whenever scoring, candidate construction or the thresholds change --
+// i.e. whenever a stored ranking could disagree with what this code would
+// produce now. A stored ranking carrying a different version is recomputed on
+// read rather than trusted: this build has already had one report insist four
+// prospects were unresolved because it read a column the resolver had since
+// outgrown.
+export const ENTITY_RANKING_VERSION = 1;
+
+// A ranking as it is stored on the run. Identical to EntityRanking except that
+// candidates drop matchText -- the entire captured corpus for that entity,
+// which exists to be scored against and is never displayed. Keeping it would
+// swap a slow read for a large one.
+export type StoredEntityCandidate = Omit<EntityCandidate, "matchText">;
+export type StoredEntityRanking = {
+  ranked: StoredEntityCandidate[];
+  leaderKey: string | null;
+  margin: number;
+  confident: boolean;
+  achievable: number;
+  abstainReasons: string[];
+};
+
+export function toStoredRanking(ranking: EntityRanking): StoredEntityRanking {
+  return {
+    ranked: ranking.ranked.map(({ matchText: _matchText, ...rest }) => rest),
+    // The leader by key rather than by copy, so the stored ranking cannot
+    // develop a leader that is not in its own list.
+    leaderKey: ranking.leader?.key ?? null,
+    margin: ranking.margin,
+    confident: ranking.confident,
+    achievable: ranking.achievable,
+    abstainReasons: ranking.abstainReasons,
+  };
+}
+
+// Back to the shape the rest of the code expects. matchText comes back as ""
+// rather than being made optional everywhere: it is genuinely absent, and a
+// scorer handed one of these would produce a wrong answer rather than a
+// crash -- so nothing here may be passed back into scoreEntityCandidates.
+export function fromStoredRanking(stored: StoredEntityRanking): EntityRanking {
+  const ranked = stored.ranked.map((c) => ({ ...c, matchText: "" }));
+  return {
+    ranked,
+    leader: ranked.find((c) => c.key === stored.leaderKey) ?? null,
+    margin: stored.margin,
+    confident: stored.confident,
+    achievable: stored.achievable,
+    abstainReasons: stored.abstainReasons,
+  };
+}
+
 // What may actually be shown. Everything else stays in the audit view, where
 // completeness matters more than legibility.
 //

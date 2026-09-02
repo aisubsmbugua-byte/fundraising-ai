@@ -4,7 +4,10 @@ import {
   assessEntityLifecycle,
   buildEntityCandidates,
   identitySettledFor,
+  fromStoredRanking,
+  ENTITY_RANKING_VERSION,
   type RunIdentityFacts,
+  type StoredEntityRanking,
   contactEmailDomain,
   deriveEntityNameToken,
   presentableCandidates,
@@ -197,7 +200,7 @@ export async function loadProspectIntelligence(
   const { data: run } = await supabase
     .from("research_runs")
     .select(
-      "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, searches_used, fetch_attempts, fetch_failures"
+      "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures"
     )
     .eq("prospect_id", prospectId)
     .eq("status", "ready")
@@ -205,6 +208,12 @@ export async function loadProspectIntelligence(
     .limit(1)
     .maybeSingle();
   if (!run) return null;
+
+  // A stored ranking is trusted only when the resolver that produced it is the
+  // one running now. A version mismatch means stale, not wrong -- recompute and
+  // carry on, exactly as before this cache existed.
+  const storedRanking = (run.entity_ranking as StoredEntityRanking | null) ?? null;
+  const storedRankingUsable = Boolean(storedRanking) && run.entity_ranking_version === ENTITY_RANKING_VERSION;
 
   const [{ data: claims }, { data: links }, { data: verifications }, { data: sources }] = await Promise.all([
     supabase
@@ -220,15 +229,20 @@ export async function loadProspectIntelligence(
       .select("claim_id, verdict, period_verdict, reason, created_at")
       .eq("research_run_id", run.id)
       .order("created_at", { ascending: false }),
-    supabase.from("research_sources").select("id, url, title, source_ein, entity_validation_status").eq("research_run_id", run.id),
+    // Skipped entirely when a current ranking is already stored -- these two
+    // are the expensive half of this function, and re-fetching every source
+    // and every evidence fragment to recompute an unchanged answer is what a
+    // confirm click was waiting on.
+    storedRankingUsable
+      ? Promise.resolve({ data: [] as { id: string; url: string; title: string | null; source_ein: string | null; entity_validation_status: string | null }[] })
+      : supabase.from("research_sources").select("id, url, title, source_ein, entity_validation_status").eq("research_run_id", run.id),
   ]);
 
   // Evidence text per source, so a candidate can be described by what was
   // actually captured about it rather than by its URL.
-  const { data: evidenceRows } = await supabase
-    .from("research_evidence")
-    .select("source_id, exact_text")
-    .eq("research_run_id", run.id);
+  const { data: evidenceRows } = storedRankingUsable
+    ? { data: [] as { source_id: string; exact_text: string }[] }
+    : await supabase.from("research_evidence").select("source_id, exact_text").eq("research_run_id", run.id);
   const textsBySource = new Map<string, string[]>();
   for (const e of evidenceRows ?? []) {
     const id = e.source_id as string;
@@ -392,14 +406,16 @@ export async function loadProspectIntelligence(
   // Rank once, here, so the picker and any downstream consumer read the same
   // ordering and the same reasons. Scoring is relative to this candidate set,
   // so it cannot be meaningfully recomputed anywhere else.
-  const ranking = scoreEntityCandidates(allCandidates, {
-    prospectName: (prospectRow?.name as string | null) ?? "",
-    funderName: (prospectRow?.legal_name as string | null) ?? null,
-    opportunityName: (prospectRow?.opportunity_name as string | null) ?? null,
-    prospectWebsite: (prospectRow?.website as string | null) ?? null,
-    prospectLocation: (prospectRow?.location as string | null) ?? null,
-    captureDomain: (prospectRow?.source_domain as string | null) ?? null,
-  });
+  const ranking = storedRankingUsable
+    ? fromStoredRanking(storedRanking!)
+    : scoreEntityCandidates(allCandidates, {
+        prospectName: (prospectRow?.name as string | null) ?? "",
+        funderName: (prospectRow?.legal_name as string | null) ?? null,
+        opportunityName: (prospectRow?.opportunity_name as string | null) ?? null,
+        prospectWebsite: (prospectRow?.website as string | null) ?? null,
+        prospectLocation: (prospectRow?.location as string | null) ?? null,
+        captureDomain: (prospectRow?.source_domain as string | null) ?? null,
+      });
 
   return {
     runId: run.id as string,

@@ -31,6 +31,8 @@ import {
   deriveEntityNameToken,
   buildEntityCandidates,
   identitySettledFor,
+  toStoredRanking,
+  ENTITY_RANKING_VERSION,
   type RunIdentityFacts,
   scoreEntityCandidates,
   resolveRunEntity,
@@ -595,6 +597,12 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         // Kept because the score is only meaningful against the candidate set
         // of this run, so what a person was shown cannot be recomputed later.
         operating_identity_evidence: operatingLeader?.evidence ?? null,
+        // Materialized so the prospect page does not refetch every source and
+        // every evidence fragment on each render just to recompute this.
+        // Versioned, so a later resolver improvement is recomputed rather than
+        // silently served from a column it has outgrown.
+        entity_ranking: toStoredRanking(operatingRanking),
+        entity_ranking_version: ENTITY_RANKING_VERSION,
         entity_classification_version: ENTITY_CLASSIFICATION_VERSION,
         // Recorded because cost, latency and coverage are only interpretable
         // alongside the depth that produced them.

@@ -195,31 +195,27 @@ export default function EntityResolver({
           organization" is asking a question they have already answered -- and
           it appeared directly above the green chip recording their answer. */}
       {operatingIdentity && !confirmedEin && !savedEin && !confirmedOperating?.at && (
-        <div style={{ marginTop: spacing.sm, padding: spacing.md, border: `1px solid ${colors.border}`, borderRadius: 8 }}>
-          <div style={{ fontSize: 13.5, color: colors.text }}>
-            <strong>Strong match: {operatingIdentity.name}</strong>
-          </div>
-          {operatingIdentity.evidence.length > 0 && (
-            <ul style={{ margin: `${spacing.xs}px 0 0`, paddingLeft: 18, display: "grid", gap: 3 }}>
-              {operatingIdentity.evidence.map((e, i) => (
-                <li key={i} style={{ fontSize: 12.5, color: colors.textMuted }}>
-                  {e}
-                </li>
-              ))}
-            </ul>
-          )}
-          <p style={{ fontSize: 12.5, color: colors.textMuted, margin: `${spacing.sm}px 0 0` }}>
-            Legal-entity confirmation is still being checked, so figures read from a tax filing stay out of the strategy
-            until it settles.
-          </p>
-          <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.sm, flexWrap: "wrap" }}>
+        // Deliberately quiet. This block used to be a bordered card with a
+        // primary button, which reads as "you must do this before anything
+        // else" -- and it is not. The organization is already established:
+        // research is usable, claims can be checked, and approved intelligence
+        // reaches Strategy, all without a click here. What confirming buys is
+        // the NEXT run, which starts from this domain and settles the EIN by
+        // itself. That is an accelerator, and an accelerator styled as a gate
+        // spends the user's attention on a decision they did not need to make.
+        <div style={{ marginTop: spacing.sm, fontSize: 12.5, color: colors.textMuted }}>
+          <span>
+            Identified as <strong style={{ color: colors.text }}>{operatingIdentity.name}</strong>
+            {operatingIdentity.domain ? ` · ${operatingIdentity.domain}` : ""}
+          </span>
+          <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.xs, flexWrap: "wrap", alignItems: "center" }}>
             {/* Confirming the EIN remains a human act. The system may say
                 which organization this is; it may not decide which filing
                 speaks for it. */}
             <button
               type="button"
               disabled={savingEin !== null}
-              style={buttonPrimary}
+              style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
               onClick={() =>
                 operatingIdentity.ein
                   ? save(operatingIdentity.ein)
@@ -228,13 +224,29 @@ export default function EntityResolver({
             >
               {savingEin !== null && savingEin === (operatingIdentity.ein ?? operatingIdentity.domain)
                 ? "Confirming..."
-                : operatingIdentity.ein
-                  ? "Confirm this is the right entity"
-                  : "Confirm this is the right organization"}
+                : "Confirm — speeds up the next run"}
             </button>
-            <button type="button" style={buttonSecondary} onClick={() => setShowAllCandidates((v) => !v)}>
+            <button
+              type="button"
+              style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
+              onClick={() => setShowAllCandidates((v) => !v)}
+            >
               {showAllCandidates ? "Hide other candidates" : "Not this one"}
             </button>
+            {/* The evidence stays available, just not shouted. Someone
+                checking our work should be able to; nobody should have to. */}
+            {operatingIdentity.evidence.length > 0 && (
+              <details style={{ fontSize: 12 }}>
+                <summary style={{ cursor: "pointer", color: colors.textFaint }}>Why</summary>
+                <ul style={{ margin: `${spacing.xs}px 0 0`, paddingLeft: 18, display: "grid", gap: 3 }}>
+                  {operatingIdentity.evidence.map((e, i) => (
+                    <li key={i} style={{ color: colors.textMuted }}>
+                      {e}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         </div>
       )}

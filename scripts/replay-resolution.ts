@@ -15,17 +15,26 @@
 // one. Resolution is a pure function of stored sources, so replaying it needs
 // no model call at all -- there is not even an API key to spend.
 //
-// Reads only. A replay is not a run: it must never write a research_runs row,
-// never update a prospect, and never pollute the history it is measured
-// against.
+// Reads only, unless --write is passed -- and then it writes exactly one
+// thing: the display cache described above. A replay is still not a run. It
+// must never create a research_runs row, never touch a claim or a prospect,
+// and never pollute the history it is measured against.
 //
 // Usage:
 //   npx tsx --env-file=.env.local scripts/replay-resolution.ts            # every run
 //   npx tsx --env-file=.env.local scripts/replay-resolution.ts "Stewardship"
 //   npx tsx --env-file=.env.local scripts/replay-resolution.ts --verbose  # with evidence
+//   npx tsx --env-file=.env.local scripts/replay-resolution.ts --write    # re-materialize
+//
+// --write is the counterpart to the ranking cache on research_runs. The page
+// recomputes any run whose stored ENTITY_RANKING_VERSION is behind, which is
+// correct but slow -- so after changing the resolver, bump the version and run
+// this once to bring every stored ranking forward. It writes only that cache:
+// never a claim, never a prospect, never an identity decision.
 
 import { createClient } from "@supabase/supabase-js";
 import { replayIdentity, IDENTITY_REPLAY_PROSPECT_COLUMNS, type IdentityReplayProspect } from "../lib/identity-replay";
+import { toStoredRanking, ENTITY_RANKING_VERSION } from "../lib/research";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -37,6 +46,7 @@ const admin = createClient(url, key, { auth: { autoRefreshToken: false, persistS
 
 const args = process.argv.slice(2);
 const verbose = args.includes("--verbose");
+const write = args.includes("--write");
 const filter = args.find((a) => !a.startsWith("--")) ?? null;
 
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -67,6 +77,7 @@ async function main() {
 
   let resolved = 0;
   let operatingWins = 0;
+  let written = 0;
   const rows: string[] = [];
 
   for (const run of selected) {
@@ -74,6 +85,15 @@ async function main() {
 
     const ranking = await replayIdentity(admin, run.id as string, p);
     const candidates = ranking.ranked;
+
+    if (write) {
+      const { error: writeError } = await admin
+        .from("research_runs")
+        .update({ entity_ranking: toStoredRanking(ranking), entity_ranking_version: ENTITY_RANKING_VERSION })
+        .eq("id", run.id as string);
+      if (writeError) throw new Error(`writing ranking for run ${run.id}: ${writeError.message}`);
+      written++;
+    }
 
     const label = `${p.name.slice(0, 44).padEnd(46)} v${String(run.version).padEnd(3)}`;
     const nLegal = candidates.filter((c) => c.layer === "legal").length;
@@ -102,6 +122,7 @@ async function main() {
       (operatingWins ? ` (${operatingWins} won by the funder's own domain)` : "") +
       "."
   );
+  if (write) console.log(`Re-materialized ${written} stored ranking(s) at version ${ENTITY_RANKING_VERSION}.`);
   console.log(dim("L = candidates keyed by EIN, O = candidates keyed by the organization's own domain.\n"));
 }
 
