@@ -83,6 +83,14 @@ export type Prospect = {
   // A human-supplied detail that identifies this funder when its name is
   // ambiguous. Reaches the research search verbatim.
   identity_hint: string | null;
+  // WHICH ORGANIZATION a person confirmed this is -- the operating layer.
+  // Deliberately parallel to ein/predecessor_eins and never merged with them:
+  // recognising a funder's own website is a thing a fundraiser can do, and
+  // recognising its EIN is not.
+  operating_identity_domain: string | null;
+  operating_identity_name: string | null;
+  operating_identity_confirmed_at: string | null;
+  operating_identity_confirmed_by: string | null;
   legal_name: string | null;
   aliases: string[] | null;
   // Funder intelligence -- populated from AI research when

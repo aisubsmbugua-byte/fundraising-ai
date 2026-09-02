@@ -1453,7 +1453,17 @@ export function scoreEntityCandidates(
     // 4. Provenance -- but only after the domain has been classified. An
     //    unrecognised domain scores nothing rather than being read as the
     //    organization's own.
-    const domainClass = classifySourceDomain(known.captureDomain, { entityName: c.name, prospectHost });
+    //
+    // prospectHost is deliberately NOT passed. classifySourceDomain treats the
+    // prospect's own host as official for whatever entity it is asked about --
+    // correct when the question is "is this the prospect's site", and a
+    // category error here, where the question is "does this domain corroborate
+    // THIS candidate". On Mission to the World the capture domain and the
+    // prospect website are both mtw.org, so all twelve candidates were handed
+    // four points, eleven of them unnamed EINs sitting at exactly 4.00 for a
+    // domain that has nothing to do with them -- and the real leader was paid
+    // twice for the same fact, once here and once as its own site below.
+    const domainClass = classifySourceDomain(known.captureDomain, { entityName: c.name });
     if (domainClass === "official") {
       score += SCORE_OFFICIAL_DOMAIN;
       evidence.push(`Found on their own website (${known.captureDomain})`);

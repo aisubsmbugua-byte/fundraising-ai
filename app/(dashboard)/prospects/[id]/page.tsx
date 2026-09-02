@@ -345,6 +345,11 @@ export default async function ProspectDetailPage({
                   lastCompletedAt={workflow.lastCompletedAt}
                   approvedClaimCount={workflow.approvedClaimCount}
                   prospectEin={prospect.ein}
+                  confirmedOperating={{
+                    name: (prospect.operating_identity_name as string | null) ?? null,
+                    domain: (prospect.operating_identity_domain as string | null) ?? null,
+                    at: (prospect.operating_identity_confirmed_at as string | null) ?? null,
+                  }}
                   prospectPredecessorEins={prospect.predecessor_eins ?? []}
                 />
               )}

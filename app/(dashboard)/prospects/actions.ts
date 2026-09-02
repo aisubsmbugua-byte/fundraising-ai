@@ -363,8 +363,8 @@ export async function confirmProspectEin(prospectId: string, ein: string, predec
 // path needs. Once set, the NEXT run can resolve the EIN deterministically from
 // a page on that host, so confirming the organization is what lets the system
 // settle the legal identity by itself instead of asking again.
-export async function confirmProspectOperatingIdentity(prospectId: string, domain: string) {
-  await requireUser();
+export async function confirmProspectOperatingIdentity(prospectId: string, domain: string, name?: string | null) {
+  const user = await requireUser();
   const supabase = createClient();
 
   const host = domain.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "").toLowerCase();
@@ -372,13 +372,47 @@ export async function confirmProspectOperatingIdentity(prospectId: string, domai
     return { error: "That does not look like a website address." };
   }
 
+  // The confirmation is recorded as itself, not inferred from the website.
+  // Writing only `website` meant confirming a prospect whose website was
+  // already correct changed nothing at all, and the button read as broken.
   const { error } = await supabase
     .from("prospects")
-    .update({ website: `https://${host}`, updated_at: new Date().toISOString() })
+    .update({
+      website: `https://${host}`,
+      operating_identity_domain: host,
+      operating_identity_name: name ?? null,
+      operating_identity_confirmed_at: new Date().toISOString(),
+      operating_identity_confirmed_by: user.id,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", prospectId);
   // Server Actions must return the failure, never throw it -- Next redacts a
   // thrown message in production, so throwing here would show the user
   // "An error occurred in the Server Components render" and nothing else.
+  if (error) return { error: error.message };
+
+  revalidatePath(`/prospects/${prospectId}`);
+  revalidatePath("/admin/research");
+  return { error: null };
+}
+
+// The counterpart to clearProspectEin. A confirmation a person cannot revise
+// is a trap, and this one is easier to get wrong than the EIN -- a plausible
+// domain is much easier to click than a plausible nine-digit number.
+export async function clearProspectOperatingIdentity(prospectId: string) {
+  await requireUser();
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from("prospects")
+    .update({
+      operating_identity_domain: null,
+      operating_identity_name: null,
+      operating_identity_confirmed_at: null,
+      operating_identity_confirmed_by: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", prospectId);
   if (error) return { error: error.message };
 
   revalidatePath(`/prospects/${prospectId}`);

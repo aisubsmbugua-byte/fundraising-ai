@@ -2,7 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { clearProspectEin, confirmProspectEin, confirmProspectOperatingIdentity, saveIdentityClue } from "../actions";
+import {
+  clearProspectEin,
+  clearProspectOperatingIdentity,
+  confirmProspectEin,
+  confirmProspectOperatingIdentity,
+  saveIdentityClue,
+} from "../actions";
 import { buttonPrimary, buttonSecondary, chipStyle, colors, fieldStyle, labelStyle, sectionStyle, spacing } from "@/lib/ui";
 import type { EntityCandidate } from "@/lib/research";
 
@@ -36,6 +42,7 @@ export default function EntityResolver({
   blocked,
   savedEin,
   predecessorEins,
+  confirmedOperating,
 }: {
   prospectId: string;
   confirmedEin: string | null;
@@ -62,6 +69,9 @@ export default function EntityResolver({
   savedEin: string | null;
   // What it used to be, after a merger or rename the user recorded.
   predecessorEins: string[];
+  // A person's confirmation of WHICH ORGANIZATION this is, read from the
+  // prospect. Distinct from savedEin, which settles which FILING.
+  confirmedOperating: { name: string | null; domain: string | null; at: string | null } | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -85,11 +95,11 @@ export default function EntityResolver({
   // Confirming the ORGANIZATION, when what we hold is its website rather than
   // a filing. Writes the domain, never an EIN -- see
   // confirmProspectOperatingIdentity for why the two must not be conflated.
-  function saveOperating(domain: string) {
+  function saveOperating(domain: string, name?: string | null) {
     setError(null);
     setSavingEin(domain);
     startTransition(async () => {
-      const result = await confirmProspectOperatingIdentity(prospectId, domain);
+      const result = await confirmProspectOperatingIdentity(prospectId, domain, name ?? null);
       if (result?.error) {
         setError(result.error);
         setSavingEin(null);
@@ -122,6 +132,20 @@ export default function EntityResolver({
 
   // Shared by both entry points -- while a run is blocked, and after a stored
   // EIN has resolved one. Same operation either way.
+  function clearOperating() {
+    setError(null);
+    setClearing(true);
+    startTransition(async () => {
+      const result = await clearProspectOperatingIdentity(prospectId);
+      if (result?.error) {
+        setError(result.error);
+        setClearing(false);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   function clearSavedEin() {
     setError(null);
     setClearing(true);
@@ -195,7 +219,7 @@ export default function EntityResolver({
               onClick={() =>
                 operatingIdentity.ein
                   ? save(operatingIdentity.ein)
-                  : operatingIdentity.domain && saveOperating(operatingIdentity.domain)
+                  : operatingIdentity.domain && saveOperating(operatingIdentity.domain, operatingIdentity.name)
               }
             >
               {savingEin !== null && savingEin === (operatingIdentity.ein ?? operatingIdentity.domain)
@@ -208,6 +232,33 @@ export default function EntityResolver({
               {showAllCandidates ? "Hide other candidates" : "Not this one"}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* A confirmation that visibly stuck. Rendered from the PROSPECT, not
+          from the run, and from a column that records the decision itself --
+          confirming used to write only `website`, so a prospect whose website
+          was already right changed by nothing at all and the button read as
+          broken. */}
+      {confirmedOperating?.at && (
+        <div style={{ marginTop: spacing.sm }}>
+          <span style={chipStyle("teal")}>
+            Organization confirmed{confirmedOperating.name ? ` · ${confirmedOperating.name}` : ""}
+          </span>
+          <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+            Saved to this prospect{confirmedOperating.domain ? ` as ${confirmedOperating.domain}` : ""}. The next research
+            run starts from this organization and can settle its tax filing directly — no EIN needed from you.
+          </p>
+          {/* Easier to get wrong than an EIN: a plausible domain is much
+              easier to click than a plausible nine-digit number. */}
+          <button
+            type="button"
+            disabled={clearing}
+            style={{ ...buttonSecondary, padding: "2px 8px", fontSize: 12 }}
+            onClick={clearOperating}
+          >
+            {clearing ? "Clearing…" : "This is the wrong organization"}
+          </button>
         </div>
       )}
 
@@ -236,7 +287,7 @@ export default function EntityResolver({
         </div>
       )}
 
-      {blocked && !savedEin && candidates.length > 0 && (!operatingIdentity || showAllCandidates) && (
+      {blocked && !savedEin && !confirmedOperating?.at && candidates.length > 0 && (!operatingIdentity || showAllCandidates) && (
         <>
           <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.xs }}>
             {candidates.length === 1 ? "One organization" : `${candidates.length} organizations`} could be this
@@ -296,7 +347,7 @@ export default function EntityResolver({
                     style={{ ...buttonSecondary, padding: "4px 10px", fontSize: 12, alignSelf: "center", minWidth: 84 }}
                     onClick={() => {
                       if (!c.ein) {
-                        if (c.domain) saveOperating(c.domain);
+                        if (c.domain) saveOperating(c.domain, c.name);
                         return;
                       }
                       setError(null);
