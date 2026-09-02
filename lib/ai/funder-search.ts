@@ -164,7 +164,9 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
       ? `PRIORITY -- this is a follow-up search. A previous pass already covered this funder generally; what it could NOT obtain is listed below. Spend your searches on these first, and say plainly if something is genuinely not published rather than approximating it:
 ${focus.directives.map((d) => `- ${d}`).join("\n")}
 
-Spend your page reads on THESE first. You have a small fetch budget and it is easy to exhaust it on search-result summaries and directory profiles; the primary document is worth more than several pages about it. If a filing or schedule appears in the results, read it before anything else, and only fetch a URL that actually appeared in a search result -- a constructed one will be refused and the attempt is wasted.
+Search first, then read. Your page reads are limited to URLs that have actually appeared in a search result -- a constructed one is refused and the attempt is wasted -- so searching is what makes reading possible, and searching too little leaves nothing worth reading. Once you have results, prefer the primary document over pages written about it.
+
+If the thing above is genuinely not published anywhere you can reach, say so explicitly. That is a useful answer and a far better one than several pages that discuss it without containing it.
 
 ${
   focus.identity?.name || focus.identity?.ein || focus.identity?.domain
