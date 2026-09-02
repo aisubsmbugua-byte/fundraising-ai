@@ -26,6 +26,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { APPROVED_FOR_DOWNSTREAM } from "../lib/research";
+import { replayIdentity, type IdentityReplayProspect } from "../lib/identity-replay";
+import { fetchAllRows } from "../lib/fetch-all-rows";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -73,11 +75,18 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
 async function main() {
-  const { data: allProspects, error: pErr } = await admin
-    .from("prospects")
-    .select("id, name, ein, website, opportunity_name, source_domain, created_at")
-    .order("created_at", { ascending: true });
-  if (pErr) throw pErr;
+  const countOf = async (table: string) =>
+    (await admin.from(table).select("id", { count: "exact", head: true })).count ?? null;
+
+  const allProspects = await fetchAllRows<any>(
+    () =>
+      admin
+        .from("prospects")
+        .select("id, name, ein, website, opportunity_name, source_domain, created_at, legal_name, location, contact_email")
+        .order("created_at", { ascending: true }) as any,
+    await countOf("prospects"),
+    "prospects"
+  );
   if (!allProspects?.length) {
     console.log("No prospects.");
     return;
@@ -100,23 +109,32 @@ async function main() {
     return;
   }
 
-  const { data: runs, error: rErr } = await admin
-    .from("research_runs")
-    .select(
-      "id, prospect_id, version, status, cost_usd, confirmed_ein, entity_resolution_method, operating_identity_name, operating_identity_method, verification_state, completion_state"
-    )
-    .order("version", { ascending: true });
-  if (rErr) throw rErr;
+  // Paged and count-checked. A plain select stops at 1000 rows with no error:
+  // research_claims holds 1453, so four prospects were reported as having no
+  // claims at all when their rows simply fell past the cap.
+  const runs = await fetchAllRows<any>(
+    () =>
+      admin
+        .from("research_runs")
+        .select(
+          "id, prospect_id, version, status, cost_usd, confirmed_ein, entity_resolution_method, operating_identity_name, operating_identity_method, verification_state, completion_state"
+        )
+        .order("version", { ascending: true }) as any,
+    await countOf("research_runs"),
+    "research_runs"
+  );
 
-  const { data: claims, error: cErr } = await admin
-    .from("research_claims")
-    .select("id, research_run_id, verification_status");
-  if (cErr) throw cErr;
+  const claims = await fetchAllRows<any>(
+    () => admin.from("research_claims").select("id, research_run_id, verification_status").order("id") as any,
+    await countOf("research_claims"),
+    "research_claims"
+  );
 
-  const { data: approvals, error: aErr } = await admin
-    .from("research_claim_approvals")
-    .select("claim_id, research_run_id, decision");
-  if (aErr) throw aErr;
+  const approvals = await fetchAllRows<any>(
+    () => admin.from("research_claim_approvals").select("claim_id, research_run_id, decision").order("claim_id") as any,
+    await countOf("research_claim_approvals"),
+    "research_claim_approvals"
+  );
 
   const runsByProspect = new Map<string, typeof runs>();
   for (const r of runs ?? []) {
@@ -138,6 +156,11 @@ async function main() {
   }
 
   const tally = new Map<Gate, string[]>(GATES.map((g) => [g, [] as string[]]));
+  // Prospects whose stored run says "unresolved" but which the current
+  // resolver settles from the same evidence. Counted so an improvement that
+  // has not yet been re-run is visible as exactly that, rather than silently
+  // flattering the funnel.
+  let staleRows = 0;
   let totalSpend = 0;
   let totalRuns = 0;
   const rows: Array<{ name: string; gate: Gate; note: string; spend: number; runCount: number; ageDays: number }> = [];
@@ -168,16 +191,24 @@ async function main() {
       // right organization. Legal EIN deliberately does NOT gate here -- a
       // resolved operating identity with a pending EIN is a usable prospect
       // with some claims withheld, not a blocked one.
-      const operatingResolved =
-        (ready.operating_identity_method && ready.operating_identity_method !== "unresolved") ||
-        Boolean(ready.confirmed_ein);
+      //
+      // Re-decided from the run's stored sources rather than read off the run
+      // row. The column records what the resolver concluded on the day it ran,
+      // and a run is immutable -- so every improvement to the resolver leaves
+      // it stale. Reading it made this report say four prospects were still
+      // blocked on identity while the prospect page, which recomputes, showed
+      // all four resolved. Same data, opposite conclusions, and the stale one
+      // was the one being used to judge whether the fix had worked.
+      const live = await replayIdentity(admin, ready.id as string, p as unknown as IdentityReplayProspect);
+      const operatingResolved = live.confident || Boolean(ready.confirmed_ein);
+      staleRows += live.confident && (!ready.operating_identity_method || ready.operating_identity_method === "unresolved") ? 1 : 0;
       const runClaims = claimsByRun.get(ready.id as string) ?? [];
       const runApprovals = approvalsByRun.get(ready.id as string) ?? [];
       const downstream = runApprovals.filter((a) => APPROVED_FOR_DOWNSTREAM.has(a.decision as never));
 
       if (!operatingResolved) {
         gate = "identity unresolved -- asks the user";
-        note = `legal=${ready.entity_resolution_method ?? "-"} operating=${ready.operating_identity_method ?? "-"}`;
+        note = live.abstainReasons[0] ?? `legal=${ready.entity_resolution_method ?? "-"}`;
       } else if (runClaims.length === 0) {
         gate = "identity resolved, no claims extracted";
       } else if (runApprovals.length === 0) {
@@ -209,6 +240,14 @@ async function main() {
     } else {
       console.log(`  ${green(String(names.length).padStart(4))}  ${g.padEnd(44)} ${green("#".repeat(Math.min(40, names.length)))}`);
     }
+  }
+
+  if (staleRows > 0) {
+    console.log(
+      `\n${staleRows} prospect(s) are resolved by the CURRENT resolver but their stored run predates it.\n` +
+        "Those rows are history, not a verdict -- the page recomputes, so a user sees the resolved answer.\n" +
+        "The stored column only catches up on the next run."
+    );
   }
 
   const delivered = tally.get("DELIVERED")!.length;

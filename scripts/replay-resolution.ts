@@ -25,12 +25,7 @@
 //   npx tsx --env-file=.env.local scripts/replay-resolution.ts --verbose  # with evidence
 
 import { createClient } from "@supabase/supabase-js";
-import {
-  buildEntityCandidates,
-  scoreEntityCandidates,
-  deriveEntityNameToken,
-  contactEmailDomain,
-} from "../lib/research";
+import { replayIdentity, IDENTITY_REPLAY_PROSPECT_COLUMNS, type IdentityReplayProspect } from "../lib/identity-replay";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -52,7 +47,7 @@ async function main() {
   let q = admin
     .from("research_runs")
     .select(
-      "id, version, prospect_id, prospects(id, name, legal_name, opportunity_name, source_domain, location, website, contact_email)"
+      `id, version, prospect_id, prospects(id, ${IDENTITY_REPLAY_PROSPECT_COLUMNS})`
     )
     .eq("status", "ready")
     .order("version", { ascending: true });
@@ -75,62 +70,10 @@ async function main() {
   const rows: string[] = [];
 
   for (const run of selected) {
-    const p = run.prospects as unknown as {
-      id: string;
-      name: string;
-      legal_name: string | null;
-      opportunity_name: string | null;
-      source_domain: string | null;
-      location: string | null;
-      website: string | null;
-      contact_email: string | null;
-    };
+    const p = run.prospects as unknown as IdentityReplayProspect;
 
-    const { data: sources } = await admin
-      .from("research_sources")
-      .select("id, url, title, source_ein, entity_validation_status")
-      .eq("research_run_id", run.id);
-    const { data: evidence } = await admin
-      .from("research_evidence")
-      .select("source_id, exact_text")
-      .eq("research_run_id", run.id);
-
-    const textsBySource = new Map<string, string[]>();
-    for (const e of evidence ?? []) {
-      const list = textsBySource.get(e.source_id as string) ?? [];
-      list.push(e.exact_text as string);
-      textsBySource.set(e.source_id as string, list);
-    }
-
-    // Exactly the inference the live path uses, so a replay cannot flatter the
-    // resolver by handing it a signal production would not have.
-    const website =
-      p.website ?? (contactEmailDomain(p.contact_email) ? `https://${contactEmailDomain(p.contact_email)}` : null);
-
-    const candidates = buildEntityCandidates({
-      sources: (sources ?? []).map((s) => ({
-        url: s.url as string,
-        title: (s.title as string | null) ?? null,
-        sourceEin: (s.source_ein as string | null) ?? null,
-        status: (s.entity_validation_status as string | null) ?? null,
-        texts: textsBySource.get(s.id as string) ?? [],
-      })),
-      nameToken: deriveEntityNameToken(p.name),
-      prospectLocation: p.location,
-      prospectWebsite: website,
-      funderName: p.legal_name,
-      opportunityName: p.opportunity_name,
-      captureDomain: p.source_domain,
-    });
-
-    const ranking = scoreEntityCandidates(candidates, {
-      prospectName: p.name,
-      funderName: p.legal_name,
-      opportunityName: p.opportunity_name,
-      prospectWebsite: website,
-      prospectLocation: p.location,
-      captureDomain: p.source_domain,
-    });
+    const ranking = await replayIdentity(admin, run.id as string, p);
+    const candidates = ranking.ranked;
 
     const label = `${p.name.slice(0, 44).padEnd(46)} v${String(run.version).padEnd(3)}`;
     const nLegal = candidates.filter((c) => c.layer === "legal").length;
