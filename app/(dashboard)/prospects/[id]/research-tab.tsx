@@ -139,6 +139,7 @@ export default function ResearchTab({
   // here may spend on its own.
   const verifyNeverRan =
     !blocked && intelligence.verificationState === "skipped" && intelligence.sections.some((s) => s.claims.length > 0);
+  const claimCount = intelligence.sections.reduce((n, s) => n + s.claims.length, 0);
   const gaps = intelligence.sections.filter((s) => s.missing);
   const allClaims = intelligence.sections.flatMap((s) => s.claims);
   const claimsWithSections = intelligence.sections.filter((s) => s.claims.length > 0);
@@ -151,6 +152,22 @@ export default function ResearchTab({
   // tiering. Saying so is the difference between "we found little" and "we
   // did not look hard, and did not check what we found".
   const preliminary = intelligence.depth !== null && intelligence.depth !== "dossier";
+
+  // What to do next, in one place. Confirming an organization used to leave a
+  // person on a green chip with no idea what it had unblocked -- the actual
+  // next action sat in a different card further up, and "I confirmed and
+  // nothing happened" is a fair reading of that. Derived here rather than
+  // inside EntityResolver because the states it depends on already live here,
+  // and a second copy would drift from the card it is pointing at.
+  const nextStep = blocked
+    ? null
+    : verifying
+      ? `Checking ${claimCount} claims against their sources now.`
+      : verifyNeverRan
+        ? `Next: check the ${claimCount} claims against their sources — it reads the evidence already stored.`
+        : verifiedCount > 0
+          ? `Next: approve the ${verifiedCount} verified claims so they can reach Strategy.`
+          : null;
 
   return (
     <div style={{ display: "grid", gap: spacing.md }}>
@@ -168,6 +185,7 @@ export default function ResearchTab({
           savedEin={prospectEin}
           predecessorEins={prospectPredecessorEins}
           confirmedOperating={confirmedOperating}
+          nextStep={nextStep}
         />
       )}
 
@@ -291,6 +309,7 @@ export default function ResearchTab({
           savedEin={prospectEin}
           predecessorEins={prospectPredecessorEins}
           confirmedOperating={confirmedOperating}
+          nextStep={nextStep}
         />
       )}
 

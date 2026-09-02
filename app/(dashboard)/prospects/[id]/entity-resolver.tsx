@@ -43,6 +43,7 @@ export default function EntityResolver({
   savedEin,
   predecessorEins,
   confirmedOperating,
+  nextStep,
 }: {
   prospectId: string;
   confirmedEin: string | null;
@@ -72,6 +73,9 @@ export default function EntityResolver({
   // A person's confirmation of WHICH ORGANIZATION this is, read from the
   // prospect. Distinct from savedEin, which settles which FILING.
   confirmedOperating: { name: string | null; domain: string | null; at: string | null } | null;
+  // What confirming actually unblocked, in the user's terms. Computed by the
+  // tab, which holds the verification and approval states this depends on.
+  nextStep: string | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -261,6 +265,12 @@ export default function EntityResolver({
           <span style={chipStyle("teal")}>
             Organization confirmed{confirmedOperating.name ? ` · ${confirmedOperating.name}` : ""}
           </span>
+          {/* The next action first, then what confirming did. A person who has
+              just clicked wants to know where to go, not to be told about a
+              future run. */}
+          {nextStep && (
+            <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.xs, marginBottom: spacing.xs }}>{nextStep}</p>
+          )}
           <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.xs }}>
             Saved to this prospect{confirmedOperating.domain ? ` as ${confirmedOperating.domain}` : ""}. The next research
             run starts from this organization and can settle its tax filing directly — no EIN needed from you.
