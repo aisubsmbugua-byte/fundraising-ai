@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isOrphanedRun } from "@/lib/research";
 
 // Plain REST endpoint for polling research status, deliberately NOT a Server
 // Action -- same reasoning as app/api/strategy-runs/[prospectId]: a research
@@ -28,6 +29,34 @@ export async function GET(_request: Request, { params }: { params: { prospectId:
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // The panel polls this route precisely while a run is in flight, which makes
+  // it the one place that always notices a run that stopped being in flight.
+  // A killed function writes no status -- there is no catch to run -- so
+  // without this the row polls forever and the user is told work is happening
+  // that ended minutes ago.
+  //
+  // Marked, not deleted: what was captured before the kill stays, and the
+  // error code names the cause so a timeout is never mistaken for a research
+  // failure.
+  if (data && isOrphanedRun(data as { status: string | null; started_at: string | null })) {
+    const { data: swept } = await supabase
+      .from("research_runs")
+      .update({
+        status: "error",
+        status_message: "Research stopped before it finished",
+        error_code: "run_timed_out",
+        error_message: `The run exceeded the time this request is allowed and was stopped by the platform. Anything captured before that point was kept.`,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", data.id as string)
+      // Only if nobody else has finished it in the meantime -- two pollers can
+      // reach this line at once, and the loser must not overwrite a real result.
+      .in("status", ["researching", "extracting"])
+      .select("id, status, status_message, started_at, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at, version")
+      .maybeSingle();
+    if (swept) return Response.json({ run: swept });
+  }
 
   return Response.json({ run: data ?? null });
 }

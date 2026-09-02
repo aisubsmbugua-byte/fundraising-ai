@@ -28,7 +28,16 @@ import type { Contact } from "@/lib/contacts";
 // Strategy generation runs two sequential AI calls with real web search,
 // can run past the Vercel Pro default (60s) -- give this route real
 // headroom instead of racing the clock.
-export const maxDuration = 280;
+// 450, matching /admin/research and the discovery search page, which have run
+// at that ceiling on this project for months. 280 was the conservative
+// assumption from before those existed, and a targeted follow-up now runs
+// close enough to it to be killed -- one measured at 276s and the next at
+// over 700s before the platform stopped it.
+//
+// A mitigation, not a fix. Any ceiling tied to a request lifetime is the wrong
+// place for work of unbounded length; raising it buys room, it does not make
+// the work survive a closed tab.
+export const maxDuration = 450;
 
 const MS_PER_DAY = 86400000;
 const TABS = [

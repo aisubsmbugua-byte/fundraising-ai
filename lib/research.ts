@@ -416,6 +416,35 @@ export function focusKeysFor(input: {
   return keys.filter((k) => k in FOCUS_SEARCH_DIRECTIVES);
 }
 
+// A run that the platform killed.
+//
+// runResearch wraps its work in try/catch and writes an error row on failure --
+// but a serverless function that exceeds maxDuration is not thrown, it is
+// terminated. No catch runs, no status is written, and the row sits at
+// "researching" or "extracting" forever. The page polls it indefinitely and a
+// user is told work is in progress that stopped minutes ago.
+//
+// This is not hypothetical: a targeted follow-up on The Stewardship Foundation
+// ran 707 seconds against a 280-second route ceiling. The search and the
+// extraction both ran and were both paid for; nothing was saved.
+//
+// The threshold is deliberately far beyond any ceiling in this app (450s is
+// the longest). A function physically cannot still be running after this, so
+// a non-terminal run older than it is dead with certainty rather than
+// probably -- which is what makes it safe to mark automatically.
+export const RESEARCH_RUN_ORPHAN_AFTER_SECONDS = 900;
+
+const NON_TERMINAL_RUN_STATUSES = new Set(["researching", "extracting"]);
+
+export function isOrphanedRun(run: { status: string | null; started_at: string | null; created_at?: string | null }): boolean {
+  if (!run.status || !NON_TERMINAL_RUN_STATUSES.has(run.status)) return false;
+  // started_at is the claim-lock: a row that never started was never running,
+  // so fall back to created_at rather than treating it as immortal.
+  const since = run.started_at ?? run.created_at ?? null;
+  if (!since) return false;
+  return (Date.now() - Date.parse(since)) / 1000 > RESEARCH_RUN_ORPHAN_AFTER_SECONDS;
+}
+
 // Source classes a private-foundation dossier is expected to have read.
 // Each is required only when it actually exists for that funder -- a prospect
 // with no website cannot be marked incomplete for failing to read one.

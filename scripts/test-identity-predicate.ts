@@ -21,7 +21,14 @@
 
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
-import { identityState, identitySettledFor, isConfirmedDossier, IDENTITY_PURPOSES } from "../lib/research";
+import {
+  identityState,
+  identitySettledFor,
+  isConfirmedDossier,
+  isOrphanedRun,
+  RESEARCH_RUN_ORPHAN_AFTER_SECONDS,
+  IDENTITY_PURPOSES,
+} from "../lib/research";
 
 let passed = 0;
 let failed = 0;
@@ -117,6 +124,36 @@ for (const file of [...sourceFiles("app"), ...sourceFiles("lib")]) {
   }
 }
 check(`no query fetches dossier_confirmed without the operating layer (${offenders.join(", ") || "none"})`, offenders, []);
+
+// ---------------------------------------------------------------------------
+// A run the platform killed
+// ---------------------------------------------------------------------------
+
+const secondsAgo = (n: number) => new Date(Date.now() - n * 1000).toISOString();
+
+// The real case: 707 seconds against a 280-second route ceiling, still
+// "extracting", no error row -- because a terminated function runs no catch.
+check(
+  "a run past every ceiling is dead",
+  isOrphanedRun({ status: "extracting", started_at: secondsAgo(RESEARCH_RUN_ORPHAN_AFTER_SECONDS + 60) }),
+  true
+);
+check("so is one stuck researching", isOrphanedRun({ status: "researching", started_at: secondsAgo(2000) }), true);
+
+// The threshold sits far beyond the longest ceiling in the app on purpose: a
+// live run must never be swept, because sweeping it would destroy a result
+// that was about to arrive.
+check("a slow but possible run is left alone", isOrphanedRun({ status: "researching", started_at: secondsAgo(400) }), false);
+check("and a fresh one certainly is", isOrphanedRun({ status: "extracting", started_at: secondsAgo(5) }), false);
+
+// Terminal states are never swept, however old.
+check("a finished run is not orphaned", isOrphanedRun({ status: "ready", started_at: secondsAgo(99999) }), false);
+check("nor is one already errored", isOrphanedRun({ status: "error", started_at: secondsAgo(99999) }), false);
+
+// A row that never started still has to be sweepable, or a failure between
+// insert and claim would be immortal.
+check("a never-started row falls back to created_at", isOrphanedRun({ status: "researching", started_at: null, created_at: secondsAgo(2000) }), true);
+check("with no timestamps at all, do nothing", isOrphanedRun({ status: "researching", started_at: null }), false);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
