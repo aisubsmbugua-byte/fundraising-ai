@@ -272,8 +272,8 @@ export default function EntityResolver({
             <p style={{ fontSize: 13, color: colors.text, marginTop: spacing.xs, marginBottom: spacing.xs }}>{nextStep}</p>
           )}
           <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.xs }}>
-            Saved to this prospect{confirmedOperating.domain ? ` as ${confirmedOperating.domain}` : ""}. The next research
-            run starts from this organization and can settle its tax filing directly — no EIN needed from you.
+            Saved to this prospect{confirmedOperating.domain ? ` as ${confirmedOperating.domain}` : ""}. If this funder is
+            ever searched again, it will start from here and settle the tax filing itself — you will not be asked for an EIN.
           </p>
           {/* Easier to get wrong than an EIN: a plausible domain is much
               easier to click than a plausible nine-digit number. */}

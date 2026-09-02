@@ -131,23 +131,42 @@ export default function ResearchPanel({
 
   return (
     <div>
+      {/* "Run research again" was the wrong name in the wrong place. It sat
+          as a peer of "Check claims against their sources" -- which reads
+          evidence already stored -- while doing something entirely different:
+          a fresh web search, paid, several minutes. Two actions that differ in
+          cost by an order of magnitude must not read as variations of one
+          another, and "again" implies the last attempt failed when usually
+          nothing is wrong at all.
+          
+          So it is named for what it does, and sized for how often it is the
+          right answer: rarely. */}
       <button
         type="button"
         disabled={isPending}
-        style={repeat ? buttonSecondary : buttonPrimary}
+        style={repeat ? { ...buttonSecondary, padding: "4px 10px", fontSize: 12.5 } : buttonPrimary}
         onClick={() => setConfirming(true)}
       >
-        {repeat ? "Run research again" : "Run research"}
+        {repeat ? "Search the web again" : "Run research"}
       </button>
+      {repeat && (
+        <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 4 }}>
+          A new search of the live web{lastDate ? `, last done ${lastDate}` : ""} — several minutes, and it spends
+          credits. Checking claims above uses evidence already stored and does neither.
+        </div>
+      )}
 
       {error && <div style={{ fontSize: 12.5, color: colors.danger, marginTop: spacing.xs }}>{error}</div>}
 
       <ConfirmDialog
         open={confirming}
-        title="Run dossier research?"
+        title={repeat ? "Search the web again?" : "Run dossier research?"}
         message={
           repeat
-            ? `Research was last completed on ${lastDate}. Running it again reviews current filings, funding information, eligibility and available grant history. It normally takes several minutes.`
+            ? // Says what it will and will not do. A re-search that finds the
+              // same pages is the common outcome, and a dialog that only
+              // describes the upside invites paying for it repeatedly.
+              `This searches the live web again — it does not re-read what is already stored. Last searched ${lastDate}. If nothing about this funder has changed since, expect much the same result. Several minutes, and it spends credits.`
             : "This will review current filings, funding information, eligibility and available grant history. It normally takes several minutes."
         }
         confirmLabel="Run research"
