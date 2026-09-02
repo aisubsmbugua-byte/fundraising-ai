@@ -339,7 +339,23 @@ export default function ResearchTab({
         )}
         {(intelligence.retrieval.fetchFailures ?? 0) > 0 && (
           <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: 4, marginBottom: 0 }}>
-            {intelligence.retrieval.fetchFailures} of {intelligence.retrieval.fetches} pages could not be read on this run.
+            {/* The reasons, when we have them. "3 of 6 could not be read" tells
+                nobody whether to retry, and a run before this was recorded shows
+                the old sentence rather than pretending it knows. */}
+            {intelligence.retrieval.fetchFailureReasons.length > 0 ? (
+              <>
+                {intelligence.retrieval.fetchFailures} of {intelligence.retrieval.fetches} pages could not be read:
+                <ul style={{ margin: "3px 0 0", paddingLeft: 16 }}>
+                  {intelligence.retrieval.fetchFailureReasons.map((r, i) => (
+                    <li key={i} style={{ fontFamily: "monospace", fontSize: 11.5, wordBreak: "break-all" }}>
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <>{intelligence.retrieval.fetchFailures} of {intelligence.retrieval.fetches} pages could not be read on this run.</>
+            )}
           </p>
         )}
       </div>

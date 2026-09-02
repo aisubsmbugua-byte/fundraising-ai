@@ -184,7 +184,15 @@ export type ProspectIntelligence = {
   // concluded -- see assessEntityLifecycle.
   lifecycle: { newestYear: number | null; signals: EntityLifecycleSignal[] };
   // Operational, shown only where it explains a gap a user can see.
-  retrieval: { searches: number | null; fetches: number | null; fetchFailures: number | null; missingSourceClasses: string[] };
+  retrieval: {
+    searches: number | null;
+    fetches: number | null;
+    fetchFailures: number | null;
+    // Why each failed, and where. "3 of 6 pages could not be read" is not
+    // actionable; "unsupported_content_type on a 990 PDF" is.
+    fetchFailureReasons: string[];
+    missingSourceClasses: string[];
+  };
 };
 
 // Loads the most recent completed research run for a prospect and shapes it
@@ -208,7 +216,7 @@ export async function loadProspectIntelligence(
     supabase
       .from("research_runs")
       .select(
-        "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures"
+        "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures, fetch_failure_reasons"
       )
       .eq("prospect_id", prospectId)
       .eq("status", "ready")
@@ -479,6 +487,7 @@ export async function loadProspectIntelligence(
       searches: (run.searches_used as number | null) ?? null,
       fetches: (run.fetch_attempts as number | null) ?? null,
       fetchFailures: (run.fetch_failures as number | null) ?? null,
+      fetchFailureReasons: ((run.fetch_failure_reasons as string[] | null) ?? []),
       missingSourceClasses: ((run.missing_source_classes as string[] | null) ?? []),
     },
   };

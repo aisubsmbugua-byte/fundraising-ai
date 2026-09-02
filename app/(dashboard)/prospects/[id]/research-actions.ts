@@ -256,6 +256,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       searchesUsed,
       fetchAttempts,
       fetchFailures,
+      fetchFailureReasons,
     } = await searchFunderWeb(researchProspect, "research_only", depth, focus).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
@@ -656,6 +657,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         searches_used: searchesUsed,
         fetch_attempts: fetchAttempts,
         fetch_failures: fetchFailures,
+        fetch_failure_reasons: fetchFailureReasons,
         official_site_fetched: officialSiteFetched,
         filing_fetched: filingFetched,
         captured_chars: capturedChars,

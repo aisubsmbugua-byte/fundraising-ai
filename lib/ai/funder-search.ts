@@ -84,6 +84,10 @@ export async function searchFunderWeb(
   searchesUsed: number;
   fetchAttempts: number;
   fetchFailures: number;
+  // Why each failure happened, and on which URL. A count cannot distinguish
+  // "the filing is a PDF we cannot parse" from "the site refused us" from
+  // "the document blew the content budget", and those need different fixes.
+  fetchFailureReasons: string[];
 }> {
   // max_uses caps how many searches Claude can run in this pass -- the
   // main lever on latency. Kept tight on purpose: this is meant to be
@@ -274,6 +278,7 @@ ${
   let searchesUsed = 0;
   let fetchAttempts = 0;
   let fetchFailures = 0;
+  const fetchFailureReasons: string[] = [];
   for (const block of searchResponse.content) {
     if (block.type === "web_search_tool_result") searchesUsed++;
     if (block.type !== "web_fetch_tool_result") continue;
@@ -284,6 +289,12 @@ ${
     // model simply chose not to read.
     if (!content || content.type !== "web_fetch_result" || typeof content.url !== "string") {
       fetchFailures++;
+      // The API puts the reason on the error block. Recorded with the URL it
+      // was attempted on, because "unsupported_content_type on a propublica
+      // PDF" is a diagnosis and "one fetch failed" is not.
+      const code = typeof content?.error_code === "string" ? content.error_code : "unknown_error";
+      const attempted = typeof content?.url === "string" ? content.url : "(url not reported)";
+      fetchFailureReasons.push(`${code} — ${attempted}`);
       continue;
     }
     const doc = content.content as Record<string, unknown> | undefined;
@@ -368,5 +379,6 @@ ${
     searchesUsed,
     fetchAttempts,
     fetchFailures,
+    fetchFailureReasons,
   };
 }
