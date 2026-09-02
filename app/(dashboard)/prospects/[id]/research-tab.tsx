@@ -1,6 +1,7 @@
 import type { StrategyRun } from "@/lib/strategy";
 import type { ProspectIntelligence, IntelligenceReviewState, StrategyUse } from "@/lib/prospect-intelligence";
 import { spacing, colors, sectionStyle, chipStyle } from "@/lib/ui";
+import { outstandingIntelligence } from "@/lib/research";
 import type { ProspectWorkflow } from "@/lib/prospect-workflow";
 import EntityResolver from "./entity-resolver";
 import VerifyRetry from "./verify-retry";
@@ -140,6 +141,13 @@ export default function ResearchTab({
   const verifyNeverRan =
     !blocked && intelligence.verificationState === "skipped" && intelligence.sections.some((s) => s.claims.length > 0);
   const claimCount = intelligence.sections.reduce((n, s) => n + s.claims.length, 0);
+  // What another search could add for THIS funder, from what this run recorded
+  // as missing. Passed to every ResearchPanel so the expensive action can say
+  // what it would buy instead of what it costs.
+  const intelligenceGaps = outstandingIntelligence({
+    missingInformation: intelligence.missingSections,
+    missingSourceClasses: intelligence.retrieval.missingSourceClasses,
+  });
   const gaps = intelligence.sections.filter((s) => s.missing);
   const allClaims = intelligence.sections.flatMap((s) => s.claims);
   const claimsWithSections = intelligence.sections.filter((s) => s.claims.length > 0);
@@ -275,7 +283,7 @@ export default function ResearchTab({
           </div>
         )}
         <div style={{ marginTop: spacing.sm }}>
-          <ResearchPanel prospectId={prospectId} workflow={workflow} lastCompletedAt={lastCompletedAt} />
+          <ResearchPanel prospectId={prospectId} workflow={workflow} lastCompletedAt={lastCompletedAt} gaps={intelligenceGaps} />
         </div>
       </div>
 

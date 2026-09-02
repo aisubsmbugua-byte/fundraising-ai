@@ -22,6 +22,7 @@ import {
   identityTokens,
   nameYieldsAcronym,
   scoreEntityCandidates,
+  outstandingIntelligence,
   sameState,
   siteNameFromTitles,
   tokenDiscrimination,
@@ -349,6 +350,40 @@ check(
   true
 );
 check("a confident result gives no reasons", stewardship.abstainReasons, []);
+
+// ---------------------------------------------------------------------------
+// What another search could actually add, per funder
+// ---------------------------------------------------------------------------
+
+// The real Stewardship run: a category with no facts AND the document that
+// would have supplied them.
+const stewardshipGaps = outstandingIntelligence({
+  missingInformation: ["recent_grants"],
+  missingSourceClasses: ["grant_schedule"],
+});
+check("the missing document is named first", stewardshipGaps[0]?.label, "their 990 grant schedule");
+check(
+  "and says what it is worth -- grant size and priorities",
+  /average grant size and giving priorities/.test(stewardshipGaps[0]?.worth ?? ""),
+  true
+);
+// Availability genuinely differs by funder: a DAF sponsor or a church may file
+// nothing of the sort. The copy must hedge on that, not on effort.
+check("hedged on availability", /if they publish one/.test(stewardshipGaps[0]?.worth ?? ""), true);
+check("the empty category comes after the document", stewardshipGaps[1]?.label, "recent grants");
+
+// The real Mission to the World run: same category missing, but every source
+// class was read -- so there is no document to promise.
+const mtwGaps = outstandingIntelligence({ missingInformation: ["recent_grants"], missingSourceClasses: [] });
+check("nothing invented when every source was read", mtwGaps.length, 1);
+check("just the category", mtwGaps[0]?.label, "recent grants");
+
+// A screen-depth run records neither, and must not produce a list of things
+// it never looked for.
+check("a run that recorded nothing claims nothing", outstandingIntelligence({ missingInformation: null, missingSourceClasses: null }), []);
+check("nor does a complete one", outstandingIntelligence({ missingInformation: [], missingSourceClasses: [] }), []);
+// An unrecognised value must be dropped rather than rendered raw at a user.
+check("an unknown section is not shown", outstandingIntelligence({ missingInformation: ["not_a_section"], missingSourceClasses: [] }), []);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

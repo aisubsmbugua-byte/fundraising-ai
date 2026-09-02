@@ -308,6 +308,68 @@ export function missingInformationSections(claims: { claim_key: string; evidence
   return RESEARCH_INFORMATION_SECTIONS.filter((s) => !s.keys.some((k) => have.has(k))).map((s) => s.section);
 }
 
+// What another search could plausibly ADD for this funder, and what it would
+// be worth to a fundraiser.
+//
+// The re-search button described its mechanism -- "search the web again" --
+// which tells a user what it costs and nothing about what they would get. The
+// thing they actually want is intelligence: a 990 grant schedule gives typical
+// grant size and who was funded; a filing gives assets and annual giving,
+// which is what an ask is sized against.
+//
+// Deliberately per-funder, because the answer genuinely differs. A private
+// foundation files a grant schedule; a donor-advised-fund sponsor, a church or
+// a denominational agency may publish none of it, and promising the same
+// return for every prospect would be a lie the button tells once per click.
+// So this reports only what THIS run recorded as missing, and hedges on
+// availability rather than on effort -- "if they publish one" is honest;
+// "we will try harder" is not.
+export type OutstandingIntelligence = { label: string; worth: string };
+
+const INFORMATION_WORTH: Record<string, string> = {
+  identity: "the registered entity behind the name",
+  funding_priorities: "what they fund, and where",
+  financial_capacity: "assets, annual giving and typical grant size — what to size an ask against",
+  recent_grants: "who they actually funded, and for how much",
+  eligibility: "whether an organization like ours qualifies at all",
+  application_access: "how and when to apply, and whether they accept unsolicited requests",
+  leadership: "who to approach",
+};
+
+const SOURCE_CLASS_WORTH: Record<string, { label: string; worth: string }> = {
+  grant_schedule: {
+    label: "their 990 grant schedule",
+    worth: "the list of grants they made, which is where average grant size and giving priorities come from — if they publish one",
+  },
+  authoritative_filing: {
+    label: "an IRS filing",
+    worth: "assets, annual giving and grant counts, stated by the organization itself",
+  },
+  official_site: {
+    label: "their own website",
+    worth: "priorities, eligibility and the application process in their own words",
+  },
+};
+
+export function outstandingIntelligence(input: {
+  missingInformation: string[] | null | undefined;
+  missingSourceClasses: string[] | null | undefined;
+}): OutstandingIntelligence[] {
+  const out: OutstandingIntelligence[] = [];
+  // Sources first: a document we never read is a more concrete thing to go
+  // after than a category we have no facts for, and usually the reason for it.
+  for (const cls of input.missingSourceClasses ?? []) {
+    const known = SOURCE_CLASS_WORTH[cls];
+    if (known) out.push(known);
+  }
+  for (const section of input.missingInformation ?? []) {
+    const worth = INFORMATION_WORTH[section];
+    const label = RESEARCH_INFORMATION_SECTIONS.find((s) => s.section === section)?.label;
+    if (worth && label) out.push({ label: label.toLowerCase(), worth });
+  }
+  return out;
+}
+
 // Source classes a private-foundation dossier is expected to have read.
 // Each is required only when it actually exists for that funder -- a prospect
 // with no website cannot be marked incomplete for failing to read one.

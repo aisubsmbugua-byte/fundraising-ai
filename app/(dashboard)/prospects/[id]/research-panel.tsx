@@ -5,6 +5,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
 import { runResearch, startProspectResearch, verifyRunClaims } from "./research-actions";
 import { buttonPrimary, buttonSecondary, colors, spacing } from "@/lib/ui";
+import type { OutstandingIntelligence } from "@/lib/research";
 import type { ProspectWorkflow } from "@/lib/prospect-workflow";
 
 type RunSnapshot = {
@@ -29,11 +30,16 @@ export default function ResearchPanel({
   prospectId,
   workflow,
   lastCompletedAt,
+  gaps = [],
 }: {
   prospectId: string;
   workflow: ProspectWorkflow;
   // ISO date of the last finished run, for the repeat-run wording.
   lastCompletedAt: string | null;
+  // What this run recorded as not found, and what it would be worth. Computed
+  // by outstandingIntelligence from the run's own coverage -- never a fixed
+  // list, because what a funder publishes genuinely differs.
+  gaps?: OutstandingIntelligence[];
 }) {
   const [run, setRun] = useState<RunSnapshot | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -147,12 +153,35 @@ export default function ResearchPanel({
         style={repeat ? { ...buttonSecondary, padding: "4px 10px", fontSize: 12.5 } : buttonPrimary}
         onClick={() => setConfirming(true)}
       >
-        {repeat ? "Search the web again" : "Run research"}
+        {repeat ? "Gather more intelligence" : "Run research"}
       </button>
       {repeat && (
-        <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 4 }}>
-          A new search of the live web{lastDate ? `, last done ${lastDate}` : ""} — several minutes, and it spends
-          credits. Checking claims above uses evidence already stored and does neither.
+        <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 4, maxWidth: 560 }}>
+          {gaps.length > 0 ? (
+            <>
+              Still missing for this funder:
+              <ul style={{ margin: "3px 0 0", paddingLeft: 16 }}>
+                {gaps.map((g, i) => (
+                  <li key={i}>
+                    <span style={{ color: colors.textMuted }}>{g.label}</span> — {g.worth}
+                  </li>
+                ))}
+              </ul>
+              <div style={{ marginTop: 3 }}>
+                A fresh search of the live web{lastDate ? `, last done ${lastDate}` : ""} — several minutes, and it
+                spends credits.
+              </div>
+            </>
+          ) : (
+            // No gaps recorded. Saying so is the useful message: the button
+            // stays available because a funder can publish something new, but
+            // nothing here is known to be missing, and a click is unlikely to
+            // return more than the last one did.
+            <>
+              Everything looked for was found{lastDate ? ` on ${lastDate}` : ""}. Another search would likely repeat
+              it — worth doing only if you believe something has changed since.
+            </>
+          )}
         </div>
       )}
 
@@ -160,13 +189,16 @@ export default function ResearchPanel({
 
       <ConfirmDialog
         open={confirming}
-        title={repeat ? "Search the web again?" : "Run dossier research?"}
+        title={repeat ? "Gather more intelligence?" : "Run dossier research?"}
         message={
           repeat
-            ? // Says what it will and will not do. A re-search that finds the
-              // same pages is the common outcome, and a dialog that only
-              // describes the upside invites paying for it repeatedly.
-              `This searches the live web again — it does not re-read what is already stored. Last searched ${lastDate}. If nothing about this funder has changed since, expect much the same result. Several minutes, and it spends credits.`
+            ? // Names the target when there is one, and the likely outcome when
+              // there is not. A dialog that only describes the upside invites
+              // paying for it repeatedly.
+              (gaps.length > 0
+                ? `This searches the live web for what is still missing: ${gaps.map((g) => g.label).join(", ")}. Whether a funder publishes any of it varies — some do not. `
+                : `Nothing is recorded as missing for this funder, so this is likely to return what the last search did. `) +
+              `Last searched ${lastDate}. Several minutes, and it spends credits. It does not re-read evidence already stored.`
             : "This will review current filings, funding information, eligibility and available grant history. It normally takes several minutes."
         }
         confirmLabel="Run research"
