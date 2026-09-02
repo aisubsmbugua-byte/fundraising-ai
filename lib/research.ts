@@ -370,6 +370,52 @@ export function outstandingIntelligence(input: {
   return out;
 }
 
+// What to actually go and search for, per gap.
+//
+// Separate from the user-facing worth above on purpose: one is written for a
+// fundraiser deciding whether to spend a click, the other for a model
+// deciding what to type into a search box, and collapsing them would make
+// both worse. They are keyed identically so a gap can never appear in the UI
+// with no corresponding instruction -- outstandingIntelligenceDirectives
+// returns nothing for a key it cannot act on, and the test asserts the two
+// maps agree.
+const FOCUS_SEARCH_DIRECTIVES: Record<string, string> = {
+  grant_schedule:
+    "their IRS Form 990 (or 990-PF) grants-paid schedule -- Schedule I, or Part XV for a private foundation -- and list the recipients and amounts it names, with the tax year",
+  authoritative_filing:
+    "their most recent IRS Form 990 or 990-PF, and report total assets, total annual giving and the number of grants made, each with its tax year",
+  official_site: "their own website, and report their stated priorities, eligibility rules and application process in their own words",
+  recent_grants: "specific grants they have actually made -- recipient organization, amount and year for each",
+  financial_capacity:
+    "total assets, total annual giving, the number of grants made in a year, and the range and median size of individual grants -- each with the tax year it comes from",
+  funding_priorities: "the cause areas they fund, their geographic focus, and whether they fund internationally",
+  eligibility: "who is eligible to apply -- organization types, geographic limits, and anything they explicitly exclude or prohibit",
+  application_access:
+    "whether they accept unsolicited applications, how a request is submitted, any deadline, and whether funding is by invitation only",
+  leadership: "the people who run the organization -- names and roles of trustees, programme officers or staff",
+  identity: "their full legal name, IRS EIN, and the city and state they are based in",
+};
+
+// Search instructions for a set of gap keys, in the order given. Unknown keys
+// are dropped rather than passed through: a key with no instruction would
+// otherwise reach the prompt as a bare identifier and be searched for
+// literally.
+export function outstandingIntelligenceDirectives(keys: (string | null | undefined)[]): string[] {
+  return keys.map((k) => (k ? FOCUS_SEARCH_DIRECTIVES[k] : undefined)).filter((d): d is string => Boolean(d));
+}
+
+// The keys a follow-up run should aim at, from what the previous run
+// recorded. Sources before sections, same order the user was shown -- a
+// document we never read is both more concrete to search for and usually the
+// reason the section is empty.
+export function focusKeysFor(input: {
+  missingInformation: string[] | null | undefined;
+  missingSourceClasses: string[] | null | undefined;
+}): string[] {
+  const keys = [...(input.missingSourceClasses ?? []), ...(input.missingInformation ?? [])];
+  return keys.filter((k) => k in FOCUS_SEARCH_DIRECTIVES);
+}
+
 // Source classes a private-foundation dossier is expected to have read.
 // Each is required only when it actually exists for that funder -- a prospect
 // with no website cannot be marked incomplete for failing to read one.

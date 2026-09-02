@@ -31,6 +31,8 @@ import {
   deriveEntityNameToken,
   buildEntityCandidates,
   identitySettledFor,
+  focusKeysFor,
+  outstandingIntelligenceDirectives,
   toStoredRanking,
   ENTITY_RANKING_VERSION,
   type RunIdentityFacts,
@@ -199,6 +201,49 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     // full dossier. See defaultDepthForStage in lib/research.ts.
     const depth: ResearchDepth = depthOverride ?? defaultDepthForStage(prospect.stage ?? null);
 
+        // What the previous completed run failed to obtain, so this one can aim at
+    // it. Derived here from stored state rather than passed in by the caller:
+    // the client already renders these gaps, and a value it sent could
+    // disagree with what the user was shown -- or be anything at all.
+    //
+    // Only for dossier depth. A screen pass is triage, not a follow-up, and a
+    // priority block would push it to spend its three searches on filings it
+    // cannot fetch.
+    // Recorded on the run so a targeted follow-up and a first pass stay
+    // separable afterwards -- the only question worth asking about this
+    // feature is whether aiming at a gap closes it more often than not
+    // aiming, and that needs the two populations distinguishable.
+    let focusKeys: string[] | null = null;
+    let focus: { directives: string[]; identity?: { name?: string | null; ein?: string | null; domain?: string | null } } | null = null;
+    if (depth === "dossier") {
+      const { data: previous } = await supabase
+        .from("research_runs")
+        .select("missing_information, missing_source_classes, operating_identity_name, confirmed_ein")
+        .eq("prospect_id", prospectId)
+        .eq("status", "ready")
+        .neq("id", runId)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const keys = previous
+        ? focusKeysFor({
+            missingInformation: previous.missing_information as string[] | null,
+            missingSourceClasses: previous.missing_source_classes as string[] | null,
+          })
+        : [];
+      if (keys.length > 0) {
+        focusKeys = keys;
+        focus = {
+          directives: outstandingIntelligenceDirectives(keys),
+          identity: {
+            name: (previous?.operating_identity_name as string | null) ?? prospect.legal_name ?? null,
+            ein: (previous?.confirmed_ein as string | null) ?? (prospect.ein as string | null) ?? null,
+            domain: (prospect.operating_identity_domain as string | null) ?? null,
+          },
+        };
+      }
+    }
+
     const {
       findings,
       usage: searchUsage,
@@ -211,7 +256,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       searchesUsed,
       fetchAttempts,
       fetchFailures,
-    } = await searchFunderWeb(researchProspect, "research_only", depth).catch((err) => {
+    } = await searchFunderWeb(researchProspect, "research_only", depth, focus).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
 
@@ -601,6 +646,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         // every evidence fragment on each render just to recompute this.
         // Versioned, so a later resolver improvement is recomputed rather than
         // silently served from a column it has outgrown.
+        research_focus: focusKeys,
         entity_ranking: toStoredRanking(operatingRanking),
         entity_ranking_version: ENTITY_RANKING_VERSION,
         entity_classification_version: ENTITY_CLASSIFICATION_VERSION,

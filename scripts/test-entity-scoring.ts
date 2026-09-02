@@ -23,6 +23,8 @@ import {
   nameYieldsAcronym,
   scoreEntityCandidates,
   outstandingIntelligence,
+  outstandingIntelligenceDirectives,
+  focusKeysFor,
   sameState,
   siteNameFromTitles,
   tokenDiscrimination,
@@ -384,6 +386,29 @@ check("a run that recorded nothing claims nothing", outstandingIntelligence({ mi
 check("nor does a complete one", outstandingIntelligence({ missingInformation: [], missingSourceClasses: [] }), []);
 // An unrecognised value must be dropped rather than rendered raw at a user.
 check("an unknown section is not shown", outstandingIntelligence({ missingInformation: ["not_a_section"], missingSourceClasses: [] }), []);
+
+// ---------------------------------------------------------------------------
+// A targeted follow-up searches for the gap, not for the funder again
+// ---------------------------------------------------------------------------
+
+const stewardshipKeys = focusKeysFor({ missingInformation: ["recent_grants"], missingSourceClasses: ["grant_schedule"] });
+check("sources are aimed at before empty categories", stewardshipKeys, ["grant_schedule", "recent_grants"]);
+
+const directives = outstandingIntelligenceDirectives(stewardshipKeys);
+check("every key yields an instruction", directives.length, stewardshipKeys.length);
+// The whole point of targeting: name the actual document, not the topic.
+check("the filing schedule is named specifically", /Schedule I|Part XV/.test(directives[0]), true);
+
+// The two maps are keyed identically on purpose -- a gap shown to a user with
+// no matching instruction would be an offer the search cannot act on.
+const shown = outstandingIntelligence({ missingInformation: ["recent_grants"], missingSourceClasses: ["grant_schedule"] });
+check("everything shown to a user can be searched for", directives.length, shown.length);
+
+// Unknown keys must not reach a prompt, where they would be searched for
+// literally.
+check("an unknown key yields no instruction", outstandingIntelligenceDirectives(["not_a_key"]), []);
+check("and is not a focus target", focusKeysFor({ missingInformation: ["not_a_key"], missingSourceClasses: [] }), []);
+check("a run with no gaps targets nothing", focusKeysFor({ missingInformation: null, missingSourceClasses: null }), []);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

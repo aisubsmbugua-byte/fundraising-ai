@@ -41,7 +41,14 @@ export async function searchFunderWeb(
   purpose: "combined" | "research_only" = "combined",
   // Only meaningful for research_only. "screen" skips page fetching
   // entirely -- see RESEARCH_DEPTHS in lib/research.ts.
-  depth: "identity" | "screen" | "dossier" = "dossier"
+  depth: "identity" | "screen" | "dossier" = "dossier",
+  // A targeted follow-up: what the PREVIOUS run failed to obtain, as ready
+  // search instructions (see outstandingIntelligenceDirectives). Added to the
+  // dossier prompt as a priority block rather than replacing it -- a run that
+  // fetched only the gaps would produce fewer claims than the run before it,
+  // which reads as a regression and would make the next run's gap list worse,
+  // not better. Ignored at screen and identity depth, which are not follow-ups.
+  focus: { directives: string[]; identity?: { name?: string | null; ein?: string | null; domain?: string | null } } | null = null
 ): Promise<{
   findings: string;
   // Which model actually ran the search, so the caller can price it.
@@ -144,6 +151,24 @@ Only report what you actually find. If no EIN is publicly stated, say so rather 
 
 Find real, current information, but be efficient -- a couple of well-chosen searches, not exhaustive research: funding priorities/focus areas, typical grant or gift size if publicly known, how they prefer to be approached, and anything relevant to fit. Only report things you actually find -- do not invent facts. Keep your written summary concise.`;
 
+  // Prepended to the dossier prompt when a previous run left gaps. Names the
+  // organization precisely first: a follow-up that re-derives identity spends
+  // its searches proving something already settled, and identity is exactly
+  // what a confirmed prospect no longer needs looked up.
+  const focusBlock =
+    focus && focus.directives.length > 0
+      ? `PRIORITY -- this is a follow-up search. A previous pass already covered this funder generally; what it could NOT obtain is listed below. Spend your searches on these first, and say plainly if something is genuinely not published rather than approximating it:
+${focus.directives.map((d) => `- ${d}`).join("\n")}
+
+${
+  focus.identity?.name || focus.identity?.ein || focus.identity?.domain
+    ? `The organization is already identified${focus.identity.name ? ` as ${focus.identity.name}` : ""}${focus.identity.ein ? `, EIN ${focus.identity.ein}` : ""}${focus.identity.domain ? `, website ${focus.identity.domain}` : ""}. Do not spend searches re-establishing which organization this is; use the EIN or domain to go straight to their filings and pages.\n\n`
+    : ""
+}Then cover the rest of the brief below as usual.
+
+`
+      : "";
+
   const isResearch = purpose === "research_only";
   const isScreen = isResearch && depth === "screen";
   const isIdentity = isResearch && depth === "identity";
@@ -183,7 +208,18 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
         model: searchModel,
         max_tokens: isResearch ? 8000 : 2000,
         tools: withFetch ? [searchTool, fetchTool] : [searchTool],
-        messages: [{ role: "user", content: isResearch ? researchOnlyPrompt : combinedPrompt }],
+        messages: [
+          {
+            role: "user",
+            content: isResearch
+              ? isIdentity
+                ? identityPrompt
+                : isScreen
+                  ? screenPrompt
+                  : `${focusBlock}${researchOnlyPrompt}`
+              : combinedPrompt,
+          },
+        ],
       },
       // 150s, down from 240s: real research searches land at 60-90s even
       // with page fetches, so 240 was unused headroom that pushed the
