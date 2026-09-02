@@ -18,7 +18,12 @@ export async function GET(_request: Request, { params }: { params: { prospectId:
 
   const { data } = await supabase
     .from("research_runs")
-    .select("id, status, status_message, started_at, verification_state, completion_state, dossier_confirmed, completed_at, version")
+    // The operating columns come too: this route feeds the Research tab's
+    // polling, and without them the tab could only ever learn the legal
+    // answer -- reporting "identity not confirmed" about a named organization.
+    .select(
+      "id, status, status_message, started_at, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at, version"
+    )
     .eq("prospect_id", params.prospectId)
     .order("created_at", { ascending: false })
     .limit(1)

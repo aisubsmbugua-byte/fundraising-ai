@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { APPROVED_FOR_DOWNSTREAM } from "@/lib/research";
+import { APPROVED_FOR_DOWNSTREAM, identitySettledFor, type RunIdentityFacts } from "@/lib/research";
 import type { StrategyRun } from "@/lib/strategy";
 
 // Where a prospect stands on the road from "accepted" to "strategy a person
@@ -199,7 +199,9 @@ export async function loadProspectWorkflow(
 ): Promise<ProspectWorkflow & { researchRunId: string | null; approvedClaimCount: number; lastCompletedAt: string | null }> {
   const { data: research } = await supabase
     .from("research_runs")
-    .select("id, status, verification_state, completion_state, dossier_confirmed, completed_at")
+    .select(
+      "id, status, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at"
+    )
     .eq("prospect_id", prospectId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -235,7 +237,11 @@ export async function loadProspectWorkflow(
           status: research.status as string,
           verificationState: (research.verification_state as string | null) ?? null,
           completionState: (research.completion_state as string | null) ?? null,
-          dossierConfirmed: !!research.dossier_confirmed,
+          // Whether we know WHO this funder is -- which is what every caller
+          // of this field actually meant. Reading dossier_confirmed made a
+          // prospect with a named organization and a pending EIN look
+          // identical to one nobody could identify.
+          dossierConfirmed: identitySettledFor(research as RunIdentityFacts, "describe"),
         }
       : null,
     strategy: strategy ? { status: strategy.status, approved: !!strategy.approved_strategy } : null,

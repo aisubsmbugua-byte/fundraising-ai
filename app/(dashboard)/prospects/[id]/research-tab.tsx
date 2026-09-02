@@ -105,21 +105,36 @@ export default function ResearchTab({
   // "could not be established" directly above a green "confirmed entity"
   // chip. Whether we know who this organization is does not depend on how
   // deeply we searched.
+  //
+  // "Blocked" asks ONE question: can we say which organization this research
+  // describes? Not which filing is theirs -- that is a separate layer with its
+  // own consequences (financial claims stay withheld) and it must not decide
+  // this. While it did, four prospects with named organizations had their
+  // approval panel hidden entirely, and 126 claims sat unreviewable behind a
+  // banner about an EIN.
+  const operatingKnown = !!intelligence.operatingIdentity;
   const identityUnresolved =
-    intelligence.resolutionMethod === "unresolved" || intelligence.resolutionMethod === "ambiguous_filings";
-  const blocked = intelligence.state === "blocked" || identityUnresolved;
+    !operatingKnown &&
+    (intelligence.resolutionMethod === "unresolved" || intelligence.resolutionMethod === "ambiguous_filings");
+  // intelligence.state comes from completion_state, which assessDossierState
+  // writes off the legal layer alone -- so it is consulted only when the
+  // organization is genuinely unknown, never to override a resolved one.
+  const blocked = (intelligence.state === "blocked" && !operatingKnown) || identityUnresolved;
   // A person has since said who this is, but the run predates that. Not the
   // same as "we don't know", and telling someone their confirmation never
   // happened is how a working button reads as broken.
   const identitySettledSince = blocked && !!prospectEin;
-  // The operating layer, which resolutionMethod above knows nothing about.
-  // Without this the page asserted both "Strong match: Stewardship Foundation"
-  // and "several organizations share this name" in the same column -- the
-  // resolver had decided, and the banner was still reading the legal field and
-  // reporting it as the whole answer.
-  const operatingKnown = !!intelligence.operatingIdentity;
   const verifying = intelligence.verificationState === "pending" || intelligence.verificationState === "in_progress";
   const verifyFailed = intelligence.verificationState === "failed";
+  // Never checked, and now checkable. These runs were stored "skipped" because
+  // verification used to require a confirmed EIN -- so opening that gate is
+  // only half the fix: without an offer to run the check, the claims stay
+  // unverified forever and the approval panel below never appears.
+  //
+  // It stays a human click. Verification is a paid model call, and nothing
+  // here may spend on its own.
+  const verifyNeverRan =
+    !blocked && intelligence.verificationState === "skipped" && intelligence.sections.some((s) => s.claims.length > 0);
   const gaps = intelligence.sections.filter((s) => s.missing);
   const allClaims = intelligence.sections.flatMap((s) => s.claims);
   const claimsWithSections = intelligence.sections.filter((s) => s.claims.length > 0);
@@ -199,9 +214,11 @@ export default function ResearchTab({
               ? "Checking claims against their sources"
               : verifyFailed
                 ? "Verification incomplete"
-                : gaps.length
-                  ? "Research available, with gaps"
-                  : "Ready for review"}
+                : verifyNeverRan
+                  ? "Not checked against sources yet"
+                  : gaps.length
+                    ? "Research available, with gaps"
+                    : "Ready for review"}
         </h3>
         <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs, marginBottom: 0 }}>
           {blocked
@@ -222,11 +239,18 @@ export default function ResearchTab({
               ? "Research is complete and shown below. Each claim is being checked against the evidence it cites; review states will appear shortly."
               : verifyFailed
                 ? "The research below is intact, but the check against sources did not finish, so claims are unreviewed. Retrying is safe — it re-reads the stored evidence and does not re-run research."
-                : gaps.length
-                  ? `Research is usable, but nothing was found for: ${gaps.map((g) => g.label.toLowerCase()).join(", ")}.`
-                  : "Every information category was found. Individual claims still carry their own review state below."}
+                : verifyNeverRan
+                  ? "This research has not been checked against its sources yet. Running the check reads the evidence already stored — it does not research again — and turns the list below into a short set of genuine decisions."
+                  : gaps.length
+                    ? `Research is usable, but nothing was found for: ${gaps.map((g) => g.label.toLowerCase()).join(", ")}.`
+                    : "Every information category was found. Individual claims still carry their own review state below."}
         </p>
         {verifyFailed && <div style={{ marginTop: spacing.xs }}><VerifyRetry runId={intelligence.runId} /></div>}
+        {verifyNeverRan && (
+          <div style={{ marginTop: spacing.xs }}>
+            <VerifyRetry runId={intelligence.runId} label="Check claims against their sources" pendingLabel="Checking..." />
+          </div>
+        )}
         <div style={{ marginTop: spacing.sm }}>
           <ResearchPanel prospectId={prospectId} workflow={workflow} lastCompletedAt={lastCompletedAt} />
         </div>

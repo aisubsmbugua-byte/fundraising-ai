@@ -30,6 +30,8 @@ import {
   contactEmailDomain,
   deriveEntityNameToken,
   buildEntityCandidates,
+  identitySettledFor,
+  type RunIdentityFacts,
   scoreEntityCandidates,
   resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
@@ -607,8 +609,27 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         // run so the Research tab can say "checking" rather than presenting
         // an unchecked dossier as finished -- which is exactly how it
         // shipped, with 0% of displayed claims carrying a verdict.
+        //
+        // Queued on the OPERATING layer, not the legal one. Verification asks
+        // whether a sentence matches the evidence it cites; a filing adds
+        // nothing to that question. Requiring the EIN first left 126 claims
+        // across four prospects with no verdict, and a reviewer facing 54
+        // unassisted decisions on research that was actually fine.
         verification_state:
-          depth === "dossier" && isConfirmedDossier({ entity_resolution_method: entityResolutionMethod }) && claims.some((c) => isMaterialClaimKey(c.claim_key))
+          depth === "dossier" &&
+          identitySettledFor(
+            {
+              entity_resolution_method: entityResolutionMethod,
+              operating_identity_method: operatingLeader
+                ? operatingLeader.layer === "operating"
+                  ? "official_opportunity_page"
+                  : "scored_match"
+                : "unresolved",
+              operating_identity_name: operatingLeader?.name ?? null,
+            },
+            "verify"
+          ) &&
+          claims.some((c) => isMaterialClaimKey(c.claim_key))
             ? "pending"
             : "skipped",
         // Only a foundational blocker, or ready for a human to judge.
@@ -663,15 +684,21 @@ export async function verifyRunClaims(runId: string) {
 
   const { data: run } = await supabase
     .from("research_runs")
-    .select("id, prospect_id, status, dossier_confirmed, prospects(name)")
+    .select(
+      "id, prospect_id, status, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, prospects(name)"
+    )
     .eq("id", runId)
     .single();
   if (!run) throw new ResearchError("run_not_found", "Research run not found");
   if (run.status !== "ready") throw new ResearchError("run_not_ready", "Only a completed run can be verified");
-  if (!run.dossier_confirmed) {
+  // The ORGANIZATION must be known. The EIN need not be -- see
+  // identitySettledFor. Claims that genuinely depend on a filing are withheld
+  // downstream by claimRequiresLegalEntity, which is the right place for that
+  // distinction: it is a property of the claim, not of the whole run.
+  if (!identitySettledFor(run as RunIdentityFacts, "verify")) {
     throw new ResearchError(
       "identity_unresolved",
-      "This run's entity was never confirmed, so its claims cannot be meaningfully verified. Confirm the EIN and re-run first."
+      "This run could not establish which organization it describes, so its claims cannot be meaningfully verified. Confirm the organization and re-run first."
     );
   }
   const prospect = run.prospects as unknown as { name: string };

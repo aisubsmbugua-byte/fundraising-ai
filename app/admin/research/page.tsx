@@ -5,7 +5,11 @@ import ClaimReview from "./claim-review";
 import ConfirmEin from "./confirm-ein";
 import VerifyButton from "./verify-button";
 import EntityPicker, { type EntityCandidate } from "./entity-picker";
-import { RESEARCH_INFORMATION_SECTIONS as INFORMATION_SECTIONS } from "@/lib/research";
+import {
+  RESEARCH_INFORMATION_SECTIONS as INFORMATION_SECTIONS,
+  identitySettledFor,
+  type RunIdentityFacts,
+} from "@/lib/research";
 
 // Live data every load -- runs and claims change as soon as a research
 // call finishes, same reasoning as /admin/organizations.
@@ -111,7 +115,7 @@ export default async function AdminResearchPage() {
   const { data: runs } = await supabase
     .from("research_runs")
     .select(
-      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars, completion_state, missing_source_classes, missing_information"
+      "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, operating_identity_name, operating_identity_method, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars, completion_state, missing_source_classes, missing_information"
     )
     .order("created_at", { ascending: false })
     .limit(20);
@@ -286,12 +290,12 @@ export default async function AdminResearchPage() {
               {run.status === "ready" && (
                 <VerifyButton
                   runId={run.id}
-                  disabled={!run.dossier_confirmed}
+                  disabled={!identitySettledFor(run as RunIdentityFacts, "verify")}
                   disabledReason="This run's entity was never confirmed, so verifying its claims would check wording against evidence that may describe another organization."
                 />
               )}
 
-              {run.status === "ready" && !run.dossier_confirmed && (
+              {run.status === "ready" && !identitySettledFor(run as RunIdentityFacts, "verify") && (
                 <EntityPicker
                   prospectId={run.prospect_id}
                   savedEin={prospectEins.get(run.prospect_id) ?? null}

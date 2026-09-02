@@ -1749,10 +1749,73 @@ export function entityStatusMeaning(
 // sit at the same trust level, and only the model's reading separates them.
 // Enforced as backend state rather than convention -- any consumer that
 // would advance research into Strategy/Outreach must gate on this.
-export function isConfirmedDossier(run: {
+// Methods that identify a REGISTERED ENTITY. Each names a specific filing.
+const LEGAL_RESOLUTION_METHODS = new Set(["stored_ein", "authoritative_filing", "official_domain"]);
+
+// The four fields that, between them, say who a run decided this funder is.
+// Taken as one object rather than as loose arguments so a caller cannot supply
+// half of them -- which is precisely how the layers came apart: five call
+// sites each fetched `dossier_confirmed`, none fetched the operating columns,
+// and every one of them concluded "identity unknown" about an organization
+// the resolver had named.
+export type RunIdentityFacts = {
   entity_resolution_method: string | null;
-}): boolean {
-  return run.entity_resolution_method === "stored_ein" || run.entity_resolution_method === "authoritative_filing" || run.entity_resolution_method === "official_domain";
+  confirmed_ein?: string | null;
+  operating_identity_name?: string | null;
+  operating_identity_method?: string | null;
+};
+
+// What a run knows, split by layer. THE one place this is decided.
+//
+// It was previously decided in five: isConfirmedDossier here, the two-layer
+// test inlined in loadApprovedIntelligence, the research tab's
+// identityUnresolved, prospect-workflow, and the runs API route. Three of the
+// five had never heard of the operating layer, so a funder whose organization
+// was fully established still had its verification skipped and its claims
+// presented as describing nobody in particular.
+export function identityState(run: RunIdentityFacts): {
+  legalConfirmed: boolean;
+  operatingKnown: boolean;
+  organizationName: string | null;
+} {
+  const legalConfirmed =
+    LEGAL_RESOLUTION_METHODS.has(run.entity_resolution_method ?? "") || Boolean(run.confirmed_ein);
+  const operatingKnown =
+    legalConfirmed ||
+    (Boolean(run.operating_identity_method) && run.operating_identity_method !== "unresolved");
+  return { legalConfirmed, operatingKnown, organizationName: run.operating_identity_name ?? null };
+}
+
+// What the answer is being used FOR. The layers differ in what they license,
+// so a single boolean cannot serve every caller -- and collapsing them to one
+// is what made "we don't know the EIN" mean "we don't know anything".
+export const IDENTITY_PURPOSES = [
+  // Say who this funder is on screen.
+  "describe",
+  // Check claims against the evidence they cite. Needs the right
+  // ORGANIZATION; a filing adds nothing to whether a sentence matches its
+  // source. Gating this on the EIN left 126 claims across four prospects with
+  // no verdict at all, and a reviewer facing 54 unassisted decisions.
+  "verify",
+  // Let approved claims reach a strategy.
+  "strategy",
+  // Surface a figure or a legal name read OFF a filing. The one purpose that
+  // genuinely requires the EIN, because attaching a filing's numbers to the
+  // wrong entity is how a figure ends up describing a different organization.
+  "legal_claim",
+] as const;
+export type IdentityPurpose = (typeof IDENTITY_PURPOSES)[number];
+
+export function identitySettledFor(run: RunIdentityFacts, purpose: IdentityPurpose): boolean {
+  const { legalConfirmed, operatingKnown } = identityState(run);
+  return purpose === "legal_claim" ? legalConfirmed : operatingKnown;
+}
+
+// Kept as the name the run row's `dossier_confirmed` column records: the LEGAL
+// layer only. It is history -- what was true of the filing when the run
+// finished -- and must not be used to decide what a reader may be told.
+export function isConfirmedDossier(run: { entity_resolution_method: string | null }): boolean {
+  return identityState(run).legalConfirmed;
 }
 
 // Every EIN a source appears to describe, from its captured text and its

@@ -3,6 +3,8 @@ import {
   APPROVED_FOR_DOWNSTREAM,
   assessEntityLifecycle,
   buildEntityCandidates,
+  identitySettledFor,
+  type RunIdentityFacts,
   contactEmailDomain,
   deriveEntityNameToken,
   presentableCandidates,
@@ -195,7 +197,7 @@ export async function loadProspectIntelligence(
   const { data: run } = await supabase
     .from("research_runs")
     .select(
-      "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, searches_used, fetch_attempts, fetch_failures"
+      "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, searches_used, fetch_attempts, fetch_failures"
     )
     .eq("prospect_id", prospectId)
     .eq("status", "ready")
@@ -406,7 +408,10 @@ export async function loadProspectIntelligence(
     completedAt: (run.completed_at as string | null) ?? null,
     state: (run.completion_state as string | null) ?? null,
     verificationState: (run.verification_state as string | null) ?? null,
-    identityConfirmed: !!run.dossier_confirmed,
+    // The LEGAL layer specifically. Consumers that mean "do we know who this
+    // is" must read operatingIdentity instead -- conflating them is what put
+    // "Identity not confirmed" beside a named organization.
+    identityConfirmed: identitySettledFor(run as RunIdentityFacts, "legal_claim"),
     confirmedEin: (run.confirmed_ein as string | null) ?? null,
     resolutionMethod: (run.entity_resolution_method as string | null) ?? null,
     // Only what a person could actually choose between. The rest stays in
@@ -547,7 +552,7 @@ export async function loadApprovedIntelligence(
 ): Promise<ApprovedIntelligence | null> {
   const { data: run } = await supabase
     .from("research_runs")
-    .select("id, version, confirmed_ein, dossier_confirmed, operating_identity_name, operating_identity_method")
+    .select("id, version, confirmed_ein, dossier_confirmed, entity_resolution_method, operating_identity_name, operating_identity_method")
     .eq("prospect_id", prospectId)
     .eq("status", "ready")
     .order("version", { ascending: false })
@@ -563,14 +568,11 @@ export async function loadApprovedIntelligence(
   // to reason about their programme, their deadlines and their restrictions --
   // and refusing everything on that basis is what made the resolver ask a
   // person to pick between three organizations it could already tell apart.
-  const operatingKnown =
-    !!run?.dossier_confirmed ||
-    (!!run?.operating_identity_name && run?.operating_identity_method !== "unresolved" && !!run?.operating_identity_method);
-  if (!run || !operatingKnown) return null;
+  if (!run || !identitySettledFor(run as RunIdentityFacts, "strategy")) return null;
 
   // What is NOT settled decides which claims travel. Anything read off a
   // filing stays behind until the filing is known to be the right one.
-  const legalEntityConfirmed = !!run.confirmed_ein;
+  const legalEntityConfirmed = identitySettledFor(run as RunIdentityFacts, "legal_claim");
 
   const [{ data: claims }, { data: verifications }, { data: approvals }, { data: links }] = await Promise.all([
     supabase.from("research_claims").select("id, claim_key, claim, reporting_period, evidence_missing").eq("research_run_id", run.id),
