@@ -164,6 +164,8 @@ Find real, current information, but be efficient -- a couple of well-chosen sear
       ? `PRIORITY -- this is a follow-up search. A previous pass already covered this funder generally; what it could NOT obtain is listed below. Spend your searches on these first, and say plainly if something is genuinely not published rather than approximating it:
 ${focus.directives.map((d) => `- ${d}`).join("\n")}
 
+Spend your page reads on THESE first. You have a small fetch budget and it is easy to exhaust it on search-result summaries and directory profiles; the primary document is worth more than several pages about it. If a filing or schedule appears in the results, read it before anything else, and only fetch a URL that actually appeared in a search result -- a constructed one will be refused and the attempt is wasted.
+
 ${
   focus.identity?.name || focus.identity?.ein || focus.identity?.domain
     ? `The organization is already identified${focus.identity.name ? ` as ${focus.identity.name}` : ""}${focus.identity.ein ? `, EIN ${focus.identity.ein}` : ""}${focus.identity.domain ? `, website ${focus.identity.domain}` : ""}. Do not spend searches re-establishing which organization this is; use the EIN or domain to go straight to their filings and pages.\n\n`
@@ -196,7 +198,20 @@ ${
   const fetchTool = {
     type: "web_fetch_20260318" as const,
     name: "web_fetch" as const,
-    max_uses: 5,
+    // A targeted follow-up gets two more. Measured cause, not a guess: a
+    // Stewardship follow-up aimed at the 990 grant schedule surfaced the exact
+    // filing --
+    // projects.propublica.org/nonprofits/organizations/916020515/.../full --
+    // and failed with max_uses_exceeded on the sixth fetch, having spent its
+    // five elsewhere. The document was found and the budget ran out before it
+    // was opened.
+    //
+    // Kept small anyway: each fetch pulls up to max_content_tokens into the
+    // model's context, and input is 94% of this pipeline's token spend. Two
+    // more fetches is the narrowest fix for a run that has a specific document
+    // to get; raising it generally would raise every run's cost to solve one
+    // run's problem.
+    max_uses: focus && focus.directives.length > 0 ? 7 : 5,
     citations: { enabled: true },
     max_content_tokens: 30_000,
     allowed_callers: ["direct" as const],
