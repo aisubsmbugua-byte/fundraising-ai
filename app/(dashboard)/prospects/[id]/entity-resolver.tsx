@@ -190,7 +190,11 @@ export default function EntityResolver({
           list. The evidence is shown in the order it moved the score -- a
           person deciding whether to accept this needs to see WHY, and "it
           scored 9.7" is not why. */}
-      {operatingIdentity && !confirmedEin && !savedEin && (
+      {/* The proposal, shown only while it is still a proposal. Once a person
+          has confirmed, "Strong match ... Confirm this is the right
+          organization" is asking a question they have already answered -- and
+          it appeared directly above the green chip recording their answer. */}
+      {operatingIdentity && !confirmedEin && !savedEin && !confirmedOperating?.at && (
         <div style={{ marginTop: spacing.sm, padding: spacing.md, border: `1px solid ${colors.border}`, borderRadius: 8 }}>
           <div style={{ fontSize: 13.5, color: colors.text }}>
             <strong>Strong match: {operatingIdentity.name}</strong>

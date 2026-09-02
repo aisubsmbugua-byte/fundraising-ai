@@ -50,7 +50,7 @@ async function main() {
 
   const { data: prospects } = await admin
     .from("prospects")
-    .select("id, name, legal_name, opportunity_name, source_domain, location, website, website_status, ein, contact_email")
+    .select("id, name, legal_name, opportunity_name, source_domain, location, website, website_status, ein, contact_email, operating_identity_name, operating_identity_domain, operating_identity_confirmed_at")
     .ilike("name", `%${query}%`);
   if (!prospects?.length) throw new Error(`No prospect matching "${query}".`);
   if (prospects.length > 1) {
@@ -72,6 +72,15 @@ async function main() {
   show("location", p.location);
   show("website", p.website);
   show("stored ein", p.ein);
+  // A human's answer outranks anything below it. Printed with the inputs
+  // rather than the outputs because that is what it is -- if someone has said
+  // who this is, the ranking is no longer the deciding voice.
+  show(
+    "confirmed org",
+    p.operating_identity_confirmed_at
+      ? `${p.operating_identity_name ?? "(unnamed)"} (${p.operating_identity_domain ?? "no domain"}) on ${String(p.operating_identity_confirmed_at).slice(0, 10)}`
+      : null
+  );
 
   const { data: run } = await admin
     .from("research_runs")
