@@ -29,7 +29,8 @@ you're about to touch `research_runs`, `research_claims`,
 ## The problem
 
 The Agentic Advancement Department brief proposes splitting the app's combined
-"research + strategy" AI call (`runDeepDive` in `deep-dive-actions.ts`) into
+"research + strategy" AI call (runDeepDive in deep-dive-actions.ts, both since
+renamed — see the correction above) into
 separate, reusable agents, built and evaluated one at a time — Research first.
 The brief's own gate: inspect the existing architecture, propose the smallest
 additive plan for Build 1 only, stop for review before implementing. This
@@ -48,7 +49,7 @@ button any ordinary tenant user sees or can trigger.
   migrates it. The only file the live workflow shares with Build 1 is the
   web-search step itself, extracted into `lib/ai/funder-search.ts`
   (`searchFunderWeb`) — a pure, behavior-preserving refactor of what
-  `deep-dive-actions.ts` already did inline (same prompt, same model, same
+  deep-dive-actions.ts already did inline (same prompt, same model, same
   tool config, same timeout). "Zero behavioral changes to the live workflow"
   was the actual promise here, not "zero modified files" — the two are
   different, and the first round of review conflated them.
@@ -472,7 +473,8 @@ Tunde Aviation requires that organization's explicit agreement first.
 - `scripts/test-tenant-isolation.ts`, `scripts/test-research-concurrency.ts`,
   `scripts/confidence-calibration-check.ts` — repeatable verification,
   `npx tsx --env-file=.env.local scripts/<name>.ts`
-- `app/(dashboard)/prospects/[id]/deep-dive-actions.ts` — the live combined
+- app/(dashboard)/prospects/[id]/deep-dive-actions.ts, since renamed to
+  `app/(dashboard)/prospects/[id]/strategy-actions.ts` — the live combined
   action; only its web-search step was touched, extraction/strategy call is
   unchanged
 - [0001-multi-tenancy.md](0001-multi-tenancy.md) — the RLS pattern this

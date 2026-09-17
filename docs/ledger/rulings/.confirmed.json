@@ -1,0 +1,27 @@
+{
+  "0002": {
+    "verdict": "confirmed",
+    "checked_against": "lib/qualification.ts:216 — EMPTY_DENOMINATION_REGISTRY resolves nothing and reports nothing incompatible, so the auto-dismissal branch is unreachable by construction rather than disabled by a flag. lib/qualification.ts:235 carries the ruling's user-facing string verbatim.",
+    "date": "2026-09-16"
+  },
+  "0003": {
+    "verdict": "confirmed",
+    "checked_against": "lib/discovery-handoff.ts carries the contract (HANDOFF_DEFECTS at :77, sourceUrl/sourceTitle/opportunityName at :120-122) and the legacy rule at :117-118 — rows before the contract keep handoff_version 0 and are reported as legacy rather than back-filled. supabase/migrations/0065_discovery_handoff.sql adds the columns and the prospect_kind check.",
+    "date": "2026-09-16"
+  },
+  "0005": {
+    "verdict": "unconfirmed",
+    "checked_against": null,
+    "date": null
+  },
+  "0006": {
+    "verdict": "confirmed",
+    "checked_against": "lib/availability.ts:29-40 carries the five states and defines OBTAINABLE as exactly {not_checked, retrieval_failed}; obtainableGaps filters on it; scripts/test-availability.ts asserts that checked_not_stated and not_applicable cannot be closed by more work.",
+    "date": "2026-09-16"
+  },
+  "0007": {
+    "verdict": "unconfirmed",
+    "checked_against": null,
+    "date": null
+  }
+}

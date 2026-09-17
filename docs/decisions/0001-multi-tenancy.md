@@ -209,6 +209,7 @@ hypotheticals:
   already run against production — safe to re-run, it skips already-prefixed
   paths)
 - `app/api/cron/discovery-auto-search/route.ts`,
-  `app/(dashboard)/discovery/search/actions.ts`, `lib/deep-dive.ts` (the
-  per-org cron rewrite)
+  `app/(dashboard)/discovery/search/actions.ts`, and what was then
+  lib/deep-dive.ts, since renamed to `lib/strategy.ts` (the per-org cron
+  rewrite)
 - `lib/contacts.ts` (the `organization_id, email` unique-constraint fix)
