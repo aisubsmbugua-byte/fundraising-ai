@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { classifyProspectKind, HANDOFF_VERSION } from "@/lib/discovery-handoff";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
@@ -253,6 +254,19 @@ export async function acceptCandidate(candidateId: string) {
       // and was guessing without them.
       opportunity_name: candidate.opportunity_name ?? null,
       source_domain: candidate.source_domain ?? null,
+      // The handoff contract. candidates already held every one of these and
+      // intake dropped source_url and source_title -- discarding the exact page
+      // a search returned, which is the single most useful thing Research can
+      // be given about a named opportunity.
+      source_url: candidate.source_url ?? null,
+      source_title: candidate.source_title ?? null,
+      source_classification: candidate.website_status ?? null,
+      prospect_kind: classifyProspectKind({
+        opportunityName: candidate.opportunity_name,
+        funderType: candidate.funder_type,
+        displayName: candidate.name,
+      }),
+      handoff_version: HANDOFF_VERSION,
       location: candidate.location,
       funder_type: candidate.funder_type,
       geographic_focus: candidate.geographic_focus,
