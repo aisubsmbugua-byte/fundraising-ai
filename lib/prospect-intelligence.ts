@@ -219,6 +219,7 @@ export async function loadProspectIntelligence(
         "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures, fetch_failure_reasons"
       )
       .eq("prospect_id", prospectId)
+      .eq("pipeline", "agentic")
       .eq("status", "ready")
       .order("version", { ascending: false })
       .limit(1)
@@ -584,6 +585,7 @@ export async function loadApprovedIntelligence(
     .from("research_runs")
     .select("id, version, confirmed_ein, dossier_confirmed, entity_resolution_method, operating_identity_name, operating_identity_method")
     .eq("prospect_id", prospectId)
+    .eq("pipeline", "agentic")
     .eq("status", "ready")
     .order("version", { ascending: false })
     .limit(1)

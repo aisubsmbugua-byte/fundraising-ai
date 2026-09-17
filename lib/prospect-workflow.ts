@@ -207,6 +207,9 @@ export async function loadProspectWorkflow(
         "id, status, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at"
       )
       .eq("prospect_id", prospectId)
+      // Agentic only: a staged qualification run sits in 'researching' between
+      // tiers, and without this the prospect reads as "research in flight".
+      .eq("pipeline", "agentic")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),

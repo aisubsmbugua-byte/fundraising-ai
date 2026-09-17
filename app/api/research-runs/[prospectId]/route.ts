@@ -26,6 +26,15 @@ export async function GET(_request: Request, { params }: { params: { prospectId:
       "id, status, status_message, started_at, verification_state, completion_state, dossier_confirmed, entity_resolution_method, confirmed_ein, operating_identity_name, operating_identity_method, completed_at, version"
     )
     .eq("prospect_id", params.prospectId)
+    // Agentic runs only. Both pipelines share this table on purpose -- so the
+    // two can be compared per prospect -- but this route feeds the existing
+    // Research tab, which takes the NEWEST run and knows nothing about tiers.
+    // Without this filter a qualification run becomes the newest row and the
+    // tab reports it as research in flight, then the sweep below marks it
+    // errored for never finishing. A staged run that has published tier 1 and
+    // is waiting for tier 2 is not stuck, and the sweep's assumption -- that an
+    // unfinished run was killed mid-flight -- does not hold for it.
+    .eq("pipeline", "agentic")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

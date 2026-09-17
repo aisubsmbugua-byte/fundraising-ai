@@ -137,6 +137,10 @@ export async function startProspectResearch(
       .from("research_runs")
       .select("id")
       .eq("prospect_id", prospectId)
+      // The retry chain is per pipeline. Without this, an agentic retry would
+      // point retry_of at a qualification run and claim to be a second attempt
+      // at something it never attempted.
+      .eq("pipeline", "agentic")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -220,6 +224,10 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         .from("research_runs")
         .select("missing_information, missing_source_classes, operating_identity_name, confirmed_ein")
         .eq("prospect_id", prospectId)
+        // Only an agentic run carries missing_information; reading a finished
+        // qualification run here would return nulls and silently switch the
+        // targeted follow-up off while looking like it had nothing to aim at.
+        .eq("pipeline", "agentic")
         .eq("status", "ready")
         .neq("id", runId)
         .order("version", { ascending: false })

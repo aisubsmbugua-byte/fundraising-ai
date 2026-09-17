@@ -117,6 +117,7 @@ export default async function AdminResearchPage() {
     .select(
       "id, prospect_id, version, retry_of, status, status_message, error_code, error_message, model, prompt_version, extraction_schema_version, input_tokens, output_tokens, cost_usd, latency_ms, completed_at, created_at, confirmed_ein, entity_resolution_method, entity_classification_version, dossier_confirmed, operating_identity_name, operating_identity_method, depth, searches_used, fetch_attempts, fetch_failures, official_site_fetched, filing_fetched, captured_chars, completion_state, missing_source_classes, missing_information"
     )
+    .eq("pipeline", "agentic")
     .order("created_at", { ascending: false })
     .limit(20);
 

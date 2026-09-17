@@ -1,5 +1,21 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+// Two pipelines share research_runs on purpose: it is what lets both be run
+// against the same prospect and compared, which an environment flag could
+// never do because it makes them mutually exclusive.
+//
+// The cost is that every query asking for "the latest run for this prospect"
+// must now say which pipeline it means. A staged qualification run sits in
+// 'researching' between tiers, so an unfiltered reader sees it as research in
+// flight -- and the orphan sweep, whose assumption is that an unfinished run
+// was killed mid-flight, marks it errored for never finishing.
+//
+// scripts/test-legitimacy.ts fails if any prospect-scoped query omits it.
+export const RESEARCH_PIPELINES = ["agentic", "qualification"] as const;
+export type ResearchPipeline = (typeof RESEARCH_PIPELINES)[number];
+export const AGENTIC_PIPELINE: ResearchPipeline = "agentic";
+export const QUALIFICATION_PIPELINE: ResearchPipeline = "qualification";
+
 export const RESEARCH_RUN_STATUSES = ["researching", "extracting", "ready", "error"] as const;
 export type ResearchRunStatus = (typeof RESEARCH_RUN_STATUSES)[number];
 
@@ -67,6 +83,16 @@ export const RESEARCH_CLAIM_KEYS = [
   { key: "application.foreign_org_eligibility", category: "Application", label: "Foreign organization eligibility", description: "Specific rules for non-U.S. organizations, e.g. an equivalency-determination certificate requirement" },
   { key: "application.fiscal_sponsorship_rules", category: "Application", label: "Fiscal sponsorship rules", description: "Specific rules for organizations applying through a fiscal sponsor, e.g. who must submit the request" },
   { key: "application.mission_alignment_requirement", category: "Application", label: "Mission alignment requirement", description: "Any required alignment with the funder's own mission/values (e.g. an explicitly Christian mission requirement) -- distinct from org-type eligibility" },
+  // Deliberately narrower than mission_alignment_requirement. "Applicants must
+  // share our Christian faith commitment" is a mission alignment requirement;
+  // "grants are made only to congregations of the Presbyterian Church (U.S.A.)"
+  // names a specific body and can be checked against a nonprofit's confirmed
+  // affiliations deterministically. Only the second can disqualify in code, so
+  // only the second gets its own key -- and it stays in the `application.`
+  // namespace with its siblings rather than starting an `eligibility.` one,
+  // since the Eligibility SECTION already draws from `application.*` and
+  // `funding.*` and sections are deliberately independent of key namespaces.
+  { key: "application.denominational_restriction", category: "Application", label: "Denominational restriction", description: "A stated RULE limiting grants to organizations of a named denomination, communion or religious body, e.g. 'only congregations of the Presbyterian Church (U.S.A.)' or 'must be a member church of the Assemblies of God'. Name the specific body/bodies. Only use when the source states a limit tied to a NAMED affiliation -- a general requirement to share the funder's faith or values is application.mission_alignment_requirement, not this" },
   { key: "application.excluded_recipients", category: "Application", label: "Excluded/ineligible recipients", description: "One specific category of recipient or organization type explicitly excluded/ineligible, e.g. 'private foundations', 'for-profit organizations', 'individuals' -- submit ONE claim per excluded category, not a combined list" },
   { key: "application.prohibited_activities", category: "Application", label: "Prohibited activities", description: "One specific activity a grant cannot be used for, e.g. 'lobbying', 'political intervention', 'voter registration' -- submit ONE claim per distinct prohibited activity, not a combined list; distinct from excluded_recipients (who can't apply, not what a grant can't fund)" },
   { key: "people.key_contacts", category: "People", label: "Key contacts", description: "One named person and their role, e.g. 'Jane Doe, Executive Director' -- submit ONE claim per person, not a combined list; multiple claims may share this same key within one run" },
@@ -560,8 +586,23 @@ export type ResearchPeriodVerdict = (typeof RESEARCH_PERIOD_VERDICTS)[number];
 // which organization this is, no consumer gets anything, however well
 // evidenced the individual claims are. Grading it per-consumer would imply
 // a strategy could proceed on unidentified research.
-export const STRATEGY_FIELD_POLICIES = ["required", "advisory", "unused"] as const;
-export type StrategyFieldPolicy = (typeof STRATEGY_FIELD_POLICIES)[number];
+export const FIELD_POLICIES = ["required", "advisory", "unused"] as const;
+export type FieldPolicy = (typeof FIELD_POLICIES)[number];
+
+// The vocabulary was named for Strategy when Strategy was the only consumer.
+// Screening is the second, so the neutral name above is now the real one and
+// these two stay as aliases rather than churning every existing call site.
+export const STRATEGY_FIELD_POLICIES = FIELD_POLICIES;
+export type StrategyFieldPolicy = FieldPolicy;
+
+// Who is asking. Materiality is a property of a claim FOR A USE, so every
+// lookup has to name its consumer -- see fieldPolicyFor below.
+//
+//   screening  the pursue/dismiss decision. Two predicates plus whatever
+//              stated rules would disqualify us.
+//   strategy   planning an approach to a funder already worth pursuing.
+export const RESEARCH_CONSUMERS = ["screening", "strategy"] as const;
+export type ResearchConsumer = (typeof RESEARCH_CONSUMERS)[number];
 
 export const IDENTITY_GATE_KEYS = new Set<string>([
   "identity.legal_name",
@@ -675,7 +716,104 @@ export const STRATEGY_FIELD_POLICY: Record<string, StrategyFieldPolicy> = {
 
   // Unused -- contact data with no bearing on approach or sizing
   "identity.phone": "unused",
+
+  // A named-body restriction disqualifies at the same level as the other
+  // eligibility rules above.
+  "application.denominational_restriction": "required",
 };
+
+// Screening is the pursue/dismiss consumer, and it grades almost inversely to
+// Strategy on the facts that matter most.
+//
+// "What they fund and where" -- focus_areas and geographic_focus -- are
+// ADVISORY to Strategy, which is correct for Strategy: by the time you are
+// planning an approach, fit is settled and those facts only colour the pitch.
+// They are the entire substance of the screening decision, so they are
+// required here. Symmetrically, deadlines, grant sizes and submission
+// mechanics are required to plan an approach and irrelevant to deciding
+// whether to have one.
+//
+// This map existing at all is the fix for a real defect: the only policy map
+// was Strategy's, so the screening gate was measuring itself against a
+// consumer whose decision it was not making, and asking a human to adjudicate
+// 42 claims graded for a question they had not reached yet.
+export const SCREENING_FIELD_POLICY: Record<string, FieldPolicy> = {
+  // Predicate 2, positive half -- what they fund and where. The substance of
+  // the fit judgement; without these there is no decision to make.
+  "funding.focus_areas": "required",
+  "funding.geographic_focus": "required",
+  // Channel. Wrong here is not a weaker verdict but the wrong KIND of verdict:
+  // this is what separates a fundable opportunity from an intermediary.
+  "funding.funder_type": "required",
+
+  // Disqualifiers -- stated rules that can end the decision in code. These may
+  // only ever subtract; none of them can establish a match.
+  "funding.geographic_restriction": "required",
+  "application.eligible_org_types": "required",
+  "application.foreign_org_eligibility": "required",
+  "application.excluded_recipients": "required",
+  "application.prohibited_activities": "required",
+  "application.mission_alignment_requirement": "required",
+  "application.denominational_restriction": "required",
+
+  // Predicate 1, "currently grantmaking" -- and, where a grant list exists,
+  // the revealed priorities that carry fit when nothing is stated. Advisory to
+  // Strategy, required here: for the 22% of prospects with no reachable
+  // official site, revealed giving is the only evidence of fit there is.
+  "funding.total_annual_giving": "required",
+  "funding.charitable_disbursements": "required",
+  "funding.recent_grants": "required",
+
+  // Advisory -- real signal, but cannot decide pursue or dismiss.
+  "funding.international_reach": "advisory",
+  "funding.total_assets": "advisory", // capacity is an ask-sizing question, not a gate
+  "funding.total_revenue": "advisory",
+  "funding.total_expenses": "advisory",
+  "funding.grant_count_annual": "advisory",
+  "funding.median_grant_size": "advisory",
+  "funding.grant_size_range": "advisory",
+  "funding.multiyear_grant_stats": "advisory",
+  "application.accepts_unsolicited": "advisory", // shapes the next action, not the verdict
+  "application.invitation_mechanism": "advisory",
+  "application.deadline": "advisory", // a passed deadline delays a pursuit, it does not dismiss the funder
+  "application.fiscal_sponsorship_rules": "advisory", // conditional on how WE apply, not on whether they would fund us
+  "people.key_contacts": "advisory",
+
+  // Unused -- pure application mechanics, months downstream of this decision.
+  "identity.phone": "unused",
+  "application.submission_method": "unused",
+  "application.required_documents": "unused",
+  "application.multiyear_grant_rules": "unused",
+  "application.decision_timeframe": "unused",
+};
+
+const FIELD_POLICY_BY_CONSUMER: Record<ResearchConsumer, Record<string, FieldPolicy>> = {
+  screening: SCREENING_FIELD_POLICY,
+  strategy: STRATEGY_FIELD_POLICY,
+};
+
+// The single accessor. Every consumer asks here rather than reaching into a
+// map, so "how material is this claim" cannot be answered differently in two
+// places -- the failure that produced the previous single MATERIAL_CLAIM_KEYS
+// set, and the one the test suite guards against by asserting both maps are
+// complete.
+export function fieldPolicyFor(consumer: ResearchConsumer, claimKey: string): FieldPolicy | "identity_gate" {
+  if (IDENTITY_GATE_KEYS.has(claimKey)) return "identity_gate";
+  // Unmapped falls back to advisory for the same reason as Strategy's: a key
+  // added to the vocabulary without a policy must never silently acquire the
+  // authority to decide anything.
+  return FIELD_POLICY_BY_CONSUMER[consumer][claimKey] ?? "advisory";
+}
+
+// The facts screening REQUIRES, derived from the map rather than restated.
+// A hand-written second list would be free to drift from the policy it claims
+// to reflect; this cannot.
+export function requiredClaimKeysFor(consumer: ResearchConsumer): string[] {
+  return Object.entries(FIELD_POLICY_BY_CONSUMER[consumer])
+    .filter(([, policy]) => policy === "required")
+    .map(([key]) => key)
+    .sort();
+}
 
 // Identity keys answer "identity_gate" rather than a policy, because the
 // question "how may Strategy use this" does not apply to them.
@@ -2547,7 +2685,16 @@ export async function allocateResearchRunVersion(
   prospectId: string,
   retryOfRunId: string | null,
   createdBy: string,
-  statusMessage: string
+  statusMessage: string,
+  // The qualification pipeline allocates versions by the same rule, against
+  // the same table, with the same race. Extending this rather than writing a
+  // second allocator is the point: the retry-on-unique-violation loop is the
+  // real backstop and must not exist in two places that can drift.
+  //
+  // organizationId is only needed by callers holding a service-role client,
+  // where the column default my_organization_id() resolves to null because
+  // there is no authenticated user behind the request.
+  options?: { pipeline?: "agentic" | "qualification"; organizationId?: string | null }
 ): Promise<string> {
   const MAX_ATTEMPTS = 5;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -2569,6 +2716,8 @@ export async function allocateResearchRunVersion(
         status: "researching",
         status_message: statusMessage,
         created_by: createdBy,
+        ...(options?.pipeline ? { pipeline: options.pipeline } : {}),
+        ...(options?.organizationId ? { organization_id: options.organizationId } : {}),
       })
       .select("id")
       .single();
