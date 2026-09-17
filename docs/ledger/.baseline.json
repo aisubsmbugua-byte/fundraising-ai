@@ -1,0 +1,33 @@
+{
+  "note": "Uncommitted governed paths at ledger creation. Grandfathered -- predates the protocol.",
+  "paths": [
+    "app/(dashboard)/discovery/actions.ts",
+    "app/(dashboard)/prospects/[id]/research-actions.ts",
+    "app/admin/research/page.tsx",
+    "app/api/research-runs/[prospectId]/route.ts",
+    "lib/availability.ts",
+    "lib/discovery-handoff.ts",
+    "lib/legitimacy.ts",
+    "lib/prospect-intelligence.ts",
+    "lib/prospect-workflow.ts",
+    "lib/qualification-stages.ts",
+    "lib/qualification.ts",
+    "lib/registry/",
+    "lib/research.ts",
+    "lib/tier2/",
+    "scripts/entity-collisions.ts",
+    "scripts/qualify-tier1.ts",
+    "scripts/qualify-tier2.ts",
+    "scripts/reference-recall.ts",
+    "scripts/test-availability.ts",
+    "scripts/test-decision-contract.ts",
+    "scripts/test-discovery-handoff.ts",
+    "scripts/test-legitimacy.ts",
+    "scripts/test-tier2-manifest.ts",
+    "scripts/test-tier2-selection.ts",
+    "scripts/tier2-coverage.ts",
+    "supabase/migrations/0063_faith_affiliation.sql",
+    "supabase/migrations/0064_qualification_pipeline.sql",
+    "supabase/migrations/0065_discovery_handoff.sql"
+  ]
+}

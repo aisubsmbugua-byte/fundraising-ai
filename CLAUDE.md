@@ -2,6 +2,12 @@
 
 You are building **Fundraising AI**, an AI-assisted advancement platform for nonprofits. Read this file at the start of every session.
 
+## Which space are you?
+
+Two sessions run against this directory: a **decision space** (context, counterchecking, rulings) and a **build space** (code). Read `docs/ledger/README.md` for the protocol and `docs/ledger/STATE.md` for what is open and who owns it. If you have not been told which space you are, ask before writing anything — the decision space does not write code, and the build space does not write rulings.
+
+No code change in a governed area is legitimate without a ruling authorizing it. `npx tsx scripts/ledger-check.ts` enforces this; it runs automatically at the end of every turn.
+
 ## What we're building
 
 A web app that helps a small nonprofit team identify, qualify, and steward funding opportunities across seven channels, with AI doing the automatable work and a human owning every funder-facing decision.
