@@ -31,15 +31,25 @@ export default function ResearchPanel({
   workflow,
   lastCompletedAt,
   gaps = [],
+  coverage = null,
 }: {
   prospectId: string;
   workflow: ProspectWorkflow;
   // ISO date of the last finished run, for the repeat-run wording.
   lastCompletedAt: string | null;
-  // What this run recorded as not found, and what it would be worth. Computed
-  // by outstandingIntelligence from the run's own coverage -- never a fixed
-  // list, because what a funder publishes genuinely differs.
+  // What another search could still add, and what it would be worth. Every
+  // entry here traces to obtainableGaps over the screening ledger (ruling
+  // 0009): a fact that was looked for and is not published never reaches this
+  // list, in any wording. Never a fixed list, because what a funder publishes
+  // genuinely differs.
   gaps?: OutstandingIntelligence[];
+  // The ledger behind that list, so the empty case can say WHICH empty it is.
+  // Null means no ledger was derived -- there is no finished run to derive one
+  // from -- and in that case this panel says nothing about coverage at all
+  // rather than defaulting to the flattering reading. That default is how
+  // "everything looked for was found" used to appear over a run that had
+  // looked for nothing.
+  coverage?: { found: number; settled: number; open: number; total: number } | null;
 }) {
   const [run, setRun] = useState<RunSnapshot | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -159,7 +169,7 @@ export default function ResearchPanel({
         <div style={{ fontSize: 11.5, color: colors.textFaint, marginTop: 4, maxWidth: 560 }}>
           {gaps.length > 0 ? (
             <>
-              Still missing for this funder:
+              What another search could still find:
               <ul style={{ margin: "3px 0 0", paddingLeft: 16 }}>
                 {gaps.map((g, i) => (
                   <li key={i}>
@@ -168,20 +178,30 @@ export default function ResearchPanel({
                 ))}
               </ul>
               <div style={{ marginTop: 3 }}>
-                A fresh search of the live web{lastDate ? `, last done ${lastDate}` : ""} — several minutes, and it
-                spends credits.
+                {/* Ruling 0013/STATE check (6): the old wording said this
+                    "spends credits". There is no credits concept anywhere in
+                    the 65 migrations -- the app was telling a nonprofit they
+                    were drawing down a balance that does not exist. What is
+                    true, and stays true whatever the pricing model becomes, is
+                    that the run costs real money and takes several minutes. */}
+                A fresh search of the live web{lastDate ? `, last done ${lastDate}` : ""} — it costs real money and
+                takes several minutes.
               </div>
             </>
-          ) : (
-            // No gaps recorded. Saying so is the useful message: the button
-            // stays available because a funder can publish something new, but
-            // nothing here is known to be missing, and a click is unlikely to
-            // return more than the last one did.
+          ) : coverage ? (
+            // Nothing left that more work could change. Ruling 0009: this used
+            // to be one sentence -- "everything looked for was found" -- and it
+            // had to cover two different situations. They are stated separately
+            // now, because "we found it" and "we looked everywhere it could be
+            // and they do not state it" are different facts about the funder.
             <>
-              Everything looked for was found{lastDate ? ` on ${lastDate}` : ""}. Another search would likely repeat
-              it — worth doing only if you believe something has changed since.
+              Nothing further to look for{lastDate ? ` as of ${lastDate}` : ""}: of the {coverage.total} facts screening
+              needs, {coverage.found} {coverage.found === 1 ? "was" : "were"} found and {coverage.settled}{" "}
+              {coverage.settled === 1 ? "was" : "were"} looked for in every source that could carry {coverage.settled === 1 ? "it" : "them"} and not
+              stated. A funder can still publish something new — worth a search only if you believe something has
+              changed since.
             </>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -194,11 +214,16 @@ export default function ResearchPanel({
           repeat
             ? // Names the target when there is one, and the likely outcome when
               // there is not. A dialog that only describes the upside invites
-              // paying for it repeatedly.
+              // paying for it repeatedly. Ruling 0009 governs the first branch:
+              // the list it names is obtainableGaps' output and nothing else,
+              // so a fact this funder was already found not to state can never
+              // be named here as a reason to spend.
               (gaps.length > 0
-                ? `This searches the live web for what is still missing: ${gaps.map((g) => g.label).join(", ")}. Whether a funder publishes any of it varies — some do not. `
-                : `Nothing is recorded as missing for this funder, so this is likely to return what the last search did. `) +
-              `Last searched ${lastDate}. Several minutes, and it spends credits. It does not re-read evidence already stored.`
+                ? `This searches the live web for what another search could still find: ${gaps.map((g) => g.label).join(", ")}. Whether a funder publishes any of it varies — some do not. `
+                : coverage
+                  ? `Every fact screening needs has either been found or been looked for in every source that could carry it, so this is likely to return what the last search did. `
+                  : `There is no coverage record for this funder, so there is nothing specific to aim this at. `) +
+              `Last searched ${lastDate}. It costs real money and takes several minutes. It does not re-read evidence already stored.`
             : "This will review current filings, funding information, eligibility and available grant history. It normally takes several minutes."
         }
         confirmLabel="Run research"

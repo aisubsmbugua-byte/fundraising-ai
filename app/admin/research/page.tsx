@@ -8,8 +8,10 @@ import EntityPicker, { type EntityCandidate } from "./entity-picker";
 import {
   RESEARCH_INFORMATION_SECTIONS as INFORMATION_SECTIONS,
   identitySettledFor,
+  requiredClaimKeysFor,
   type RunIdentityFacts,
 } from "@/lib/research";
+import { availabilityForResearchRun, offerableGaps } from "@/lib/availability";
 
 // Live data every load -- runs and claims change as soon as a research
 // call finishes, same reasoning as /admin/organizations.
@@ -260,10 +262,33 @@ export default async function AdminResearchPage() {
                   <span style={{ color: colors.textMuted }}>Information: </span>
                   {(() => {
                     const missing = new Set((run.missing_information ?? []) as string[]);
+                    // Ruling 0009's grep test covers this view too: it names
+                    // sections as missing beside a button that pays for another
+                    // run, so "missing" here must mean the same thing it means
+                    // on the prospect page. Same function, same filter -- a
+                    // section the screening ledger says is settled is shown as
+                    // settled rather than as an open gap.
+                    const runClaims = claimsByRun.get(run.id) ?? [];
+                    const offer = offerableGaps({
+                      ledger: availabilityForResearchRun({
+                        keys: requiredClaimKeysFor("screening"),
+                        filingFetched: (run.filing_fetched as boolean | null) ?? null,
+                        evidencedClaimKeys: runClaims.filter((c) => !c.evidence_missing).map((c) => c.claim_key as string),
+                      }),
+                      missingSections: [...missing],
+                      missingSourceClasses: (run.missing_source_classes ?? []) as string[],
+                    });
+                    const offered = new Set(offer.sections);
                     return INFORMATION_SECTIONS.map((sec) => (
-                      <span key={sec.section} style={{ ...chipStyle(missing.has(sec.section) ? "red" : "teal"), marginRight: 4 }}>
+                      <span
+                        key={sec.section}
+                        style={{
+                          ...chipStyle(offered.has(sec.section) ? "red" : missing.has(sec.section) ? "neutral" : "teal"),
+                          marginRight: 4,
+                        }}
+                      >
                         {sec.label}
-                        {missing.has(sec.section) ? " missing" : ""}
+                        {offered.has(sec.section) ? " missing" : missing.has(sec.section) ? " — looked for, not stated" : ""}
                       </span>
                     ));
                   })()}

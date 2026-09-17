@@ -39,11 +39,13 @@ import {
   scoreEntityCandidates,
   resolveRunEntity,
   RESEARCH_CLAIM_KEYS,
+  requiredClaimKeysFor,
   type ResearchEntityValidationStatus,
   type ResearchKeyCoverageStatus,
   type ResearchSourceType,
   type ResearchApprovalDecision,
 } from "@/lib/research";
+import { availabilityForResearchRun, offerableGaps } from "@/lib/availability";
 
 // Bump these when the extraction prompt or the tool's input schema shape
 // changes -- they're recorded per-run so evaluation results stay
@@ -222,7 +224,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     if (depth === "dossier") {
       const { data: previous } = await supabase
         .from("research_runs")
-        .select("missing_information, missing_source_classes, operating_identity_name, confirmed_ein")
+        .select("id, missing_information, missing_source_classes, operating_identity_name, confirmed_ein, filing_fetched")
         .eq("prospect_id", prospectId)
         // Only an agentic run carries missing_information; reading a finished
         // qualification run here would return nulls and silently switch the
@@ -233,12 +235,38 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         .order("version", { ascending: false })
         .limit(1)
         .maybeSingle();
-      const keys = previous
-        ? focusKeysFor({
-            missingInformation: previous.missing_information as string[] | null,
-            missingSourceClasses: previous.missing_source_classes as string[] | null,
+      // Ruling 0009: the directives a paid follow-up is given are an offer of
+      // work in exactly the sense the ruling governs, so they are computed from
+      // the same filter the button's own gap list is, and never from "which
+      // sections had no claims". Without this, the interface could correctly
+      // decline to OFFER a gap and then send the next run chasing it anyway --
+      // the five-paid-runs failure with the user removed from the loop.
+      const { data: previousClaims } = previous
+        ? await supabase
+            .from("research_claims")
+            .select("claim_key, evidence_missing")
+            .eq("research_run_id", previous.id as string)
+        : { data: null };
+      const previousLedger = previous
+        ? availabilityForResearchRun({
+            keys: requiredClaimKeysFor("screening"),
+            filingFetched: (previous.filing_fetched as boolean | null) ?? null,
+            evidencedClaimKeys: (previousClaims ?? [])
+              .filter((c) => !c.evidence_missing)
+              .map((c) => c.claim_key as string),
           })
         : [];
+      const offer = previous
+        ? offerableGaps({
+            ledger: previousLedger,
+            missingSections: (previous.missing_information as string[] | null) ?? [],
+            missingSourceClasses: (previous.missing_source_classes as string[] | null) ?? [],
+          })
+        : { sections: [], sourceClasses: [] };
+      const keys = focusKeysFor({
+        missingInformation: offer.sections,
+        missingSourceClasses: offer.sourceClasses,
+      });
       if (keys.length > 0) {
         focusKeys = keys;
         focus = {

@@ -2,6 +2,7 @@ import type { StrategyRun } from "@/lib/strategy";
 import type { ProspectIntelligence, IntelligenceReviewState, StrategyUse } from "@/lib/prospect-intelligence";
 import { spacing, colors, sectionStyle, chipStyle } from "@/lib/ui";
 import { outstandingIntelligence } from "@/lib/research";
+import { obtainableGaps, availabilitySummary, AVAILABILITY_WORDING, factLabel } from "@/lib/availability";
 import type { ProspectWorkflow } from "@/lib/prospect-workflow";
 import EntityResolver from "./entity-resolver";
 import VerifyRetry from "./verify-retry";
@@ -144,11 +145,21 @@ export default function ResearchTab({
   // What another search could add for THIS funder, from what this run recorded
   // as missing. Passed to every ResearchPanel so the expensive action can say
   // what it would buy instead of what it costs.
+  //
+  // Ruling 0009: its input is intelligence.offer, which loadProspectIntelligence
+  // filtered through obtainableGaps. It is NOT missingSections -- a category
+  // with no claims and no way to get any is not an offer, it is a finding.
   const intelligenceGaps = outstandingIntelligence({
-    missingInformation: intelligence.missingSections,
-    missingSourceClasses: intelligence.retrieval.missingSourceClasses,
+    missingInformation: intelligence.offer.sections,
+    missingSourceClasses: intelligence.offer.sourceClasses,
   });
-  const gaps = intelligence.sections.filter((s) => s.missing);
+  // The screening ledger, split the way ruling 0017 splits it: what more work
+  // could still change, and what is settled and therefore shown but never
+  // offered.
+  const ledger = intelligence.availability;
+  const openFacts = obtainableGaps(ledger);
+  const ledgerCounts = availabilitySummary(ledger);
+  const settledFacts = ledgerCounts.checked_not_stated + ledgerCounts.not_applicable;
   const allClaims = intelligence.sections.flatMap((s) => s.claims);
   const claimsWithSections = intelligence.sections.filter((s) => s.claims.length > 0);
   // Only verified claims can be approved in bulk. Everything else is an
@@ -233,7 +244,7 @@ export default function ResearchTab({
 
       {/* The one thing to read first. A blocked dossier says so plainly
           rather than presenting facts that may describe another organization. */}
-      <div style={{ ...sectionStyle, borderLeft: `3px solid ${blocked ? (identitySettledSince ? "#b8860b" : colors.danger) : verifying || verifyFailed ? "#b8860b" : gaps.length ? "#b8860b" : colors.text}` }}>
+      <div style={{ ...sectionStyle, borderLeft: `3px solid ${blocked ? (identitySettledSince ? "#b8860b" : colors.danger) : verifying || verifyFailed ? "#b8860b" : openFacts.length ? "#b8860b" : colors.text}` }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>
           {blocked
             ? identitySettledSince
@@ -247,7 +258,7 @@ export default function ResearchTab({
                 ? "Verification incomplete"
                 : verifyNeverRan
                   ? "Not checked against sources yet"
-                  : gaps.length
+                  : openFacts.length
                     ? "Research available, with gaps"
                     : "Ready for review"}
         </h3>
@@ -272,9 +283,22 @@ export default function ResearchTab({
                 ? "The research below is intact, but the check against sources did not finish, so claims are unreviewed. Retrying is safe — it re-reads the stored evidence and does not re-run research."
                 : verifyNeverRan
                   ? "This research has not been checked against its sources yet. Running the check reads the evidence already stored — it does not research again — and turns the list below into a short set of genuine decisions."
-                  : gaps.length
-                    ? `Research is usable, but nothing was found for: ${gaps.map((g) => g.label.toLowerCase()).join(", ")}.`
-                    : "Every information category was found. Individual claims still carry their own review state below."}
+                  : // Both sentences are computed from the screening ledger, never
+                    // from "which categories have no claims". Ruling 0013 deleted
+                    // the old second branch -- "Every information category was
+                    // found" -- rather than rewording it: with per-purpose
+                    // coverage never computed, it was not an overstatement, it
+                    // was false. What replaces it says only what the ledger
+                    // establishes, and says the two halves separately (0009).
+                    openFacts.length
+                    ? `Research is usable. ${openFacts.length} of the ${ledger.length} facts screening needs ${
+                        openFacts.length === 1 ? "is" : "are"
+                      } still open — each is listed under “What screening needs” below, with the reason.`
+                    : `Nothing further to look for: of the ${ledger.length} facts screening needs, ${ledgerCounts.found} ${
+                        ledgerCounts.found === 1 ? "was" : "were"
+                      } found and ${settledFacts} ${
+                        settledFacts === 1 ? "was" : "were"
+                      } looked for in every source that could carry them and not stated. Individual claims still carry their own review state below.`}
         </p>
         {verifyFailed && <div style={{ marginTop: spacing.xs }}><VerifyRetry runId={intelligence.runId} /></div>}
         {verifyNeverRan && (
@@ -283,7 +307,13 @@ export default function ResearchTab({
           </div>
         )}
         <div style={{ marginTop: spacing.sm }}>
-          <ResearchPanel prospectId={prospectId} workflow={workflow} lastCompletedAt={lastCompletedAt} gaps={intelligenceGaps} />
+          <ResearchPanel
+            prospectId={prospectId}
+            workflow={workflow}
+            lastCompletedAt={lastCompletedAt}
+            gaps={intelligenceGaps}
+            coverage={{ found: ledgerCounts.found, settled: settledFacts, open: openFacts.length, total: ledger.length }}
+          />
         </div>
       </div>
 
@@ -323,16 +353,55 @@ export default function ResearchTab({
 
       {/* Coverage before detail, so an absence is as visible as a finding. */}
       <div style={sectionStyle}>
-        <h3 style={{ fontSize: 14, margin: 0 }}>Coverage</h3>
+        {/* Ruling 0017: no fact disappears from the screen because it cannot be
+            obtained. Every fact the screening decision requires is listed here
+            in every state, each with the reason it is in that state -- and only
+            the ones more work could change carry an action. A blank cannot
+            distinguish "we read their eligibility page and they state no
+            denominational restriction" from "nobody has looked at it", and that
+            distinction is the entire point of the ledger. */}
+        <h3 style={{ fontSize: 14, margin: 0 }}>What screening needs</h3>
+        <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+          The {ledger.length} facts a pursue-or-dismiss decision rests on. {ledgerCounts.found} found · {openFacts.length}{" "}
+          another search could still find · {settledFacts} looked for and not stated.
+        </p>
+        <div style={{ display: "grid", gap: 6 }}>
+          {ledger.map((f) => {
+            const wording = AVAILABILITY_WORDING[f.state];
+            return (
+              <div key={f.key} style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: spacing.xs, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: colors.text }}>{factLabel(f.key)}</span>
+                  <span style={chipStyle(wording.tone)}>{wording.label}</span>
+                  {/* Exactly the obtainable facts carry an action. Everything
+                      else is shown, plainly, and offers nothing. */}
+                  {f.obtainable && (
+                    <span style={{ fontSize: 11.5, color: "#b8860b" }}>another search could find this</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>{f.reason}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        <h3 style={{ fontSize: 14, margin: `${spacing.md}px 0 0` }}>Everything else this run gathered</h3>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: spacing.sm }}>
           {intelligence.sections.map((s) => (
-            <span key={s.section} style={chipStyle(s.missing ? "red" : "teal")}>
+            <span key={s.section} style={chipStyle(s.missing ? "neutral" : "teal")}>
               {s.label}
-              {s.missing ? " — not found" : ` · ${s.claims.length}`}
+              {/* "no claims captured" rather than "not found": this counts what
+                  the run produced, and says nothing about whether the funder
+                  publishes it. The ledger above is where that question is
+                  answered, for the facts we can answer it for. */}
+              {s.missing ? " — no claims captured" : ` · ${s.claims.length}`}
             </span>
           ))}
         </div>
-        {intelligence.retrieval.missingSourceClasses.length > 0 && (
+        {/* Only when the ledger agrees it is still worth going after -- the
+            grant schedule note is a run target, so ruling 0009 applies to it
+            exactly as it does to the button's own list. */}
+        {intelligence.offer.sourceClasses.includes("grant_schedule") && (
           <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.sm, marginBottom: 0 }}>
             A grant schedule appeared in the search results but was never read, which may explain a missing category.
           </p>

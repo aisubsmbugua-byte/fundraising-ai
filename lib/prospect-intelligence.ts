@@ -22,7 +22,9 @@ import {
   type EntityLifecycleSignal,
   type ResearchConfidence,
   type ResearchEntityValidationStatus,
+  requiredClaimKeysFor,
 } from "@/lib/research";
+import { availabilityForResearchRun, offerableGaps, type FactAvailability } from "@/lib/availability";
 
 // How a claim should be READ by a person, collapsing several separate
 // machine-level signals into the one question a fundraiser actually has:
@@ -180,6 +182,19 @@ export type ProspectIntelligence = {
   identityAbstainReasons: string[];
   sections: IntelligenceSection[];
   missingSections: string[];
+  // Every fact the SCREENING decision requires, with the state it is in and
+  // why (ruling 0017). Ruling 0011 forbids a ledger that does not name its
+  // consumer, and screening is the decision this view serves: it is the
+  // required set ruling 0008's compliance probe used, the set ruling 0011
+  // reasons about ("screening requires funding.recent_grants because for the
+  // 22% of prospects with no reachable site, revealed giving is the only
+  // evidence of fit there is"), and the set the measured harm sits in -- the
+  // five paid runs were chasing a 990 grant schedule, which is
+  // funding.recent_grants.
+  availability: FactAvailability[];
+  // What may honestly be offered as more work, after the ledger has filtered
+  // it. THE ONLY input the gap vocabulary is allowed to read (ruling 0009).
+  offer: { sections: string[]; sourceClasses: string[] };
   // Signals that this organization may not be a going concern. Reported, not
   // concluded -- see assessEntityLifecycle.
   lifecycle: { newestYear: number | null; signals: EntityLifecycleSignal[] };
@@ -216,7 +231,7 @@ export async function loadProspectIntelligence(
     supabase
       .from("research_runs")
       .select(
-        "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures, fetch_failure_reasons"
+        "id, version, depth, status, completed_at, verification_state, completion_state, missing_information, missing_source_classes, confirmed_ein, entity_resolution_method, dossier_confirmed, operating_identity_name, operating_identity_method, entity_ranking, entity_ranking_version, searches_used, fetch_attempts, fetch_failures, fetch_failure_reasons, filing_fetched"
       )
       .eq("prospect_id", prospectId)
       .eq("pipeline", "agentic")
@@ -394,6 +409,28 @@ export async function loadProspectIntelligence(
   }
   const missingSections = sections.filter((s) => s.missing).map((s) => s.section);
 
+  // The availability ledger for the SCREENING decision, derived here rather
+  // than persisted: ruling 0011 -- a derived ledger is not a cacheable property
+  // of a prospect, the per-source retrieval outcomes it is derived FROM are the
+  // durable record. Both of those (filing_fetched, and the claims themselves)
+  // are read above.
+  const availability = availabilityForResearchRun({
+    keys: requiredClaimKeysFor("screening"),
+    filingFetched: (run.filing_fetched as boolean | null) ?? null,
+    // Evidenced only, same rule missingInformationSections applies: an uncited
+    // finding is visible to a human but cannot make a fact count as found.
+    evidencedClaimKeys: (claims ?? []).filter((c) => !c.evidence_missing).map((c) => c.claim_key as string),
+  });
+
+  // Ruling 0009: there is no second way to compute what is missing. Everything
+  // the interface offers as a reason to spend -- the gap list on the button,
+  // the confirm dialog, the next run's search directives -- reads this.
+  const offer = offerableGaps({
+    ledger: availability,
+    missingSections,
+    missingSourceClasses: (run.missing_source_classes as string[] | null) ?? [],
+  });
+
   // Every entity the run touched, described well enough to be recognised.
   const allCandidates = buildEntityCandidates({
     sources: (sources ?? []).map((s) => ({
@@ -474,6 +511,8 @@ export async function loadProspectIntelligence(
     identityAbstainReasons: ranking.abstainReasons,
     sections,
     missingSections,
+    availability,
+    offer,
     // Computed from the raw rows rather than the shaped claims: reporting
     // periods are rewritten for display ("unstated" becomes "no year
     // stated"), and a year cannot be read back out of prose.

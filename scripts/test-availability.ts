@@ -13,9 +13,14 @@ import {
   availabilitySummary,
   isObtainable,
   factSource,
+  availabilityForResearchRun,
+  offerableGaps,
+  factLabel,
   AVAILABILITY_STATES,
+  AVAILABILITY_WORDING,
   type AvailabilityInput,
 } from "../lib/availability";
+import { requiredClaimKeysFor, focusKeysFor, outstandingIntelligence } from "../lib/research";
 import type { PurposeCoverage } from "../lib/tier2/fetch";
 import type { SelectionPurpose } from "../lib/tier2/select";
 
@@ -35,7 +40,11 @@ const cov = (over: Partial<Record<SelectionPurpose, PurposeCoverage>> = {}): Rec
   grants: "not_checked", identity: "not_checked", ...over,
 });
 
+// Every input names its consumer. There is no ledger for a prospect, only a
+// ledger for a decision (ruling 0011), so the helper cannot leave it implicit
+// either -- that default is what let call sites skip the question.
 const input = (over: Partial<AvailabilityInput> = {}): AvailabilityInput => ({
+  keys: requiredClaimKeysFor("screening"),
   regime: "us_990pf",
   subjectType: "private_foundation",
   registry: { retrieved: true, publishesGrantsPaid: true },
@@ -154,6 +163,65 @@ check(
 );
 
 // ---------------------------------------------------------------------------
+section("A fact with two sources takes the state of the FACT (ruling 0008)");
+// ---------------------------------------------------------------------------
+
+// The defect this section exists for: `either` facts fell through the registry
+// branch entirely and adopted the site's verdict. A prospect whose registry
+// record was never retrieved, and whose site was read for grants and said
+// nothing, reported funding.recent_grants as checked_not_stated -- declaring
+// the 990 grant schedule a closed question because a DIFFERENT source was
+// silent. Ruling 0008's test of compliance requires exactly this shape: a
+// source never consulted alongside one read and silent.
+const eitherMixed = deriveAvailability(input({ registry: null, coverage: cov({ grants: "found" }) }));
+check(
+  "registry never retrieved + site read and silent => still obtainable",
+  stateOf(eitherMixed, "funding.recent_grants"),
+  "not_checked"
+);
+check(
+  "...and the reason names the unread source, not the silent one",
+  eitherMixed.find((f) => f.key === "funding.recent_grants")?.reason,
+  "no registry record was retrieved"
+);
+check(
+  "...so it is offered as work",
+  obtainableGaps(eitherMixed).some((f) => f.key === "funding.recent_grants"),
+  true
+);
+// The same ledger must not contradict itself about that registry record.
+check(
+  "the ledger cannot say 'no registry record' and 'nothing more to get' at once",
+  [stateOf(eitherMixed, "funding.total_annual_giving"), stateOf(eitherMixed, "funding.recent_grants")],
+  ["not_checked", "not_checked"]
+);
+
+// Both sources checked and both silent is the only way an either-fact closes.
+check(
+  "both sources read and silent => checked_not_stated",
+  stateOf(deriveAvailability(input({ coverage: cov({ grants: "found" }) })), "funding.recent_grants"),
+  "checked_not_stated"
+);
+// A failure on one source with the other unread stays obtainable, and reports
+// the unread one -- there is more work available than a retry.
+check(
+  "unread beats failed when both are open",
+  stateOf(deriveAvailability(input({ registry: null, siteReachable: false })), "funding.recent_grants"),
+  "not_checked"
+);
+check(
+  "failed on one, silent on the other => retryable",
+  stateOf(deriveAvailability(input({ siteReachable: false })), "funding.recent_grants"),
+  "retrieval_failed"
+);
+// not_applicable on one source never closes a fact the other could still carry.
+check(
+  "an individual files nothing, but their site could still list grants",
+  stateOf(deriveAvailability(input({ regime: "none_public", subjectType: "individual", coverage: cov() })), "funding.recent_grants"),
+  "not_checked"
+);
+
+// ---------------------------------------------------------------------------
 section("Found, and what the ledger covers");
 // ---------------------------------------------------------------------------
 
@@ -164,8 +232,9 @@ check(
 );
 check("found is never an obtainable gap", obtainableGaps(deriveAvailability(input({ claimKeys: ["funding.focus_areas"] }))).some((f) => f.key === "funding.focus_areas"), false);
 
-// The ledger defaults to the SCREENING consumer -- the facts that gate pursue
-// or dismiss, not all 43.
+// This ledger is derived for the SCREENING consumer -- the facts that gate
+// pursue or dismiss, not all 43. There is no default (ruling 0011); the helper
+// above names it, the same way every call site must.
 const ledger = deriveAvailability(input());
 check("the ledger covers the screening required set", ledger.length > 10 && ledger.length < 25, true);
 check("every entry has a state", ledger.every((f) => AVAILABILITY_STATES.includes(f.state)), true);
@@ -184,6 +253,155 @@ const fullyRead = deriveAvailability(
 );
 check("an unreachable funder has work worth doing", obtainableGaps(unreachable).length > 0, true);
 check("a fully-read funder has none", obtainableGaps(fullyRead).length, 0);
+
+// ---------------------------------------------------------------------------
+section("The live path's actual input: a partial close, labelled partial (ruling 0013)");
+// ---------------------------------------------------------------------------
+//
+// availabilityForResearchRun is the ONE place the live run's stored columns are
+// mapped onto an AvailabilityInput. Everything below is a property of that
+// mapping, not of deriveAvailability -- which is the point: the mapping is
+// where a guess would hide.
+
+const runLedger = (over: { filingFetched?: boolean | null; evidencedClaimKeys?: string[] } = {}) =>
+  availabilityForResearchRun({
+    keys: requiredClaimKeysFor("screening"),
+    filingFetched: over.filingFetched ?? null,
+    evidencedClaimKeys: over.evidencedClaimKeys ?? [],
+  });
+
+const noFiling = runLedger();
+const filingRead = runLedger({ filingFetched: true });
+
+check(
+  "with no filing read, a registry fact is open",
+  stateOf(noFiling, "funding.total_annual_giving"),
+  "not_checked"
+);
+// The half ruling 0013 says to ship: once the filing has actually been read,
+// the registry facts it does not carry stop being offered as more work. This is
+// the measured failure -- five paid runs chasing figures from a source already
+// read -- and this assertion is the thing that closes it.
+check(
+  "once the filing has been read, a registry fact is settled",
+  stateOf(filingRead, "funding.total_annual_giving"),
+  "checked_not_stated"
+);
+check(
+  "and is no longer offered",
+  obtainableGaps(filingRead).some((f) => f.key === "funding.total_annual_giving"),
+  false
+);
+check(
+  "grants paid out, likewise",
+  obtainableGaps(filingRead).some((f) => f.key === "funding.charitable_disbursements"),
+  false
+);
+// Without a recorded form type, not_applicable would be asserting one. The
+// reason shown is the one we can evidence: we read it and it did not say.
+check(
+  "and the reason names the filing rather than a form type nobody recorded",
+  stateOf(filingRead, "funding.charitable_disbursements"),
+  "checked_not_stated"
+);
+
+// The other half, unchanged on purpose. coverage is null because only Tier 2
+// produces per-purpose coverage and Tier 2 is not in the live path, so no site
+// fact may be declared settled -- site work is offered exactly as it is today.
+const siteKeys = requiredClaimKeysFor("screening").filter((k) => factSource(k) === "official_site");
+check("every site fact is still obtainable, filing or no filing", siteKeys.every((k) => filingRead.find((f) => f.key === k)?.obtainable === true), true);
+check("no site fact is ever declared settled", filingRead.filter((f) => factSource(f.key) === "official_site").some((f) => f.state === "checked_not_stated"), false);
+// Ruling 0008 through the live mapping: an `either` fact whose site half was
+// never checked stays open even though the registry half was read and silent.
+// This is the 990 grant schedule, and it is exactly the fact the old code
+// declared closed.
+check("an either-sourced fact survives a read registry", stateOf(filingRead, "funding.recent_grants"), "not_checked");
+check("and is still offered", obtainableGaps(filingRead).some((f) => f.key === "funding.recent_grants"), true);
+
+// Evidence still beats every source question, and only EVIDENCED claims count.
+check(
+  "an evidenced claim makes the fact found",
+  stateOf(runLedger({ evidencedClaimKeys: ["funding.focus_areas"] }), "funding.focus_areas"),
+  "found"
+);
+
+// ---------------------------------------------------------------------------
+section("Nothing is offered that the ledger says cannot close (ruling 0009)");
+// ---------------------------------------------------------------------------
+//
+// offerableGaps is the single filter between the ledger and the rerun
+// treadmill. Its output is the ONLY input the gap vocabulary is given --
+// outstandingIntelligence for the user, focusKeysFor for the next run's
+// directives -- so these assertions cover both surfaces at once.
+
+const ALL_MISSING = ["identity", "funding_priorities", "financial_capacity", "recent_grants", "eligibility", "application_access", "leadership"];
+
+const offerNoFiling = offerableGaps({ ledger: noFiling, missingSections: ALL_MISSING, missingSourceClasses: ["grant_schedule"] });
+const offerFilingRead = offerableGaps({ ledger: filingRead, missingSections: ALL_MISSING, missingSourceClasses: ["grant_schedule"] });
+
+check("before the filing is read, financial capacity is worth going after", offerNoFiling.sections.includes("financial_capacity"), true);
+check("after it is read, it is not", offerFilingRead.sections.includes("financial_capacity"), false);
+// Where the ledger has nothing to say, the guard does not reach past its
+// evidence -- ruling 0013's general invariant, stated as a test.
+check("a section holding no fact screening requires is left alone", offerFilingRead.sections.includes("leadership"), true);
+check("eligibility is all site facts, so it stays offered", offerFilingRead.sections.includes("eligibility"), true);
+check("recent grants stays offered even with the filing read", offerFilingRead.sections.includes("recent_grants"), true);
+check("and so does the grant schedule that would supply it", offerFilingRead.sourceClasses, ["grant_schedule"]);
+
+// The negative test ruling 0009 calls the one that matters: everything the
+// document could supply has been found, so the document is not offered.
+const grantsFound = runLedger({ filingFetched: true, evidencedClaimKeys: ["funding.recent_grants"] });
+check(
+  "a document whose facts are all in hand is not offered",
+  offerableGaps({ ledger: grantsFound, missingSections: [], missingSourceClasses: ["grant_schedule"] }).sourceClasses,
+  []
+);
+
+// Both consumers of the filtered output agree, because they are given the same
+// list. A gap shown to a user with no matching directive would be an offer the
+// search cannot act on; a directive with no shown gap would be spending the
+// user never saw.
+check(
+  "what the user is shown and what the next run searches for are the same set",
+  focusKeysFor({ missingInformation: offerFilingRead.sections, missingSourceClasses: offerFilingRead.sourceClasses }).length,
+  outstandingIntelligence({ missingInformation: offerFilingRead.sections, missingSourceClasses: offerFilingRead.sourceClasses }).length
+);
+check(
+  "and a settled fact reaches neither",
+  outstandingIntelligence({ missingInformation: offerFilingRead.sections, missingSourceClasses: offerFilingRead.sourceClasses }).some((g) =>
+    /financial capacity/i.test(g.label)
+  ),
+  false
+);
+
+// ---------------------------------------------------------------------------
+section("A fact that cannot be obtained is still shown, with its reason (ruling 0017)");
+// ---------------------------------------------------------------------------
+
+check("every state has wording", AVAILABILITY_STATES.every((s) => AVAILABILITY_WORDING[s]?.label.length > 0), true);
+// The distinction the whole build exists to preserve, at the last place it can
+// be lost: the screen. A reader who has never seen this vocabulary must be able
+// to tell "we read where it would be" from "nobody looked".
+check(
+  "no two states read the same",
+  new Set(AVAILABILITY_STATES.map((s) => AVAILABILITY_WORDING[s].label)).size,
+  AVAILABILITY_STATES.length
+);
+check("checked and silent is not phrased as unchecked", AVAILABILITY_WORDING.checked_not_stated.label === AVAILABILITY_WORDING.not_checked.label, false);
+check("no internal vocabulary leaks into the wording", AVAILABILITY_STATES.every((s) => !/_/.test(AVAILABILITY_WORDING[s].label)), true);
+// Every fact is displayable: a key with no hand-written label still renders as
+// words rather than as an identifier.
+check("every required fact has a readable label", requiredClaimKeysFor("screening").every((k) => !factLabel(k).includes(".") && !factLabel(k).includes("_")), true);
+check("an unmapped key still renders as words", factLabel("funding.some_new_fact"), "Some new fact");
+// Count the actions: exactly the obtainable facts have one. The render keys the
+// action off f.obtainable, so this asserts the two agree by construction.
+check(
+  "exactly the obtainable facts carry an action",
+  filingRead.filter((f) => f.obtainable).length,
+  obtainableGaps(filingRead).length
+);
+check("and the settled ones are still on the list", filingRead.length, requiredClaimKeysFor("screening").length);
+check("each carrying a reason", filingRead.every((f) => f.reason.length > 0), true);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
