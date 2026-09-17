@@ -3,6 +3,20 @@
 **Date:** 2026-08-27, revised 2026-08-28 (three times)
 **Status:** Implemented through the evidence-first redesign (v10). Dark: no UI beyond the superadmin `/admin/research` eval tool, not wired into Strategy. Not yet accepted for the full evaluation set — see "Not yet done."
 
+> **Correction, 2026-09-17.** Two statements below have been overtaken by events.
+> They are left in place as history rather than edited out.
+>
+> 1. **"Ships dark" is no longer wholly true.** `lib/discovery-handoff.ts` went
+>    live under ruling 0003, and `lib/availability.ts` is landing under ruling
+>    0009. `qualification`, `registry/`, `tier2/` and `legitimacy` are still dark.
+> 2. **"unchanged, indefinitely, until (if ever) a later build migrates it" is
+>    superseded by ruling 0016.** There is no cutover event and no *if*: each
+>    module is wired into the live path as soon as a ruling establishes it is
+>    correct, gated by ruling 0010. Build 1 extends the slices module by module
+>    rather than replacing them.
+>
+> See `docs/decisions/0003-two-tracks-and-build-1s-landing.md`.
+
 ## Why this exists
 
 Copy of the reasoning that would otherwise only live in a Claude Code plan-mode

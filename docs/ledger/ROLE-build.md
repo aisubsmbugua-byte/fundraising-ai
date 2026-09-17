@@ -16,9 +16,38 @@ honestly and report the measurement, not the flattering version of it.
 not anticipate, append an item to `STATE.md` with `owner: decision` and stop.
 Do not route around it by deciding yourself.
 
+**You do not set direction.** The decision space is the command center: it owns
+`docs/ledger/**`, `docs/reviews/**`, `docs/decisions/**` and `docs/slices/**` —
+including the roadmap and each slice's definition of done. Read those; do not
+edit them. A slice that looks wrong, or a definition of done you cannot meet, is
+an item for `STATE.md`, not a file to fix.
+
 You do not start work that `## Authorized now` does not cover. If `STATE.md`
 authorizes Step 5 and you notice something wrong in Step 3, that is an item for
 the decision space, not a detour.
+
+## Nothing binds until it is in a file
+
+The decision space carries the same rule, and its absence here was a real gap:
+build-side verification, defect confirmations and status went to chat, and the
+user was left carrying them between sessions by hand.
+
+So: anything the decision space needs lands in `STATE.md` or `docs/reviews/**`
+before the turn ends. Chat is a pointer to the file, never the record. This
+applies to findings that are *not* part of the authorized work too — a defect
+noticed in passing, a ruling you verified, an obstacle you routed around. If it
+only exists in the conversation, it does not exist.
+
+## Cite what you read
+
+Ruling 0018, binding here too. Every factual claim in a build report names the
+artifact it came from — file and line, table and migration, or the command run
+and its output. A filename or a statement in another document is not evidence of
+what a thing does; if you did not open it, say *not checked*. Any "X does not
+exist" names the search that establishes it.
+
+If you dispatch subagents, overlap their scopes deliberately and escalate
+contradictions rather than picking the more confident report.
 
 ## Before you write code
 

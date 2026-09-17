@@ -40,3 +40,22 @@ Add to `drafts`:
 
 ## Where this grows
 See `CLAUDE.md`'s "The advancement workflow" — outreach and proposal content both eventually flow through this exact same gate (approve, then a confirmed send click), just triggered from more places in the sequence (post-strategy outreach, post-proposal-approval ask) rather than only from a single generic draft. The mechanism doesn't change: the system only ever sends as the direct, immediate result of a human's confirmed click.
+
+## As built — verified 2026-09-17
+
+**Status: proposed. Not built. Nothing in this document exists.**
+
+- No send route, no send server action, no confirmation dialog.
+- `drafts` has no `sent_at`, `sent_by` or `resend_id` column — grep the
+  migrations; they appear nowhere.
+- `RESEND_API_KEY` sits in `.env.example` marked for this slice and is
+  referenced nowhere in the code. The `resend` package is installed and dormant.
+- Team invitations go through Supabase Auth's own `inviteUserByEmail`
+  (`lib/invite.ts`), which is not a sending capability this app operates. A
+  comment there mentions Postmark historically; it is not in use.
+
+**Consequence for hard rule 1.** "No auto-send" is currently true by absence,
+not by construction. When this slice is built, the guarantee has to move into
+code — a send path reachable only from a handler taking an approved draft id and
+a live human session — because absence stops protecting anything the moment the
+first send call is written.

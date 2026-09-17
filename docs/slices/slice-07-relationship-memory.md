@@ -39,3 +39,26 @@ By now prospects move through stages, get drafted to, and cite evidence. Memory 
 - [ ] Outcomes capture yes/no/defer with reason and optional revisit date.
 - [ ] The Revisit list surfaces due "no → revisit" prospects.
 - [ ] Referrals flow into the candidate review queue.
+
+## As built — verified 2026-09-17
+
+**Status: released, partial.** The logging half shipped; the outcomes model did
+not.
+
+- **`interactions` exists** (migration 0031): `kind` is `email` | `call` |
+  `meeting` | `note`, with `summary` and `occurred_at`.
+- **There is no `outcomes` table.** Nothing captures yes/no/defer with a reason.
+  This is the main gap against the plan.
+- **Revisit works, but on candidates rather than prospects.**
+  `candidates.dismissed_reason` and `candidates.revisit_date` carry a dismissed
+  *candidate* forward. A prospect that goes cold has no equivalent record.
+- **What shipped instead**, and the plan never anticipated it: prospects carry an
+  AI-proposed next step (`suggested_next_action`, `suggested_reasoning`,
+  `suggested_at`) that a human accepts or dismisses, promoting it to
+  `next_action` / `next_action_due`. `/revisit` shows prospects by how overdue
+  that action is.
+- **Referral capture does not exist.** A dismissed candidate cannot spawn a new
+  one.
+
+So the "a no is data, not a dead end" principle is honoured for candidates and
+not yet for prospects.

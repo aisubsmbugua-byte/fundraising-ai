@@ -1,5 +1,5 @@
 {
-  "note": "Uncommitted governed paths at ledger creation. Grandfathered -- predates the protocol.",
+  "note": "Uncommitted governed paths at ledger creation. Grandfathered -- predates the protocol. Restored by hand after each `--seal`, which overwrites this file with the then-dirty set. Interim procedure until ruling 0014 splits the flags; see STATE.md item 24.",
   "paths": [
     "app/(dashboard)/discovery/actions.ts",
     "app/(dashboard)/prospects/[id]/research-actions.ts",

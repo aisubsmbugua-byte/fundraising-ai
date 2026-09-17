@@ -42,3 +42,19 @@ Drafting is where AI creates the most leverage. It needs a prospect (CRM), a fit
 
 ## Where this grows
 Today's drafting is prompted by a human per-prospect. The end-state vision (see `CLAUDE.md`'s "The advancement workflow") sequences drafting behind an approved **strategy** — a deep-dive research + plan step that runs automatically on candidate acceptance and requires human approval before any content gets drafted from it. Drafts still land in this same review state either way; only what triggers drafting changes, never whether a human approves before anything sends.
+
+## As built — verified 2026-09-17
+
+**Status: released, and narrower than planned.**
+
+- **Two draft kinds, not four**: `intro_email` and `call_prep`
+  (`lib/drafts.ts`). Proposal, thank-you and report drafts do not exist.
+- **The "where this grows" note already happened.** Drafting is now gated on an
+  approved strategy: `generateDraft` in `prospects/[id]/draft-actions.ts`
+  refuses to run unless the strategy run carries an `approved_strategy`, and
+  every draft is linked to its strategy via `drafts.strategy_run_id`.
+  `deep_dive_runs` was renamed `strategy_runs` in migration 0052.
+- `drafts` gained `approved_by` and `approved_at`, which the plan did not have.
+- The Slice 8 columns this doc anticipated — `sent_at`, `sent_by`, `resend_id` —
+  **do not exist**. The draft panel says so plainly: approved drafts are "ready
+  to send once sending is set up."

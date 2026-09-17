@@ -1,12 +1,30 @@
 # The ledger — how the decision space and the build space talk
 
-Two Claude Code sessions run against this same directory:
+**Fundraising AI Build and Decision Space.** Two roles, one directory, named so
+there is a term for the whole arrangement rather than only its halves.
 
-- **The decision space** — where context is worked on, work is counterchecked, and
-  rulings are issued. Writes `docs/ledger/` and `docs/reviews/`. Reads everything.
-  Does not write code.
+A note on where each role actually runs, added 2026-09-17: the build space does
+not have to be a second terminal. The decision space can dispatch it as a
+subagent in its own session — a fresh context that reads `ROLE-build.md` and
+`STATE.md` cold and reports back on completion. That removes the human relay the
+original design depended on, and it makes the build space *more* independent,
+not less, because it carries none of the decision space's reasoning. Several can
+run at once; any that would collide on a file runs in an isolated worktree.
+
+Two roles run against this same directory:
+
+- **The decision space** — the command center. Where strategy is discussed,
+  direction is set, work is counterchecked, and rulings are issued. Writes
+  `docs/ledger/`, `docs/reviews/`, `docs/decisions/` and `docs/slices/`. Reads
+  everything. Does not write code.
 - **The build space** — where code is written. Reads rulings, writes code and
-  build reports. Does not write rulings.
+  build reports. Does not write rulings, and does not set direction.
+
+Three artifacts carry decisions, and they are not interchangeable. A **ruling**
+is a sealed system invariant. A **decision** (`docs/decisions/`) is direction —
+dated, mutable, revisable. A **slice** is roadmap and definition of done. Putting
+strategy into rulings would inflate the seal until the check that depends on it
+becomes noise; putting an invariant into a slice doc would leave it unenforced.
 
 They cannot talk directly. There is no live channel between two sessions, and
 there is deliberately no attempt to fake one. The channel is this directory, and

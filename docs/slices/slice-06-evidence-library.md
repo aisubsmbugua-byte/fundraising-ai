@@ -42,3 +42,24 @@ Verifiable outcomes are what make a proposal credible. The draft surface (Slice 
 
 ## Where this grows
 This library doubles as the nonprofit-side knowledge base referenced in `CLAUDE.md`'s "The AI-driven end state" — the same mission/outcomes data that grounds a draft's claims is what AI will use to judge which funder types are a plausible match in the first place. Building it as first-class, source-linked, permission-tagged data now is what makes that matching trustworthy later.
+
+## As built — verified 2026-09-17
+
+**Status: released, and materially different from this plan.** Read this section
+rather than the Data section above.
+
+- **One table, not two.** `evidence_items` (migration 0030). There is no
+  `case_studies` table; long-form material is an `evidence_items` row with
+  `type: 'story'`.
+- **Permissions are binary, not four-valued.** `approved` | `restricted`. The
+  planned `public` / `partners_only` / `internal` / `do_not_share` never shipped.
+- **No `source_url`.** Evidence is linked to an uploaded file via
+  `source_document_id` → `org_documents`, not to a web source.
+- **No evidence picker in the draft editor.** The plan had a human selecting
+  evidence per draft. In reality evidence reaches a draft through the strategy
+  run, which selects from the approved pool itself.
+- **The permission guarantee holds, and is stronger than the plan.**
+  `runStrategy` filters on `permission = 'approved'` **and**
+  `verified_at is not null` before anything reaches a prompt, then filters the
+  model's cited ids against that same pool — so a model cannot cite its way to
+  an unapproved item.

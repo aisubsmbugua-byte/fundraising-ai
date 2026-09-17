@@ -41,3 +41,19 @@ New table `stage_changes`:
 - [ ] Moving a card requires explicit confirmation before it persists.
 - [ ] Every stage change is written to `stage_changes` with the acting user.
 - [ ] No code path advances stage automatically.
+
+## As built — verified 2026-09-17
+
+**Status: released.** Built as intended, with one wrinkle worth knowing.
+
+- The board shows **six** stages, not seven: Discovery, Outreach, Proposal,
+  Decision, Awarding, Stewardship (`lib/prospects.ts` `STAGES`).
+- The `stage` database type carries **ten** values. `screening`,
+  `qualification`, `cultivation` and `ask` are defined but unused — migration
+  0022 left them because Postgres cannot drop an enum value without recreating
+  the type, and migrations here are additive-only. It verified zero prospects
+  occupied them first. `contact` was renamed to `outreach` in 0027.
+- **No auto-advance holds.** `prospects.stage` is written only by
+  `moveProspectStage` in `(dashboard)/pipeline/actions.ts`, from an explicit form
+  submission, always appending an attributed row to `stage_changes`. RLS on that
+  table requires `changed_by = auth.uid()`.
