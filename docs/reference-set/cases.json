@@ -1,0 +1,508 @@
+{
+  "schemaVersion": 1,
+  "frozen": true,
+  "instructions": "Open each homepage yourself and browse. Do NOT consult the systems manifest or selections first - see docs/reviews/0009. For each fact set status to stated (with the exact URLs that state it) or not_stated (checked; this funder does not publish it). Leave unreviewed if you have not looked.",
+  "factDefinitions": {
+    "priorities": "What this funder funds - cause areas, programme areas, the kind of work they support.",
+    "geographic_restriction": "A stated RULE limiting where a grantee may be based or where funded work may happen. Not a pattern of past giving.",
+    "recipient_restrictions": "Stated rules about who may or may not receive a grant - org types, excluded categories, denominational limits.",
+    "program_currency": "Evidence the programme is currently running - an open cycle, a recent deadline, a current year named.",
+    "application_process": "How to apply, and when."
+  },
+  "cases": [
+    {
+      "id": "maclellan",
+      "funder": "Maclellan Foundation",
+      "homepage": "https://maclellan.net",
+      "failureClass": "Clean baseline; priorities delivered as video (found_thin)",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://maclellan.net/faq/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "stated",
+          "urls": [
+            "https://maclellan.net/faq/"
+          ],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://maclellan.net/faq/"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://maclellan.net/grantees/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://maclellan.net/support/how-may-i-apply-for-a-grant"
+          ],
+          "note": ""
+        }
+      }
+    },
+    {
+      "id": "stewardship",
+      "funder": "The Stewardship Foundation",
+      "homepage": "https://stewardshipfdn.org",
+      "failureClass": "Registry legal name carries trustee apparatus; 80-candidate search",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://stewardshipfdn.org/guidelines-themes/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "stated",
+          "urls": [
+            "https://stewardshipfdn.org/guidelines-themes/"
+          ],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://stewardshipfdn.org/guidelines-themes/"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://stewardshipfdn.org/applying-for-funding/eligibility-for-funding/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://stewardshipfdn.org/applying-for-funding/submitting-a-letter-of-inquiry/"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "New letters of inquiry SUSPENDED; site says check again Q4 2026. Currency is stated, and its value is closed."
+    },
+    {
+      "id": "eaa",
+      "funder": "EAA Aviation Foundation",
+      "homepage": "https://eaa.org",
+      "failureClass": "Very large site (5,566 URLs); manifest cap reached",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://www.eaa.org/eaa/learn-to-fly/scholarships"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "stated",
+          "urls": [
+            "https://www.eaa.org/eaa/learn-to-fly/scholarships"
+          ],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://www.eaa.org/eaa/learn-to-fly/scholarships/eaa-flight-training-scholarships"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://www.eaa.org/eaa/learn-to-fly/scholarships/eaa-flight-training-scholarships"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://www.eaa.org/eaa/learn-to-fly/scholarships/eaa-flight-training-scholarships"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "2025-26 flight-scholarship cycle CLOSED; next application opens 2026-10-01."
+    },
+    {
+      "id": "ncf",
+      "funder": "National Christian Foundation",
+      "homepage": "https://ncfgiving.com",
+      "failureClass": "DAF sponsor - intermediary_only; 75 same-token candidates",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://www.ncfgiving.com/support"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://www.ncfgiving.com/forms/grantrecommendationform"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://www.ncfgiving.com/support"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        }
+      },
+      "reviewerNote": "DAF sponsor. Nonprofits do not submit competitive applications; fundholders recommend recipients. Expect intermediary_only."
+    },
+    {
+      "id": "cma",
+      "funder": "Christian and Missionary Alliance",
+      "homepage": "https://cmalliance.org",
+      "failureClass": "Denominational program; a page fetch that fails",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://cmalliance.org/our-work/church-ministries/pastoral-financial-health-initiative/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "stated",
+          "urls": [
+            "https://cmalliance.org/our-work/church-ministries/pastoral-financial-health-initiative/"
+          ],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://cmalliance.org/our-work/church-ministries/pastoral-financial-health-initiative/"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://cmalliance.org/our-work/church-ministries/pastoral-financial-health-initiative/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://cmalliance.org/our-work/church-ministries/pastoral-financial-health-initiative/"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "Evidence concerns the Pastoral Financial Health Initiative, NOT unrestricted external grantmaking."
+    },
+    {
+      "id": "saddleback",
+      "funder": "Saddleback Church",
+      "homepage": "https://saddleback.com",
+      "failureClass": "Church; nine same-token candidates in one state",
+      "groundTruth": {
+        "priorities": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "application_process": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        }
+      }
+    },
+    {
+      "id": "missio-nexus",
+      "funder": "Missio Nexus - Ministry Innovation Fund",
+      "homepage": "https://missionexus.org",
+      "failureClass": "Named opportunity distinct from its operating organization",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://missionexus.org/innovation/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://missionexus.org/innovation/2023-innovation-fund/"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://missionexus.org/innovation/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://missionexus.org/innovation/"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "Innovation Fund ON HOLD since autumn 2025; may reopen."
+    },
+    {
+      "id": "antioch",
+      "funder": "The Antioch Foundation",
+      "homepage": "https://antiochfoundation.org",
+      "failureClass": "Sitemap and homepage links disagree about what exists",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://www.antiochfoundation.org/faq"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "stated",
+          "urls": [
+            "https://www.antiochfoundation.org/faq"
+          ],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://www.antiochfoundation.org/faq"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://www.antiochfoundation.org/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://www.antiochfoundation.org/faq"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "DOMAIN CORRECTED. The prospect row carries theantiochfoundation.org; current official content is antiochfoundation.org. 2027 applications accepted 2026-09-15 to 2026-10-15."
+    },
+    {
+      "id": "ronald-blue",
+      "funder": "Ronald Blue Trust - Ministry Services",
+      "homepage": "https://ronblue.com",
+      "failureClass": "Site blocked or unreachable - retrieval_failed, not absent",
+      "groundTruth": {
+        "priorities": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "application_process": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        }
+      },
+      "reviewerNote": "Primarily a wealth manager offering a client DAF service, not a publicly accessible grant opportunity."
+    },
+    {
+      "id": "mariners",
+      "funder": "Mariners Church",
+      "homepage": "https://marinerschurch.org",
+      "failureClass": "Display name is an opportunity phrase matching no legal name",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://www.marinerschurch.org/care-recovery/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://www.marinerschurch.org/care-recovery/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://www.marinerschurch.org/care-recovery/"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "Published assistance is individual/family benevolence, not an external nonprofit grant program."
+    },
+    {
+      "id": "signatry",
+      "funder": "The Signatry",
+      "homepage": "https://thesignatry.com",
+      "failureClass": "DAF sponsor that DOES resolve - controls against over-fitting NCF",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://thesignatry.com/user-agreement/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://thesignatry.com/what-is-a-donor-advised-fund/"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://thesignatry.com/what-is-a-donor-advised-fund/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "not_stated",
+          "urls": [],
+          "note": ""
+        }
+      },
+      "reviewerNote": "DAF sponsor, same as NCF. Included as a control: it resolves in the registry where NCF does not."
+    },
+    {
+      "id": "pma",
+      "funder": "Presbyterian Mission Agency",
+      "homepage": "https://pcusa.org",
+      "failureClass": "Denominational agency, read successfully, still unresolved",
+      "groundTruth": {
+        "priorities": {
+          "status": "stated",
+          "urls": [
+            "https://centernet.pcusa.org/grants/"
+          ],
+          "note": ""
+        },
+        "geographic_restriction": {
+          "status": "stated",
+          "urls": [
+            "https://centernet.pcusa.org/ministries/sdop/apply-grant/"
+          ],
+          "note": ""
+        },
+        "recipient_restrictions": {
+          "status": "stated",
+          "urls": [
+            "https://centernet.pcusa.org/ministries/sdop/apply-grant/"
+          ],
+          "note": ""
+        },
+        "program_currency": {
+          "status": "stated",
+          "urls": [
+            "https://centernet.pcusa.org/ministries/sdop/national/"
+          ],
+          "note": ""
+        },
+        "application_process": {
+          "status": "stated",
+          "urls": [
+            "https://centernet.pcusa.org/ministries/sdop/apply-grant/"
+          ],
+          "note": ""
+        }
+      },
+      "reviewerNote": "Administers MULTIPLE distinct programs. Restriction and process URLs concern Self-Development of People only and must not be generalised to every PMA grant."
+    }
+  ],
+  "reviewedOn": "2026-09-02",
+  "reviewerMethod": "Verified against each organisation official site. Program-specific rules treated as program-specific; no restriction inferred from giving patterns."
+}
