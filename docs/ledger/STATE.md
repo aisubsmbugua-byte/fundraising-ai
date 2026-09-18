@@ -4,171 +4,104 @@ The handoff file. Both spaces write it. Every open item names the side that owns
 it and the state it is in — if an item has no owner, nobody is doing it and both
 spaces think the other one is.
 
-Last touched by: **build** · 2026-09-17
+Last touched by: **decision** · 2026-09-18
 
 ## Authorized now
 
-- ruling: 0013
-- parallel: **Item 24 (ledger tooling, ruling 0014 and friends) is authorized to
-  run at the same time**, from 2026-09-17. It is not a Build 1 pipeline step, so
-  ruling 0005's one-step-at-a-time does not bind it — that rule exists to keep
-  pipeline changes small enough that a gap is visible at the boundary, and
-  tooling is not in that sequence. The serial queue was also a consequence of the
-  build space being a single conversation; it no longer is. Run it in an isolated
-  worktree: it edits `scripts/ledger-check.ts`, which the other job executes as a
-  Stop hook every turn.
-- objective: Close the paid-rerun treadmill for every gap the live path can
-  honestly decide, and make the remainder visible rather than silent.
-- approved decision: Ruling 0013 — item 13 settled as option (a).
-- scope: Wire `obtainableGaps()` into every user-facing "still missing" string
-  and every follow-up search target. Pass `coverage: null`. Delete — do not
-  reword — any copy implying the whole fact set was checked.
-- exclusions: Do not infer per-purpose coverage from `official_site_fetched` or
-  anything else the live run records (ruling 0013 rejects this explicitly). Do
-  not start Step 5 (ruling 0010). Do not touch items 10 or 15 — both are
-  approved and both wait.
-- acceptance checks: (1) With `coverage: null`, no interface string asserts
-  completeness over the fact set — `research-tab.tsx`'s "Every information
-  category was found" is the named target and must be unreachable. (2) Registry
-  facts reach `not_applicable` / `checked_not_stated` where warranted and are
-  not offered. (3) Site facts are all obtainable and all still offered.
-  (4) Ruling 0010's grep test: `deriveAvailability` and `obtainableGaps` have
-  production callers, and every path that names something missing traces to one.
-  (5) **Added 2026-09-17 by ruling 0017 — this amends work in flight.** Every
-  fact in the required set is reachable on screen in every state, each with its
-  reason; a `checked_not_stated` fact is visibly different from a `not_checked`
-  one to a reader who has never seen the vocabulary. Exactly the obtainable facts
-  carry an action. Any "remove from view" behaviour already written is superseded
-  — say so in the report rather than silently reworking it.
-  (6) **Added 2026-09-17 — same file, same pass, no new job.** Remove the claim
-  that a search "spends credits" (`research-panel.tsx:172` and `:201`). There is
-  no credits concept in any of 65 migrations; the app is telling a nonprofit they
-  are drawing down a balance that does not exist. It may become true later (see
-  `docs/decisions/0004-commercial-model.md`) — it is false now. Replace with
-  what is true and stays true whatever the pricing model becomes: the run costs
-  real money and takes several minutes. Do not name a balance, an allowance or a
-  quota. Build is already editing these exact strings under ruling 0017, so this
-  is a wording correction inside work in flight, not an addition to it.
-- dependencies: None. Item 8 is *not* a dependency — that decoupling is the
-  substance of ruling 0013.
-- pattern to follow: `research-actions.ts:599` —
-  `grantSchedulePresent && !grantScheduleRead`. Verified in the decision space.
-- unresolved: None blocking. The site half is tracked as item 16 and lifts on
-  its own when Tier 2 reaches the live path.
-- **merge: STOP before it.** Revised 2026-09-17. Ruling 0020 clause 2 still holds
-  — Step 4 is not complete until `build-1-qualification` is on `main` — but the
-  merge is now a **separate human approval gate**, not the build space's to
-  perform. Finish the work, pass the checks, write the review, then stop and
-  report. The owner sees the checks before anything deploys.
-  - This deploys. `main` auto-deploys to Vercel, so merging ships Build 1's
-    first user-visible behaviour: ruling 0003's handoff contract becomes live
-    (accepting a candidate carries opportunity name and source URL into the
-    prospect), plus Step 4's availability work. Everything else in Build 1 —
-    `qualification`, `registry/`, `tier2/`, `legitimacy` — stays dark, having no
-    entry point.
-  - Safe to merge: migrations 0063–0065 are already applied and verified
-    additive, and the 7 commits carry no non-additive change.
-  - If the build fails or the acceptance checks do not pass, **do not merge** —
-    raise an item and stop. A merge is the one step in this job that is
-    outward-facing.
-- report: Follow ruling 0010 — name the function deciding each invariant and
-  every call site routed through it. Test counts are not a completion claim.
-  Write to `docs/reviews/0012-*.md`.
+- ruling: 0021
+- item: 29
+- title: A count reported as evidence names the set it ranged over
+- standing objective: `docs/decisions/0005-measure-before-choosing-build-1s-direction.md`
+  — measure Build 1's retrieval recall before choosing a direction for Build 1.
+  Expires when the measurement lands.
+- **Item 29 released to run 2026-09-18**, after item 4 reached `tested`. It was
+  held — not by ruling 0005, which does not bind tooling — because the owner had
+  just stopped a dispatch to ask what the standing objective was, and starting a
+  second invisible job in that moment would have answered the concern by
+  contradicting it. `docs/decisions/0005-measure-before-choosing-build-1s-direction.md`
+  is now satisfied, so the hold is spent. Runs in an isolated worktree: it edits
+  `scripts/ledger-check.ts`, which this session executes as a Stop hook every
+  turn, and a half-written state there would break the check mid-session.
+  Its result is reviewed in the decision space before it reaches the main tree.
+- handoff exception for this dispatch: both jobs report back rather than
+  appending to `STATE.md` themselves. `ROLE-build.md` step 3 normally has build
+  write its own item; two jobs running at once would collide on the one handoff
+  file. Each writes its own review — item 29 to `docs/reviews/0014-*.md`, item
+  4 to `docs/reviews/0015-*.md` — and the decision space records both items
+  from those reviews. This is a concurrency measure, not a change to who owns
+  what: the reviews are still build's words, and they land in files before
+  anything is accepted.
+- objective: The check that polices the ledger stops emitting the exact shape of
+  number this ruling forbids. `N doc citation(s)` names no population; that is
+  how "407 citations" survived into an evidence row supporting a `released`
+  item.
+- approved decision: Ruling 0021, settled and sealed 2026-09-18. It extends
+  ruling 0004 (which governs a measurement's *label*) to its *denominator*.
+  0004 is not superseded — a report satisfies both.
+- scope: `scripts/ledger-check.ts` only. Every count the summary line prints
+  names the set it ranged over and how that set was determined. The citation
+  count is the named case: it is produced by the `walk` at
+  `scripts/ledger-check.ts:387`, which takes every `.md` under `docs/` — 54
+  files at time of writing, against 337 citations. Apply the same treatment to
+  the other counts on that line (rulings, open items, migrations ahead) where a
+  population is meaningful.
+- exclusions: Do not change what is governed. Do not change which files are
+  scanned — this job makes the existing population visible, it does not adjust
+  it. Do not touch Build 1 code. Do not add a new check; this is output only.
+- acceptance checks: (1) A reader holding only the summary line can reproduce
+  each population and get the same number. (2) The citation count names the
+  `docs/**` `.md` walk specifically, not a generic phrase like "docs files".
+  (3) If duplicate files were reintroduced, the printed population would change
+  visibly — test it the way the finding was established, by adding two
+  duplicates and confirming both the count and the stated population move.
+  (4) `scripts/test-ledger-check.ts` still passes at 61/61 or better, and any
+  new assertion names what it covers.
+- dependencies: None. Tooling only, no migration, no user action. Does not
+  collide with item 4, which is a Build 1 pipeline step — same reasoning that
+  let item 24 run in parallel.
+- unresolved: Ruling 0021 is not mechanically enforceable in prose reports; it
+  binds by being written down, and this job only closes the one case where the
+  tool itself was the offender. Do not attempt to check English for
+  denominators.
+- report: `docs/reviews/0014-*.md`, per ruling 0010 — name the function that
+  produces each count and the population it walks. Per ruling 0021, any number
+  in the report names its own denominator.
 
 ## Next authorized
 
-Two jobs, in this order. Take each up without waiting for the decision space.
+One job. Item 24's block stood here as "First" until 2026-09-17; it reached
+`released` and has been removed — the reordering argument it carried is spent and
+its outcome is in the item row.
 
-**Reordered twice on 2026-09-17, and the second reorder stands.** First the
-tooling was moved behind the customer-facing work on the stated priority that
-trust in the product is paramount. Then the owner supplied the input that call
-was missing: exposure is one real org (the owner's) plus one paid tester. The
-trust-damage argument assumed strangers and there are none, so it does not carry
-the weight put on it — the wasted-spend case cost the owner, not a customer.
+### Item 23 — a funder can say no (ruling 0019)
 
-What low exposure actually is: a window that expires. Process infrastructure is
-cheapest to build before anything depends on it, and `--seal` is corrupting the
-audit baseline every session in the meantime. So the tooling goes first, on the
-reasoning that it is *pre-scale work*, not on the reasoning that it is urgent.
-
-### First — item 24: ledger tooling, one job not four
-
-- ruling: 0014 (primary) — carries 0012, 0015 and 0018 in the same job
-- objective: Every rule this ledger has written down is enforced by the check
-  rather than by someone remembering it. Four rulings have been issued against
-  `scripts/ledger-check.ts` and none is implemented, so the protocol currently
-  relies on discipline in exactly the places it was built not to.
-- scope: One pass over `scripts/ledger-check.ts` and the files it reads.
-  1. **0014 first — it is actively biting.** Split `--seal` (records ruling
-     hashes, and nothing else) from `--baseline` (re-records working-tree
-     exemptions). Give `.baseline.json` a schema that distinguishes a path
-     grandfathered at ledger creation from one exempted later, each later entry
-     carrying a date and reason. The decision space has hand-restored this file
-     after every seal for an entire session; that is the interim procedure this
-     removes.
-  2. **0012** — `rulings/.confirmed.json`, written only by the decision space,
-     keyed by ruling id, carrying a three-valued verdict (`unconfirmed` /
-     `confirmed` / `refuted`) and the artifact checked against. Warn only when a
-     ruling is `reconstructed` **and** `unconfirmed`. `refuted` fails rather than
-     warns. `--seal` must not touch this file.
-  3. **0015** — validate the `status` column in the open-items table. Reject a
-     value outside the six; reject a work state on a `decision`-owned item;
-     fail any item at `tested` or beyond whose row names no evidence; check
-     `released` against the deployed branch and fail if its commits are not
-     there.
-  4. **0018** — every file path, table name and symbol cited anywhere in
-     `docs/**` must exist. This is the one that catches a fact inferred from a
-     name rather than read from the artifact.
-  5. **0020** — the additive-migration check. List migrations ahead of the
-     deployed branch (`git diff --name-only main...HEAD -- supabase/migrations/`)
-     and fail any that is not additive: a `drop column` / `drop table`, a
-     `rename`, an `alter column … type`, or a `not null` without `default`.
-     Verify statically; do not trust a declaration in a comment. 0063–0065 are
-     all additive and must pass.
-- exclusions: Do not change which paths are governed. Do not re-examine or prune
-  the grandfathered path list — it is historical and those paths are committed.
-  Do not retroactively assign statuses to closed items. Do not touch Build 1
-  code; this job is tooling only.
-- acceptance checks: (1) `--seal` on a dirty tree leaves `.baseline.json`
-  byte-identical. (2) A later baseline entry is distinguishable from a
-  grandfathered one by reading the file alone. (3) Removing a confirmation entry
-  makes the warning return; a `refuted` verdict fails the check. (4) An item
-  claiming `released` from a feature branch fails. (5) A doc citing a
-  non-existent path fails — verify with a deliberately bad citation, then remove
-  it.
-- dependencies: Step 4 closing. Nothing else. These four do not depend on each
-  other beyond sharing a file, which is why they are one job.
-- authorization and limits: Tooling only, no migration, no user action needed.
-  If any of the four turns out to need a schema or behaviour change the ruling
-  did not anticipate, stop and raise an item — do not decide it in build, the
-  way item 13 was correctly escalated rather than guessed.
-- report: `docs/reviews/0013-*.md`, per ruling 0010 — name what each check now
-  rejects, and show one failing example per rule.
-
-### Second — item 23: a funder can say no (ruling 0019)
-
-Needs a migration — user-applied, SQL inline in the closing message per standing
-preference. Full constraint is in ruling 0019; the load-bearing part is that
-`never` comes only from an explicit human action, and an absent field is always
-`undecided`, never `never`.
+Not yet authorized — item 29 holds the authorization. Needs a migration — user-applied, SQL inline in the closing message
+per standing preference. Full constraint is in ruling 0019; the load-bearing part
+is that `never` comes only from an explicit human action, and an absent field is
+always `undecided`, never `never`.
 
 ## Open items
 
 | id | owner | status | subject | opened |
 |----|-------|--------|---------|--------|
-| 2 | build | tested | **Step 4 — 0009 wired.** `deriveAvailability` now reaches the product through one mapping function, `availabilityForResearchRun` (`lib/availability.ts:274`), called from `lib/prospect-intelligence.ts:417`, `research-actions.ts:251` and `app/admin/research/page.tsx:273`; `obtainableGaps` reaches every gap surface through one filter, `offerableGaps` (`lib/availability.ts:337`). All six acceptance checks met — check (2) only partly, see the review: `not_applicable` is unreachable in the live path because neither route to it has a recorded input. Evidence: `docs/reviews/0012-step-4-wiring-availability.md`; `scripts/test-availability.ts` 37 → 65 passing; 660 assertions passing across 13 test files, 2 skipped for missing Supabase env; `npx tsc --noEmit` clean; `npx next build` compiles, 28 routes. **Not released — not merged.** | 2026-09-16 |
+| 33 | decision | proposed | **The 72% is bimodal, and the mean hides the only thing worth knowing.** Counterchecked in the decision space from review 0015's per-case table: of the 10 cases contributing judgements, **8 retrieve 100% of their live ground-truth URLs and 2 retrieve 0%. None is in between.** Population: the 41 `stated` judgements whose URL returned 200 on 2026-09-18, i.e. the 43 less the two dead ones in item 32; over that set retrieval is 31/41 (76%) and shortlist 26/41 (63%). So retrieval is not mediocre-across-the-board and does not want general tuning — it is reliable, and it misses entire sites of a particular shape. The two failures have named, different causes in review 0015: `pma` retrieves 24,269 URLs from exactly one host while all 5 of its ground-truth URLs live on `centernet.pcusa.org` (cross-subdomain, F4); `eaa` follows all sitemap children untruncated and still never surfaces either page (F5, cause not established). A third case, `cma`, retrieves all 5 and loses all 5 to the 60-entry cap, which is the entire retrieval→shortlist gap (F6). **This is ruling 0004's failure shape — one number averaging two different facts — surviving in a report that otherwise complies with ruling 0021.** Naming a denominator does not make a mean meaningful. Needs a ruling before any code moves; per review 0009 a per-case fix is not a fix. Minor: F7, absence precision is computed under `--discovery-only` and would be vacuously 17/17, suppressed at `scripts/reference-recall.ts:149` but computed at `:126`. | 2026-09-18 |
+| 32 | decision | proposed | **The frozen reference set has decayed, and `frozen: true` cannot stop that because the population is a live network.** Three findings from review 0015, all verified in the decision space rather than accepted. (a) **Two of the 43 ground-truth URLs are 404** — the maclellan application_process fact and the ncf recipient_restrictions fact — re-checked independently with `curl -L`, both 404. Discovery cannot fetch a page that does not exist, so both count as retrieval misses against a system that did nothing wrong. (b) **The set no longer contains a blocked-site case**: `ronald-blue` is recorded as `failureClass: "Site blocked or unreachable"` and today returns 200 via redirect with 751 URLs retrieved. Whatever it guarded is unguarded, and `saddleback` and `ronald-blue` both record zero `stated` facts, so neither moves either recall. (c) **The measurement is not reproducible over time**: `eaa` is recorded at 5,566 URLs and returned 10,664 today. The decision is not "fix the fixture" — it is what `frozen` means when the thing frozen is a pointer to someone else's website, and whether a recall number carries the date its population was observed. Build correctly refused to edit a frozen fixture and reported 31/43 as the result with 31/41 as secondary. | 2026-09-18 |
+| 30 | build | approved | **Blocked half of item 4 — selection and fetch recall.** Split from item 4 on 2026-09-18. Needs a model call and therefore an API key the assistant sandbox does not have: `selectPages` (`lib/tier2/select.ts`) and `fetchSelectedPages` (`lib/tier2/fetch.ts`) both run only when `--discovery-only` is absent (`scripts/reference-recall.ts:100` and `:105`). Run as `npx tsx --env-file=.env.local scripts/reference-recall.ts`. Reports selection recall, fetch recall and absence precision — the last of these has no discovery-only equivalent, so over-claiming an absence is currently unmeasured. Blocked on the owner running it, not on a ruling. | 2026-09-18 |
+| 31 | decision | proposed | **A malformed item id is silently skipped rather than failing.** `parseOpenItems` (`scripts/ledger-check.ts:532`) drops any row whose id is not `^\d+$`, with the comment "header and separator rows". That is correct for the two rows it was written for and wrong for everything else: an item numbered `4a`, `4-a` or `29 ` parses as a table row, fails the id test, and vanishes from every ruling-0015 check — status, owner, evidence, `released`-against-branch. It is not reported as skipped. Found 2026-09-18 by the decision space renaming item 4 to `4a` and watching the open-item count fall from 15 to 14 with the check still reporting `protocol intact`. **This is the same shape as ruling 0021's finding one turn earlier: a count taken over a population that silently excluded something.** Candidate invariant: a row inside the open-items table that does not parse as an item is a failure, not a skip — the check distinguishes "not an item row" (header, separator) from "malformed item row" structurally rather than by whether the id happens to be numeric. Needs a ruling before the parser changes. | 2026-09-18 |
+| 29 | build | tested | **Built, counterchecked and landed in the main working tree 2026-09-18 — not committed, so not `released` under ruling 0015.** Built in an isolated worktree off `main` at 647c8fd, then brought across after review. Re-verified after landing: `scripts/test-ledger-check.ts` 76 of 76 passing in the main tree, `npx tsc --noEmit` exit 0, check reports `protocol intact`. It demonstrated itself on its own landing: the citation count moved 375 → 403 and the printed population moved with it, 56 → 57 `.md` files, because review 0014 was added — under the old output that was a 28-citation jump with no way to tell whether the corpus grew or the check changed. Evidence, verified in the decision space rather than accepted: the candidate script run against *this* tree produces counts identical to the current one (21 rulings, 19 open items, 373 citations, 0 migrations), same two warnings, same verdict, same exit 0 — so it is output-only in fact, not just in intent. All four printed populations reproduce from the printed commands alone. `--quiet` output is **byte-identical** (301 bytes), so the Stop hook this session runs every turn is unaffected. `scripts/test-ledger-check.ts` 61 → 76 passing in the worktree. Review: `docs/reviews/0014-a-count-names-its-population.md`. **Decided here: the summary is a block, not one physical line.** Build read the scope's word "line" as descriptive and escalated rather than deciding silently, which is the correct move; it is also correct on the merits, because four populations and four commands on one physical line would satisfy the wording and defeat ruling 0021's own test of compliance — that a reader can reproduce the population. Not a ruling: this is how one job renders output, and ruling 0001 draws the line at invariants. **Settled by ruling 0021 — a count names the set it ranged over.** Implementation is one change in `scripts/ledger-check.ts`: its summary line names the population beside each count it prints, so the next divergence shows in the output instead of surfacing by accident. Authorized now; handoff above. Original finding: **a reported number did not name the population it was measured over — third occurrence.** Item 24's evidence row said 407 citations; the true figure is 337, the gap being 17 duplicate files the run happened to include. Before it: "78% coverage" that was not coverage, and "47% discovery recall" that conflated never-retrieved with retrieved-then-reduced. The ledger already has habits against *mislabelled* numbers (`ROLE-build.md`, "name what you measured") and against *collapsed* numbers (same file, "never let two facts collapse"). Neither catches this one, because 407 was correctly labelled and measured a single thing — it just ran over a file set nobody stated. **Candidate invariant: a count reported as evidence names its denominator — the set counted and how that set was determined — or it is not evidence.** That is general, testable, and not case-specific, so it is a ruling rather than a decision. Worth settling *before* item 4's recall measurement, which is the next number this project will be asked to trust and is currently blocked precisely on producing one. | 2026-09-17 |
+| 2 | build | released | **Step 4 — 0009 wired.** `deriveAvailability` now reaches the product through one mapping function, `availabilityForResearchRun` (`lib/availability.ts:274`), called from `lib/prospect-intelligence.ts:417`, `research-actions.ts:251` and `app/admin/research/page.tsx:273`; `obtainableGaps` reaches every gap surface through one filter, `offerableGaps` (`lib/availability.ts:337`). All six acceptance checks met — check (2) only partly, see the review: `not_applicable` is unreachable in the live path because neither route to it has a recorded input. Evidence: `docs/reviews/0012-step-4-wiring-availability.md`; `scripts/test-availability.ts` 37 → 65 passing; 660 assertions passing across 13 test files, 2 skipped for missing Supabase env; `npx tsc --noEmit` clean; `npx next build` compiles, 28 routes. **Released 2026-09-17** — corrected from "not released, not merged", which item 27 had already falsified. Verified in the decision space against the artifact, not the row: `git merge-base --is-ancestor build-1-qualification main` succeeds, and `lib/availability.ts`, `lib/discovery-handoff.ts`, `lib/legitimacy.ts`, `lib/qualification.ts` and migrations 0063–0065 are all present on `main`. Ruling 0010's grep test re-run here: 14 call sites across 5 production files. | 2026-09-16 |
 | 26 | decision | proposed | **Which decision does the Research tab serve?** The ledger there names `screening` as its consumer (ruling 0011 forbids a default, so a call had to be made; the reasoning is in review 0012). But the dossier that tab shows is also the input to a strategy run, and strategy's required set has 8 keys screening's does not — `accepts_unsolicited`, `deadline`, `invitation_mechanism`, `fiscal_sponsorship_rules`, `grant_size_range`, `median_grant_size`, `international_reach`, `total_assets`. Under ruling 0017 those 8 are not displayed with a reason on that screen. If the tab serves both decisions, the fix is a second ledger beside the first, not a change to either function. Build did not decide this — which decision a screen serves is direction. | 2026-09-17 |
-| 17 | build | tested | **Rulings 0008 and 0011 complete.** `deriveAvailability` evaluates every source a fact could come from and combines them (unread outranks failed outranks silent); `keys` required, no default. Evidence: `scripts/test-availability.ts` 29 → 37 passing, including 0008's compliance case and a self-contradiction guard; tsc clean. Not released — rides with item 2. | 2026-09-16 |
+| 17 | build | released | **Rulings 0008 and 0011 complete.** `deriveAvailability` evaluates every source a fact could come from and combines them (unread outranks failed outranks silent); `keys` required, no default. Evidence: `scripts/test-availability.ts` 29 → 37 passing, including 0008's compliance case and a self-contradiction guard; tsc clean. Released with item 2 on 2026-09-17 — corrected 2026-09-17 from "not released", which the item 27 merge had already falsified. | 2026-09-16 |
 | 16 | decision | approved | **Tracking, not work.** The site half of the treadmill stays open by construction until Tier 2 reaches the live path — required by ruling 0013 so a partial close cannot read as a complete one. Under ruling 0016 the lift condition is now concrete rather than pending a cutover: it closes when a ruling lands `lib/tier2/` in the live path, same pattern as 0003 and 0009. Nothing to supersede. Keep open for exactly as long as `coverage` is null in the live run. | 2026-09-16 |
 | 23 | build | approved | **Queued — do not start.** Ruling 0019: record a prospect outcome when a funder declines — reason plus a three-valued revisit disposition (`revisit_on <date>` / `never` / `undecided`). `never` only ever from an explicit human action; absent means `undecided`, never `never`. Reversible, retained, not deletion. Excludes referral capture and any terminal stage. Needs a migration (user-applied, SQL inline in the closing message). | 2026-09-17 |
-| 25 | decision | proposed | **Commercial model recorded as provisional** — subscription with a set number of searches, then credits. See `docs/decisions/0004-commercial-model.md`. Three things follow, in the order they must be answered: (a) the app says a search "spends credits" and no credits concept exists in any of 65 migrations — wrong every day it waits, cheap to fix; (b) "a search" currently means two unrelated operations (a channel-wide discovery search, and a single-prospect research run) — settle before pricing; (c) a failed, empty or platform-killed run does not map to any existing column — settle before metering. **Nothing blocks work in flight; all three get expensive once customers are on a plan.** | 2026-09-17 |
+| 25 | decision | proposed | **Commercial model recorded as provisional** — subscription with a set number of searches, then credits. See `docs/decisions/0004-commercial-model.md`. Three things followed. **(a) is closed — verified in the decision space 2026-09-17**, not accepted from item 27's report: the only surviving "credits" token in `app/` and `lib/` is a comment at `research-panel.tsx:181` recording the removal, and the live string at `:187` reads "it costs real money and takes several minutes", which is true under any pricing model. Remaining: (b) "a search" currently means two unrelated operations (a channel-wide discovery search, and a single-prospect research run) — settle before pricing; (c) a failed, empty or platform-killed run does not map to any existing column — settle before metering. **Nothing blocks work in flight; all three get expensive once customers are on a plan.** | 2026-09-17 |
 | 21 | decision | proposed | **From the doc audit — remaining half.** Hard rule 1 ("no auto-send") is currently true only *by absence*: there is no send code at all, so nothing enforces it. The moment Slice 8 starts, that guarantee has to move into construction — a send path reachable only from a handler taking an approved draft id and a live human session. Not urgent; decide before Slice 8 is picked up. The other half of this item became ruling 0019. | 2026-09-17 |
 | 20 | decision | proposed | **Deferred by ruling 0016, not dropped.** When the live Slice 3 rules engine and the qualification pipeline both have something to say about one prospect, what does the user see? Not a precedence question — neither system acts, both are advisory under hard rule 3 and ruling 0002 — so it is a display decision. Revisit when `lib/qualification.ts` approaches landing; designing it now would design against output that is still changing (same reasoning as ruling 0007). | 2026-09-17 |
-| 24 | build | released | **Ledger tooling — done and in the main tree.** Rulings 0012, 0014, 0015, 0018 and 0020 implemented in `scripts/ledger-check.ts` (931 lines, checks split into exported functions with git behind a port so they can be driven against fixtures). Evidence: `scripts/test-ledger-check.ts` 61/61 passing with one failing example per rule; the live check run against this repo found 4 real stale citations in `docs/decisions/` which are now fixed; 407 citations verified per run; `--seal` leaves `.baseline.json` and `.confirmed.json` byte-identical. Counterchecked in the decision space, not accepted on report. | 2026-09-17 |
+| 24 | build | released | **Ledger tooling — done and in the main tree.** Rulings 0012, 0014, 0015, 0018 and 0020 implemented in `scripts/ledger-check.ts` (931 lines, checks split into exported functions with git behind a port so they can be driven against fixtures). Evidence: `scripts/test-ledger-check.ts` 61/61 passing with one failing example per rule; the live check run against this repo found 4 real stale citations in `docs/decisions/` which are now fixed; **337** citations verified per run; `--seal` leaves `.baseline.json` and `.confirmed.json` byte-identical. Counterchecked in the decision space, not accepted on report. **Evidence row corrected 2026-09-17: this said 407.** The report was measured against a tree polluted by 44 duplicate `* 2.*` files left by the project's move from `~/Documents` to `~/Developer`, 17 of them under `docs/`. Cause established by experiment, not inference — re-adding two duplicates moved the count 337 → 376, so 17 account for the gap. The check was correct throughout; only the recorded number was wrong. The duplicates are deleted and the tree is clean, so 337 is reproducible. **This is the third instance of the failure the protocol is built against — a number measured over the wrong population — after "78% coverage" and "47% discovery recall". The first two were caught by reading the underlying words; this one was caught only because the tree changed underneath it.** See item 29. | 2026-09-17 |
 | 28 | decision | proposed | **Ruling 0018's mechanical half shipped for paths only; table names and symbols need a ruling, not a build decision.** Table names are checkable with near-zero noise — 29 tables parsed from the migrations, exactly **one** cited name in `docs/**` has no table behind it. But that one sits inside ruling 0018 itself, in the table of wrong claims the ruling exists to record, in a file that is immutable. Enabling the check makes the ledger permanently red with no legal remedy. Symbols give 19 misses, most legitimate — `revisit_on` in the Slice 7 doc is unbuilt, not wrong. Both need a vocabulary for *quoted, not asserted* and *planned, not present*. Build stopped rather than guessing, correctly. The mechanism is probably already discovered: build wrote the six bad paths in its own report **without backticks** so the report would pass its own check — so backticks mean "this is real", plain text means "I am discussing it". The remedy for the one immutable violation is an entry in `.baseline.json`'s new `exempted` schema, dated and reasoned. | 2026-09-17 |
 | 1 | decision | approved | **0002, 0003 and 0006 are now recorded as `confirmed` in `rulings/.confirmed.json`**, each with the file and line it was checked against — the mechanism ruling 0012 called for, built under item 24. The check went from five warnings to two, and the two that remain are the ones genuinely unverified. **0005 and 0007 stay `unconfirmed`**: process decisions with no code artifact, and `search_session_transcripts` is unavailable in unsupervised mode. Retry with tool approval. | 2026-09-16 |
 | 5 | decision | proposed | Untested end to end: whether newly discovered named opportunities carry name + source URL through the handoff contract in a live run. 0003 is confirmed as code; confirming code exists is not confirming it runs. Needs one live run, same as item 4. | 2026-09-16 |
-| 4 | build | approved | **The real bottleneck, and it has been open all session.** Step 3b: selection and fetch recall against the frozen reference set has never been measured. Needs a user-run model call — the assistant sandbox has no API key. Build 1 is 4 steps into 10, and steps 5–10 all sit on top of retrieval whose recall is unknown. With two orgs there is no usage data either, so the reference set is the *only* evidence available about whether any of this works. Blocked on user execution, not on a ruling. | 2026-09-16 |
+| 4 | build | tested | **Measured 2026-09-18. Retrieval recall 31/43 (72%), shortlist recall 26/43 (60%)** — never blended; unit is one (fact key, ground-truth URL) pair, population is the 43 `stated` judgements in `docs/reference-set/cases.json`, reproduced independently in the decision space. All 12 sites answered; only 10 contribute judgements. Evidence: `docs/reviews/0015-discovery-recall-measurement.md`; run twice, byte-identical. Selection, fetch and absence precision remain unmeasured — item 30. **Originally: the real bottleneck, open all session.** Step 3b: selection and fetch recall against the frozen reference set has never been measured. Build 1 is 4 steps into 10, and steps 5–10 all sit on top of retrieval whose recall is unknown. With two orgs there is no usage data either, so the reference set is the *only* evidence available about whether any of this works. **Re-scoped 2026-09-18 by decision, against the script rather than the item text — the item was more blocked than the code is.** Two corrections. (a) The reference set is **not** a blocker: `docs/reference-set/cases.json` is fully populated — 60 of 60 cells across 12 cases carry a recorded judgement, 43 `stated` and 17 `not_stated`, `frozen: true`, none `unreviewed`. (b) "Needs a user-run model call" is true only of the **selection and fetch** half. `scripts/reference-recall.ts:61` defines `--discovery-only`, added for exactly this situation, and its own comment states discovery is deterministic, needs no model, and *is the ceiling on every stage after it*. So retrieval recall and shortlist recall are measurable now with no API key, and they bound whatever the paid half would report. Splitting the item accordingly: **this item (4) is now the discovery half only**, and the blocked selection+fetch half is **item 30**. Ids stay numeric — see item 31: `parseOpenItems` (`scripts/ledger-check.ts:532`) silently skips any id that is not `^\d+$`, so a row numbered `4a` is not validated at all. Per ruling 0021 any number either half produces names its denominator — the script already does this by construction, reporting three recalls separately and refusing to blend them. | 2026-09-16 |
 | 18 | build | released | **Migrations 0063–0065 are applied to the live database** and verified additive (ruling 0020 clause 3): every new column is `not null default <value>`, every new check bounds only a new column, `qualification_stages` is a new table. Closes when the branch merges and schema and code are back in step. | 2026-09-17 |
 
 ## Closed items

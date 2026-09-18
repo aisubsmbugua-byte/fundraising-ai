@@ -34,6 +34,10 @@
 //   0018  every repo path cited in docs/** exists.
 //   0020  every migration ahead of the deployed branch is additive, checked
 //         statically rather than trusted from a comment.
+//   0021  this script's own summary: every count it prints names the set it
+//         ranged over and how that set was determined. Not a check on anything
+//         else -- it is the tool declining to emit the shape of number the
+//         ruling forbids. See summaryCounts().
 //
 // The module exports its checks so scripts/test-ledger-check.ts can drive them
 // against fixtures. Nothing here runs on import.
@@ -93,6 +97,19 @@ export type GitPort = {
   isAncestorOfDeployed(sha: string): boolean;
 };
 
+// The migrations-ahead population is defined by one git invocation, so the
+// arguments and the string the summary prints are the same value rather than
+// two that can drift (ruling 0021 wants the reader to reproduce the set; a
+// hand-typed copy of the command reproduces whatever it was last edited to say).
+const MIGRATIONS_AHEAD_ARGS = [
+  "diff",
+  "--name-only",
+  `${DEPLOYED_BRANCH}...HEAD`,
+  "--",
+  "supabase/migrations/",
+];
+export const MIGRATIONS_AHEAD_CMD = `git ${MIGRATIONS_AHEAD_ARGS.join(" ")}`;
+
 export function realGit(root: string): GitPort {
   const git = (args: string[]) =>
     execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -109,13 +126,7 @@ export function realGit(root: string): GitPort {
     },
     migrationsAheadOfDeployed() {
       try {
-        return git([
-          "diff",
-          "--name-only",
-          `${DEPLOYED_BRANCH}...HEAD`,
-          "--",
-          "supabase/migrations/",
-        ])
+        return git(MIGRATIONS_AHEAD_ARGS)
           .split("\n")
           .map((l) => l.trim())
           .filter(Boolean);
@@ -191,11 +202,22 @@ function parseRuling(rulingsDir: string, file: string, out: Sink): Ruling | null
   };
 }
 
-export function readRulings(rulingsDir: string, out: Sink): Ruling[] {
+/**
+ * The set readRulings ranges over: every `.md` directly in the rulings
+ * directory. Exported so the summary can name that population beside the ruling
+ * count instead of printing a bare number (ruling 0021). The two must come from
+ * one function — a separately-derived population is a second measurement, and a
+ * second measurement is exactly what nobody would notice disagreeing.
+ */
+export function rulingFiles(rulingsDir: string): string[] {
   if (!existsSync(rulingsDir)) return [];
   return readdirSync(rulingsDir)
     .filter((f) => f.endsWith(".md"))
-    .sort()
+    .sort();
+}
+
+export function readRulings(rulingsDir: string, out: Sink): Ruling[] {
+  return rulingFiles(rulingsDir)
     .map((f) => parseRuling(rulingsDir, f, out))
     .filter((r): r is Ruling => r !== null);
 }
@@ -380,14 +402,32 @@ const TOKEN_CHARS = /^[A-Za-z0-9_@.\-/()[\]]+$/;
 
 export type Citation = { doc: string; line: number; token: string };
 
-export function collectCitations(root: string): Citation[] {
+/**
+ * The set collectCitations ranges over: every `.md` under `docs/`, found by the
+ * same walk that then reads them. Ruling 0021 — "407 citations" survived into a
+ * `released` evidence row because the number named no file set, and the file set
+ * had silently grown by 17 duplicates. Exported so the summary prints the
+ * population beside the count, from this function rather than a second one.
+ *
+ * Equivalent today to `find docs -name "*.md" -type f`. It can differ only if a
+ * directory under `docs/` is named in WALK_SKIP; there is none (verified by
+ * `find docs -type d`), and the summary names the command, so a divergence shows
+ * up as the two disagreeing rather than as a silent miscount.
+ */
+export function citationDocs(root: string): string[] {
   const docsDir = join(root, "docs");
   if (!existsSync(docsDir)) return [];
-  const out: Citation[] = [];
+  const files: string[] = [];
   walk(docsDir, (abs) => {
-    if (!abs.endsWith(".md")) return;
-    const rel = relative(root, abs);
-    const lines = readFileSync(abs, "utf8").split(/\r?\n/);
+    if (abs.endsWith(".md")) files.push(relative(root, abs));
+  });
+  return files.sort();
+}
+
+export function collectCitations(root: string): Citation[] {
+  const out: Citation[] = [];
+  for (const rel of citationDocs(root)) {
+    const lines = readFileSync(join(root, rel), "utf8").split(/\r?\n/);
     let fenced = false;
     lines.forEach((ln, i) => {
       if (/^\s*(```|~~~)/.test(ln)) {
@@ -406,13 +446,17 @@ export function collectCitations(root: string): Citation[] {
         out.push({ doc: rel, line: i + 1, token });
       }
     });
-  });
+  }
   return out;
 }
 
-export function checkCitations(root: string, out: Sink): { checked: number; unresolved: Citation[] } {
+export function checkCitations(
+  root: string,
+  out: Sink,
+): { checked: number; docs: number; unresolved: Citation[] } {
+  const docs = citationDocs(root).length;
   const citations = collectCitations(root);
-  if (citations.length === 0) return { checked: 0, unresolved: [] };
+  if (citations.length === 0) return { checked: 0, docs, unresolved: [] };
 
   const byBase = new Map<string, string[]>();
   const record = (abs: string) => {
@@ -457,7 +501,7 @@ export function checkCitations(root: string, out: Sink): { checked: number; unre
       `${c.doc}:${c.line} cites \`${c.token}\`, which does not exist. Ruling 0018: a name is not evidence — cite the artifact you opened, or say "not checked".`,
     );
   }
-  return { checked: citations.length, unresolved };
+  return { checked: citations.length, docs, unresolved };
 }
 
 // --- 0020: a migration ahead of the deployed branch must be additive -------
@@ -522,12 +566,32 @@ export type OpenItem = {
   opened: string;
 };
 
+/** A line of the open-items block shaped like a table row, split into cells. */
+function tableRowCells(line: string): string[] | null {
+  if (!line.trim().startsWith("|")) return null;
+  const cells = line.split("|").map((c) => c.trim());
+  return cells.length < 7 ? null : cells;
+}
+
+/**
+ * The set parseOpenItems ranges over: every table row in the block, header and
+ * separator included. Exported so the summary can print "N item(s) over M
+ * row(s)" rather than a bare N (ruling 0021). The offset is normally two — the
+ * header and the separator — so a third excluded row is visible in the output
+ * rather than only to someone who thinks to count the table by hand.
+ *
+ * This reports the population; it does not change which rows parse. The
+ * silently-skipped malformed row is STATE.md item 31 and needs a ruling.
+ */
+export function openItemRows(block: string): number {
+  return block.split(/\r?\n/).filter((l) => tableRowCells(l) !== null).length;
+}
+
 export function parseOpenItems(block: string): OpenItem[] {
   const items: OpenItem[] = [];
   for (const line of block.split(/\r?\n/)) {
-    if (!line.trim().startsWith("|")) continue;
-    const cells = line.split("|").map((c) => c.trim());
-    if (cells.length < 7) continue;
+    const cells = tableRowCells(line);
+    if (!cells) continue;
     const [, id, owner, status] = cells;
     if (!/^\d+$/.test(id)) continue; // header and separator rows
     const opened = cells[cells.length - 2];
@@ -572,9 +636,15 @@ export type LedgerResult = {
   violations: string[];
   warnings: string[];
   rulingCount: number;
+  /** `.md` files in docs/ledger/rulings/ — the set rulingCount ranged over. */
+  rulingFileCount: number;
   openItemCount: number;
+  /** Table rows in '## Open items' — the set openItemCount ranged over. */
+  openItemRowCount: number;
   authorizedRuling: string;
   citationsChecked: number;
+  /** `.md` files under docs/ — the set citationsChecked ranged over. */
+  citationDocCount: number;
   migrationsAhead: number;
 };
 
@@ -593,6 +663,7 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
   };
 
   if (!existsSync(RULINGS)) out.fail("docs/ledger/rulings/ does not exist");
+  const rulingFileCount = rulingFiles(RULINGS).length;
   const rulings = readRulings(RULINGS, out);
 
   const byId = new Map<string, Ruling>();
@@ -656,6 +727,7 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
   const statePath = join(LEDGER, "STATE.md");
   let authorizedRuling = "none";
   let openItems: OpenItem[] = [];
+  let openItemRowCount = 0;
 
   if (!existsSync(statePath)) {
     out.fail("docs/ledger/STATE.md does not exist — there is no handoff file");
@@ -686,6 +758,7 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
     if (!openBlock) out.fail("STATE.md has no '## Open items' section");
     else {
       openItems = parseOpenItems(openBlock[1]);
+      openItemRowCount = openItemRows(openBlock[1]);
       for (const item of openItems) {
         if (!["decision", "build"].includes(item.owner)) {
           out.fail(
@@ -699,7 +772,7 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
   }
 
   // --- 0018: citations -----------------------------------------------------
-  const { checked: citationsChecked } = checkCitations(root, out);
+  const { checked: citationsChecked, docs: citationDocCount } = checkCitations(root, out);
 
   // --- 0020: migrations ahead of the deployed branch -----------------------
   const { ahead } = checkMigrations(root, git, out);
@@ -727,9 +800,12 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
     violations,
     warnings,
     rulingCount: rulings.length,
+    rulingFileCount,
     openItemCount: openItems.length,
+    openItemRowCount,
     authorizedRuling,
     citationsChecked,
+    citationDocCount,
     migrationsAhead: ahead.length,
   };
 }
@@ -817,6 +893,82 @@ function checkItemStatus(item: OpenItem, root: string, git: GitPort, out: Sink) 
       `STATE.md item ${id} claims "released" but cites nothing checkable against ${DEPLOYED_BRANCH} — name the migration, the file or the commit (ruling 0015).`,
     );
   }
+}
+
+// --- the summary (ruling 0021) ---------------------------------------------
+//
+// The line this replaces read:
+//
+//   ledger: 20 ruling(s), 14 open item(s), 337 doc citation(s), 0 migration(s)
+//   ahead of main, authorized: 0013
+//
+// Four counts, no populations. That is the precise shape ruling 0021 forbids,
+// emitted by the tool the ledger uses to police itself -- and it is how "407
+// citations" reached a `released` evidence row: the number was correctly
+// labelled and measured one thing, over a file set that had silently grown by
+// 17 duplicate `* 2.md` files. No careful reading finds that, because the report
+// and the run agree; only the population was wrong, and it was invisible.
+//
+// So each count now prints beside the set it ranged over and how that set was
+// determined, and the population is read from the same function that produced
+// the count -- never re-derived, which would just be a second number nobody
+// would notice disagreeing.
+//
+// This is output only. It adds no check and changes nothing about what is
+// governed or which files are scanned.
+
+export type CountedOver = {
+  /** What was counted -- the unit (ruling 0004, clause 1 of 0021). */
+  label: string;
+  count: number;
+  /** The set it ranged over and how it was determined (clauses 2 and 3). */
+  over: string;
+};
+
+export function summaryCounts(r: LedgerResult): CountedOver[] {
+  return [
+    {
+      label: "rulings",
+      count: r.rulingCount,
+      over: `parsed from ${r.rulingFileCount} file(s): ls docs/ledger/rulings/*.md`,
+    },
+    {
+      label: "open items",
+      count: r.openItemCount,
+      // Says what the filter is, not how many rows it dropped. "two of those are
+      // the header and separator" would be the script asserting an offset it has
+      // not measured, and would stay on screen reading reassuringly on the day a
+      // third row stopped parsing.
+      over:
+        `rows with a numeric id, of ${r.openItemRowCount} table row(s) in ` +
+        `'## Open items' of docs/ledger/STATE.md — the header and separator have none`,
+    },
+    {
+      label: "doc citations",
+      count: r.citationsChecked,
+      over:
+        `backticked paths in prose, fenced blocks skipped, across ` +
+        `${r.citationDocCount} file(s): find docs -name "*.md" -type f`,
+    },
+    {
+      label: `migrations ahead of ${DEPLOYED_BRANCH}`,
+      count: r.migrationsAhead,
+      over: MIGRATIONS_AHEAD_CMD,
+    },
+  ];
+}
+
+export function summaryLines(r: LedgerResult): string[] {
+  const rows = summaryCounts(r);
+  const labelWidth = Math.max(...rows.map((c) => c.label.length));
+  const countWidth = Math.max(...rows.map((c) => String(c.count).length));
+  return [
+    `ledger: authorized ${r.authorizedRuling}. Each count names the set it ranged over (ruling 0021):`,
+    ...rows.map(
+      (c) =>
+        `  ${c.label.padEnd(labelWidth)}  ${String(c.count).padStart(countWidth)}  ${c.over}`,
+    ),
+  ];
 }
 
 // --- the two decision-space commands ---------------------------------------
@@ -912,11 +1064,7 @@ function main() {
   const clean = r.violations.length === 0;
   if (!(quiet && clean && r.warnings.length === 0)) {
     if (!quiet || !clean) {
-      console.log(
-        `\nledger: ${r.rulingCount} ruling(s), ${r.openItemCount} open item(s), ` +
-          `${r.citationsChecked} doc citation(s), ${r.migrationsAhead} migration(s) ahead of ${DEPLOYED_BRANCH}, ` +
-          `authorized: ${r.authorizedRuling}`,
-      );
+      console.log("\n" + summaryLines(r).join("\n"));
     }
     for (const w of r.warnings) console.log(`  warn  ${w}`);
     for (const v of r.violations) console.log(`  FAIL  ${v}`);

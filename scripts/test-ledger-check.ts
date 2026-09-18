@@ -13,18 +13,26 @@
 // repository and none of them can touch this one.
 
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   runLedger,
+  realGit,
   sealRulings,
   addBaselineExemptions,
   additiveViolations,
   namesEvidence,
   citedMigrationNumbers,
   parseOpenItems,
+  openItemRows,
   collectCitations,
+  citationDocs,
+  rulingFiles,
+  summaryCounts,
+  summaryLines,
+  MIGRATIONS_AHEAD_CMD,
   DEPLOYED_BRANCH,
   type GitPort,
 } from "./ledger-check";
@@ -420,6 +428,121 @@ function fixture(): Fixture {
     f.run({ migrationsAheadOfDeployed: () => ["supabase/migrations/0066_bad.sql"] }).violations,
     "is not additive");
   f.cleanup();
+}
+
+// ===========================================================================
+// Ruling 0021 — a count names the set it ranged over
+//
+// The subject here is the script's own output, not a check it runs on anything
+// else. There is no failing example to write, because nothing fails: the rule
+// is that a bare count is never printed, so the tests assert the shape of the
+// summary and then reproduce each population the way a reader would.
+// ===========================================================================
+
+{
+  const f = fixture();
+  f.write("docs/notes/a.md", "cites `lib/real.ts`.\n");
+  f.write("lib/real.ts", "export const real = 1;\n");
+
+  // --- every count on the summary carries a population ---------------------
+
+  check("0021 every printed count names a non-empty population",
+    summaryCounts(f.run()).every((c) => c.over.trim().length > 0),
+    JSON.stringify(summaryCounts(f.run()).filter((c) => !c.over.trim())));
+
+  check("0021 every printed count names its unit",
+    summaryCounts(f.run()).every((c) => c.label.trim().length > 0));
+
+  check("0021 the four counts on the summary are rulings, open items, citations and migrations",
+    JSON.stringify(summaryCounts(f.run()).map((c) => c.label)) ===
+      JSON.stringify(["rulings", "open items", "doc citations", `migrations ahead of ${DEPLOYED_BRANCH}`]));
+
+  // The pre-0021 line — four counts, no populations — must not come back.
+  check("0021 the summary no longer prints the bare 'N doc citation(s)' shape",
+    !summaryLines(f.run()).some((l) => /\d+ doc citation\(s\)/.test(l)),
+    summaryLines(f.run()).join(" / "));
+
+  // --- citations: the population moves when the file set moves -------------
+  // This is the finding that produced the ruling, executable. "407 citations"
+  // was 337 taken over a docs/ tree carrying 17 duplicate `* 2.md` files, and
+  // nothing in the output could have shown it.
+
+  const before = f.run();
+  const beforeDocs = citationDocs(f.root);
+  check("0021 the citation population is the .md files citationDocs walks",
+    before.citationDocCount === beforeDocs.length,
+    `printed ${before.citationDocCount}, walked ${beforeDocs.length}`);
+  check("0021 the citation population is every .md under docs/, subdirectories included",
+    ["docs/ledger/STATE.md", "docs/ledger/rulings/0001-fixture.md", "docs/notes/a.md"]
+      .every((p) => beforeDocs.includes(p)),
+    beforeDocs.join(", "));
+
+  f.write("docs/notes/a 2.md", "cites `lib/real.ts` twice: `lib/real.ts`.\n");
+  const after = f.run();
+  check("0021 a duplicate doc moves the citation count",
+    after.citationsChecked > before.citationsChecked,
+    `${before.citationsChecked} → ${after.citationsChecked}`);
+  check("0021 a duplicate doc also moves the stated population",
+    after.citationDocCount === before.citationDocCount + 1,
+    `${before.citationDocCount} → ${after.citationDocCount}`);
+  check("0021 the stated population is reproducible from the summary text",
+    summaryLines(after).some((l) => l.includes(`${after.citationDocCount} file(s)`) &&
+      l.includes(`find docs -name "*.md" -type f`)),
+    summaryLines(after).join(" / "));
+
+  // --- open items: the denominator holds when a row stops parsing ----------
+  // Ruling 0021's shape applied to STATE.md item 31: a malformed id is dropped
+  // silently, and used to show only as the item count falling. With the row
+  // count printed beside it, the drop is legible as an exclusion.
+
+  const rows = (ids: string[]) =>
+    `| id | owner | status | subject | opened |\n|--|--|--|--|--|\n` +
+    ids.map((id) => `| ${id} | build | proposed | thing | 2026-09-18 |`).join("\n");
+
+  check("0021 the open-item population counts header and separator rows too",
+    openItemRows(rows(["1", "2"])) === 4 && parseOpenItems(rows(["1", "2"])).length === 2,
+    `${openItemRows(rows(["1", "2"]))} rows, ${parseOpenItems(rows(["1", "2"])).length} items`);
+  check("0021 a malformed item id lowers the count while the population holds",
+    openItemRows(rows(["1", "2a"])) === 4 && parseOpenItems(rows(["1", "2a"])).length === 1,
+    `${openItemRows(rows(["1", "2a"]))} rows, ${parseOpenItems(rows(["1", "2a"])).length} items`);
+
+  // --- rulings: count is parsed rulings, population is the files ------------
+
+  check("0021 the ruling population is the .md files in the rulings directory",
+    rulingFiles(join(f.root, "docs", "ledger", "rulings")).length === f.run().rulingFileCount);
+
+  f.write("docs/ledger/rulings/0003-broken.md", "no front matter here\n");
+  const broken = f.run();
+  check("0021 an unparseable ruling shows as count below population",
+    broken.rulingCount === broken.rulingFileCount - 1,
+    `${broken.rulingCount} of ${broken.rulingFileCount}`);
+
+  f.cleanup();
+}
+
+{
+  // --- migrations ahead: the printed command is the one that was run --------
+  // Run against this repository, because the claim under test is that a reader
+  // who types the printed command gets the number the summary printed. A
+  // fixture cannot establish that; only a real git tree can.
+  const here = join(import.meta.dirname ?? ".", "..");
+  const fromPort = realGit(here).migrationsAheadOfDeployed();
+  let fromPrintedCommand: string[] = [];
+  let ran = false;
+  try {
+    const [, ...args] = MIGRATIONS_AHEAD_CMD.split(" ");
+    fromPrintedCommand = execFileSync("git", args, { cwd: here, encoding: "utf8" })
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    ran = true;
+  } catch {
+    ran = false;
+  }
+  check("0021 the migrations-ahead command in the summary runs as printed", ran);
+  check("0021 running the printed command reproduces the printed count",
+    JSON.stringify(fromPrintedCommand) === JSON.stringify(fromPort),
+    `printed-command ${fromPrintedCommand.length}, port ${fromPort.length}`);
 }
 
 // ===========================================================================
