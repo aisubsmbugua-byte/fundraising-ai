@@ -81,6 +81,34 @@ async function main() {
   let absenceCorrect = 0, absenceTotal = 0;
   const rows: string[] = [];
 
+  // Per-case tallies behind each recall, accumulated from the same t/d/s/r
+  // counts that print in the per-fact rows -- never computed a second way.
+  // Ruling 0022: a rate aggregated over cases carries its per-case
+  // distribution, so a bimodal result is visible in this run's own output.
+  // Computed independently per stage, because the stages genuinely differ:
+  // cma is complete at retrieval and zero at shortlist.
+  type CaseTally = { found: number; total: number };
+  const perCase: Record<"retrieval" | "shortlist" | "selection" | "fetch", Map<string, CaseTally>> = {
+    retrieval: new Map(), shortlist: new Map(), selection: new Map(), fetch: new Map(),
+  };
+  const tally = (stage: keyof typeof perCase, caseId: string, found: number, total: number) => {
+    const t = perCase[stage].get(caseId) ?? { found: 0, total: 0 };
+    t.found += found; t.total += total;
+    perCase[stage].set(caseId, t);
+  };
+  // A contributing case is one with at least one `stated` judgement -- the
+  // maps only ever receive entries from the stated loop, so map size IS the
+  // contributing-case count (ruling 0021: the line names its denominator).
+  const distribution = (stage: keyof typeof perCase) => {
+    let complete = 0, partial = 0, zero = 0;
+    for (const { found, total } of perCase[stage].values()) {
+      if (found === total) complete++;
+      else if (found === 0) zero++;
+      else partial++;
+    }
+    return `per case: ${complete} complete, ${partial} partial, ${zero} zero, of ${perCase[stage].size} contributing`;
+  };
+
   for (const c of cases) {
     const stated = Object.entries(c.groundTruth).filter(([, f]) => f.status === "stated");
     const absent = Object.entries(c.groundTruth).filter(([, f]) => f.status === "not_stated");
@@ -114,6 +142,10 @@ async function main() {
       discTotal += wanted.length; retrFound += t; discFound += d;
       selTotal += wanted.length; selFound += s;
       fetchTotal += wanted.length; fetchFound += r;
+      tally("retrieval", c.id, t, wanted.length);
+      tally("shortlist", c.id, d, wanted.length);
+      tally("selection", c.id, s, wanted.length);
+      tally("fetch", c.id, r, wanted.length);
       const verdict = r > 0 ? "READ"
         : s > 0 ? "selected, not read"
         : d > 0 ? "in manifest, not selected"
@@ -138,14 +170,22 @@ async function main() {
   console.log("\n" + "=".repeat(60));
   console.log("Reported separately. These are three different failures.");
   console.log(`  retrieval recall   ${pct(retrFound, discTotal)}   discovery actually fetched the URL`);
+  console.log(`                     ${distribution("retrieval")}`);
   console.log(`  shortlist recall   ${pct(discFound, discTotal)}   ...and it survived cleaning, grouping and the cap`);
+  console.log(`                     ${distribution("shortlist")}`);
   console.log("");
   console.log("  These are REFERENCE-PAGE SHORTLIST RECALL. Not research coverage, and");
   console.log("  not decision accuracy: a page reaching the shortlist is not evidence");
   console.log("  that the fact was read, understood, or correctly acted on.");
   if (DISCOVERY_ONLY) console.log("  selection / fetch     not measured (--discovery-only)");
-  else console.log(`  selection recall   ${pct(selFound, selTotal)}   ...and the model chose to read it`);
-  if (!DISCOVERY_ONLY) console.log(`  fetch recall       ${pct(fetchFound, fetchTotal)}   ...and it was actually read`);
+  else {
+    console.log(`  selection recall   ${pct(selFound, selTotal)}   ...and the model chose to read it`);
+    console.log(`                     ${distribution("selection")}`);
+  }
+  if (!DISCOVERY_ONLY) {
+    console.log(`  fetch recall       ${pct(fetchFound, fetchTotal)}   ...and it was actually read`);
+    console.log(`                     ${distribution("fetch")}`);
+  }
   if (!DISCOVERY_ONLY) console.log(`  absence precision  ${pct(absenceCorrect, absenceTotal)}   no find claimed where a human found nothing`);
   console.log("=".repeat(60));
 }
