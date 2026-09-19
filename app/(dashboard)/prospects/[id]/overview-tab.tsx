@@ -6,6 +6,8 @@ import type { StrategyRun } from "@/lib/strategy";
 import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 import EditableAskAmount from "@/components/EditableAskAmount";
+import ProspectOutcomePanel from "@/components/ProspectOutcomePanel";
+import type { ProspectOutcome } from "@/lib/prospect-outcomes";
 
 const MS_PER_DAY = 86400000;
 
@@ -15,15 +17,21 @@ export default function OverviewTab({
   latestScreening,
   strategyRun,
   recentHistory,
+  outcome,
 }: {
   prospect: Prospect;
   daysInStage: number;
   latestScreening: ScreeningResult | null;
   strategyRun: StrategyRun | null;
   recentHistory: StageChange[];
+  outcome: ProspectOutcome | null;
 }) {
   return (
     <div style={{ display: "grid", gap: spacing.xl }}>
+      {/* First, above the summary. Once a funder has said no, that is the most
+          important fact on the page, and an undecided revisit is an open
+          question a person is being asked to close. */}
+      <ProspectOutcomePanel prospectId={prospect.id} outcome={outcome} />
       <div>
         <h3 style={{ fontSize: 14 }}>Opportunity summary</h3>
         <div

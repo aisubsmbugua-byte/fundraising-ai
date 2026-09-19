@@ -14,6 +14,7 @@ import OverviewTab from "./overview-tab";
 import ResearchTab from "./research-tab";
 import { loadProspectIntelligence, strategyReadiness } from "@/lib/prospect-intelligence";
 import { loadProspectWorkflow } from "@/lib/prospect-workflow";
+import { loadProspectOutcome, describeDisposition } from "@/lib/prospect-outcomes";
 import ActivityTab from "./activity-tab";
 import ContactsTab from "./contacts-tab";
 import StrategyPanel from "./strategy-panel";
@@ -67,10 +68,11 @@ export default async function ProspectDetailPage({
   // Workflow state covers runs still in flight, which loadProspectIntelligence
   // deliberately cannot see (it only reads finished ones) -- so both are
   // needed, and neither is derivable from the other.
-  const [intelligence, workflow, readiness] = await Promise.all([
+  const [intelligence, workflow, readiness, outcome] = await Promise.all([
     loadProspectIntelligence(supabase, prospect.id),
     loadProspectWorkflow(supabase, prospect.id),
     strategyReadiness(supabase, prospect.id),
+    loadProspectOutcome(supabase, prospect.id),
   ]);
 
   const [
@@ -136,6 +138,21 @@ export default async function ProspectDetailPage({
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: spacing.sm, marginTop: spacing.xs, flexWrap: "wrap" }}>
               <span style={chipStyle("neutral")}>{stageLabel(prospect.stage)}</span>
+              {/* A declined prospect showing only its stage reads as still in
+                  play. The stage is unchanged -- hard rule 2 -- so the outcome
+                  is shown BESIDE it rather than instead of it, and the revisit
+                  disposition comes with it, because "declined, and nobody has
+                  decided whether to return" is the state ruling 0019 says must
+                  not sit silently. Both labels are derived from the rule, never
+                  restated here. */}
+              {outcome && (
+                <>
+                  <span style={chipStyle("red")}>Declined</span>
+                  <span style={chipStyle(describeDisposition(outcome.current).tone)}>
+                    {describeDisposition(outcome.current).label}
+                  </span>
+                </>
+              )}
               {fitPercentage != null && (
                 <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: colors.textMuted }}>
                   <FitScoreCircle percentage={fitPercentage} size={20} /> {Math.round(fitPercentage * 100)}% match
@@ -343,6 +360,7 @@ export default async function ProspectDetailPage({
                   latestScreening={latestScreening}
                   strategyRun={strategyRun ?? null}
                   recentHistory={(history ?? []).slice(0, 3)}
+                  outcome={outcome}
                 />
               )}
               {activeTab === "research" && (

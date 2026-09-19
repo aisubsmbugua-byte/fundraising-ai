@@ -13,15 +13,26 @@ import {
 import { channelLabel, stageLabel, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import type { Candidate } from "@/lib/candidates";
 import { INTERACTION_KINDS, interactionKindLabel, type Interaction, type InteractionKind } from "@/lib/interactions";
+import { describeDisposition, type ProspectOutcome } from "@/lib/prospect-outcomes";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import HealthChip from "@/components/HealthChip";
+import ProspectOutcomePanel from "@/components/ProspectOutcomePanel";
 import { spacing, colors, radiusSm, fieldStyle, labelStyle, cardStyle, sectionStyle, chipStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 
-type Row = { kind: "prospect"; data: Prospect } | { kind: "candidate"; data: Candidate };
+export type DeclinedProspect = { prospect: Prospect; outcome: ProspectOutcome };
 
-type Tab = "due_now" | "waiting" | "scheduled" | "revisit_later" | "past_decisions";
+type Row =
+  | { kind: "prospect"; data: Prospect }
+  | { kind: "candidate"; data: Candidate }
+  | { kind: "declined"; data: Prospect; outcome: ProspectOutcome };
+
+type Tab = "due_now" | "open_questions" | "waiting" | "scheduled" | "revisit_later" | "past_decisions";
+// "Open questions" sits second, directly after the work that is already due,
+// because that is what it is: a funder said no and nobody has decided whether
+// to go back. Ruling 0019 requires that state to surface rather than sit.
 const TABS: { value: Tab; label: string }[] = [
   { value: "due_now", label: "Due now" },
+  { value: "open_questions", label: "Open questions" },
   { value: "waiting", label: "Waiting" },
   { value: "scheduled", label: "Scheduled" },
   { value: "revisit_later", label: "Revisit later" },
@@ -41,6 +52,8 @@ export default function FollowupWorkspace({
   scheduled,
   revisitLater,
   pastDecisions,
+  openQuestions,
+  scheduledRevisits,
   interactionsByProspect,
 }: {
   dueNow: Prospect[];
@@ -48,6 +61,8 @@ export default function FollowupWorkspace({
   scheduled: Prospect[];
   revisitLater: Candidate[];
   pastDecisions: Candidate[];
+  openQuestions: DeclinedProspect[];
+  scheduledRevisits: DeclinedProspect[];
   interactionsByProspect: Record<string, Interaction[]>;
 }) {
   const [tab, setTab] = useState<Tab>("due_now");
@@ -56,9 +71,16 @@ export default function FollowupWorkspace({
 
   const rowsByTab: Record<Tab, Row[]> = {
     due_now: dueNow.map((p) => ({ kind: "prospect", data: p })),
+    open_questions: openQuestions.map((d) => ({ kind: "declined", data: d.prospect, outcome: d.outcome })),
     waiting: waiting.map((p) => ({ kind: "prospect", data: p })),
     scheduled: scheduled.map((p) => ({ kind: "prospect", data: p })),
-    revisit_later: revisitLater.map((c) => ({ kind: "candidate", data: c })),
+    // A dismissed candidate with a date and a declined prospect with a date are
+    // the same question -- something to come back to then -- so they share a
+    // list rather than a near-duplicate one beside it.
+    revisit_later: [
+      ...revisitLater.map((c) => ({ kind: "candidate" as const, data: c })),
+      ...scheduledRevisits.map((d) => ({ kind: "declined" as const, data: d.prospect, outcome: d.outcome })),
+    ],
     past_decisions: pastDecisions.map((c) => ({ kind: "candidate", data: c })),
   };
   const rows = rowsByTab[tab];
@@ -125,6 +147,8 @@ export default function FollowupWorkspace({
         {selected ? (
           selected.kind === "prospect" ? (
             <ProspectDetail prospect={selected.data} interactions={interactionsByProspect[selected.data.id] ?? []} />
+          ) : selected.kind === "declined" ? (
+            <DeclinedProspectDetail prospect={selected.data} outcome={selected.outcome} />
           ) : (
             <CandidateDetail candidate={selected.data} />
           )
@@ -142,6 +166,9 @@ function RowCard({ row, selected, onClick }: { row: Row; selected: boolean; onCl
   const isProspect = row.kind === "prospect";
   const name = row.data.name;
   const health = isProspect ? computeHealthStatus((row.data as Prospect).next_action_due) : null;
+  // The disposition chip is read from the rule, so a row in this list and the
+  // panel that edits it can never describe the same state differently.
+  const disposition = row.kind === "declined" ? describeDisposition(row.outcome.current) : null;
 
   return (
     <button
@@ -164,19 +191,25 @@ function RowCard({ row, selected, onClick }: { row: Row; selected: boolean; onCl
         <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
         <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
           {channelLabel(row.data.channel)}
-          {isProspect && ` · ${stageLabel((row.data as Prospect).stage)}`}
+          {row.kind !== "candidate" && ` · ${stageLabel((row.data as Prospect).stage)}`}
         </div>
         {isProspect && (row.data as Prospect).next_action && (
           <div style={{ fontSize: 11, color: colors.textFaint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {(row.data as Prospect).next_action}
           </div>
         )}
-        {!isProspect && (row.data as Candidate).dismissed_reason && (
+        {row.kind === "candidate" && row.data.dismissed_reason && (
           <div style={{ fontSize: 11, color: colors.textFaint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {(row.data as Candidate).dismissed_reason}
+            {row.data.dismissed_reason}
+          </div>
+        )}
+        {row.kind === "declined" && row.outcome.outcome.reason && (
+          <div style={{ fontSize: 11, color: colors.textFaint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.outcome.outcome.reason}
           </div>
         )}
       </div>
+      {disposition && <span style={{ ...chipStyle(disposition.tone), flexShrink: 0 }}>{disposition.label}</span>}
       {health && <HealthChip status={health} />}
     </button>
   );
@@ -347,6 +380,38 @@ function LogInteractionForm({ prospectId, onDone }: { prospectId: string; onDone
         </button>
       </div>
     </form>
+  );
+}
+
+// A prospect that declined. The same panel the prospect's own page uses, so
+// there is one interface for setting and reversing a disposition rather than
+// two that can drift apart.
+function DeclinedProspectDetail({ prospect, outcome }: { prospect: Prospect; outcome: ProspectOutcome }) {
+  return (
+    <div style={{ display: "grid", gap: spacing.lg }}>
+      <div style={sectionStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md }}>
+          <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
+            <InitialsAvatar name={prospect.name} size={44} />
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: 17, overflowWrap: "break-word" }}>{prospect.name}</h2>
+              <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>{channelLabel(prospect.channel)}</div>
+              <div style={{ display: "flex", gap: spacing.xs, marginTop: spacing.xs, flexWrap: "wrap" }}>
+                {/* The stage is shown unchanged beside the outcome: recording a
+                    no does not move a prospect (hard rule 2). */}
+                <span style={chipStyle("neutral")}>{stageLabel(prospect.stage)}</span>
+                <span style={chipStyle("red")}>Declined</span>
+              </div>
+            </div>
+          </div>
+          <Link href={`/prospects/${prospect.id}`} style={{ ...buttonSecondary, flexShrink: 0 }}>
+            Open prospect →
+          </Link>
+        </div>
+      </div>
+
+      <ProspectOutcomePanel prospectId={prospect.id} outcome={outcome} showRecordForm={false} />
+    </div>
   );
 }
 
