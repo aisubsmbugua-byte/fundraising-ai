@@ -152,20 +152,19 @@ const coverage = purposeCoverage(
   ],
   ["grants"]
 );
-check("a page that loaded covers its purposes", coverage.priorities, "found");
-check("one page can cover several purposes", coverage.eligibility, "found");
+check("a substantive page marks its purposes read_substantive", coverage.priorities, "read_substantive");
+check("one page can serve several purposes", coverage.eligibility, "read_substantive");
 // The distinction that stops a pointless rerun: a 403 might succeed later, a
 // site that has no grant list never will.
 check("a page that failed to load is retrieval_failed, not missing", coverage.process, "retrieval_failed");
 check("a purpose the site does not offer is not_offered", coverage.grants, "not_offered");
 check("a purpose nobody looked for is not_checked", coverage.identity, "not_checked");
 
-// A found page alongside a failed one still counts as covered -- the purpose
-// was answered, whatever else did not load.
-// A page that loads and says nothing is neither found nor failed. Real case:
+// A page that loads and says nothing is neither read nor failed. Real case:
 // maclellan.net/fund is 104KB of HTML yielding 528 characters, because "what
-// we fund" is delivered as an embedded video. Reporting that as "found" would
-// claim we had read their priorities when we had read their navigation.
+// we fund" is delivered as an embedded video. Reporting that purpose as
+// substantively read would claim we had read their priorities when we had
+// read their navigation.
 const thin = purposeCoverage([page({ purposes: ["priorities"], text: "Fund - Maclellan Foundation Skip to content" })], []);
 check("a page too thin to have said anything is found_thin", thin.priorities, "found_thin");
 check(
@@ -174,7 +173,7 @@ check(
     [page({ purposes: ["priorities"], text: "short" }), page({ purposes: ["priorities"], text: SUBSTANTIVE })],
     []
   ).priorities,
-  "found"
+  "read_substantive"
 );
 check(
   "found_thin is not a failure -- refetching returns the same video",
@@ -185,7 +184,7 @@ check(
 check(
   "one success is enough for a purpose",
   purposeCoverage([page({ purposes: ["priorities"], state: "retrieval_failed" }), page({ purposes: ["priorities"], state: "found" })], []).priorities,
-  "found"
+  "read_substantive"
 );
 
 // ---------------------------------------------------------------------------

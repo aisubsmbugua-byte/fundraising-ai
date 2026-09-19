@@ -154,12 +154,20 @@ function siteOutcome(key: string, input: AvailabilityInput): SourceOutcome {
   const cov = purpose && input.coverage ? input.coverage[purpose] : undefined;
 
   if (cov === "retrieval_failed") return { state: "retrieval_failed", reason: `the page selected for ${purpose} could not be read` };
-  if (cov === "not_offered") return { state: "checked_not_stated", reason: `no page on this site could answer ${purpose}` };
-  if (cov === "found") return { state: "checked_not_stated", reason: `pages covering ${purpose} were read and do not state it` };
+  // The model recorded that no candidate page exists for this purpose -- the
+  // one site-scope absence selection can produce. The reason names the
+  // declaration as its basis, not a fact the pages established (ruling 0024).
+  if (cov === "not_offered") return { state: "checked_not_stated", reason: `the page-selection model declared no candidate page for ${purpose} on this site` };
+  // The selected pages were read and are silent. That closes those PAGES, not
+  // the site: a purpose tag is a prediction, and pages selection skipped could
+  // still state the fact. Site-scope "checked" on prediction-scope evidence is
+  // the over-claim ruling 0024 exists for, so this ranks as an unread source
+  // -- the same doctrine as found_thin below and combine()'s ordering.
+  if (cov === "read_substantive") return { state: "not_checked", reason: `the pages selected for ${purpose} were read and do not state it; other pages were not read` };
   // A page that loaded but said almost nothing has not answered anything.
   // Treating it as checked would claim we read their priorities when we read
   // their navigation.
-  if (cov === "found_thin") return { state: "not_checked", reason: `the page covering ${purpose} carried too little text to have stated it` };
+  if (cov === "found_thin") return { state: "not_checked", reason: `the page selected for ${purpose} carried too little text to have stated it` };
 
   return { state: "not_checked", reason: purpose ? `no page was read for ${purpose}` : "not retrieved" };
 }

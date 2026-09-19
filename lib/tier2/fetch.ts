@@ -32,8 +32,8 @@ export type FetchState = (typeof FETCH_STATES)[number];
 // Measured on a real funder: maclellan.net/fund is 104KB of HTML that yields
 // 528 characters, because the page delivers "what we fund" as an embedded
 // video. Nothing failed -- extraction is correct and the page genuinely has no
-// prose -- but reporting that purpose as "found" would assert we had read
-// their priorities when we had read their navigation.
+// prose -- but reporting that purpose as substantively read would assert we
+// had read their priorities when we had read their navigation.
 //
 // The threshold sits between that page and the thinnest real content on the
 // same site (/our-foundations at 2,244 chars). It is a first cut and should be
@@ -150,12 +150,17 @@ export async function fetchSelectedPages(selections: PageSelection[]): Promise<F
   return out;
 }
 
-// Which purposes actually came back with something readable.
+// Which purposes had a tagged page load with substantive text.
 //
+// Every state here is about the FETCH of pages selection predicted, never
+// about the fact itself. A purpose tag is a prediction, not a finding (ruling
+// 0024): "read_substantive" means a page tagged for the purpose loaded with
+// enough text to have said something -- whether it DOES say it is
+// extraction's judgement, and no state in this vocabulary may assert it.
 // A purpose the model declared unavailable and a purpose whose page failed to
 // load are different facts and are kept apart: the first is about the site,
 // the second about the fetch, and only the second is worth retrying.
-export const PURPOSE_COVERAGE_STATES = ["found", "found_thin", "retrieval_failed", "not_offered", "not_checked"] as const;
+export const PURPOSE_COVERAGE_STATES = ["read_substantive", "found_thin", "retrieval_failed", "not_offered", "not_checked"] as const;
 export type PurposeCoverage = (typeof PURPOSE_COVERAGE_STATES)[number];
 
 export function purposeCoverage(
@@ -167,10 +172,10 @@ export function purposeCoverage(
   for (const p of all) {
     const forPurpose = pages.filter((page) => page.purposes.includes(p));
     const loaded = forPurpose.filter((page) => page.state === "found");
-    if (loaded.some((page) => page.text.length >= MIN_SUBSTANTIVE_CHARS)) coverage[p] = "found";
+    if (loaded.some((page) => page.text.length >= MIN_SUBSTANTIVE_CHARS)) coverage[p] = "read_substantive";
     // Loaded, but every page for this purpose was too thin to have said
-    // anything. Distinct from "found" because a downstream stage reading
-    // "found" would assert we had read their priorities when we had read
+    // anything. Distinct from read_substantive because a downstream stage
+    // would otherwise assert we had read their priorities when we had read
     // their navigation -- and distinct from a failure, because nothing failed
     // and re-fetching will return the same video embed.
     else if (loaded.length > 0) coverage[p] = "found_thin";

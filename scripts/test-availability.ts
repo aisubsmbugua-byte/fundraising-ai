@@ -101,29 +101,43 @@ check(
 section("Checked and silent is not the same as never checked");
 // ---------------------------------------------------------------------------
 
-// We read the pages that cover eligibility, and they say nothing about
-// denominational restrictions. That is the FUNDER's answer, and re-running will
-// return the same silence.
+// The pages the model selected for eligibility were read and are silent. That
+// closes those PAGES, not the site: a purpose tag is a prediction, and pages
+// selection skipped could still state the fact (ruling 0024 -- an absence
+// names the set it was checked over). So the fact stays open.
 check(
-  "pages read but silent is checked_not_stated",
-  stateOf(deriveAvailability(input({ coverage: cov({ eligibility: "found" }) })), "application.denominational_restriction"),
+  "selected pages read but silent stays not_checked -- other pages unread",
+  stateOf(deriveAvailability(input({ coverage: cov({ eligibility: "read_substantive" }) })), "application.denominational_restriction"),
+  "not_checked"
+);
+check(
+  "...and the reason names the pages read, never the site",
+  deriveAvailability(input({ coverage: cov({ eligibility: "read_substantive" }) })).find((f) => f.key === "application.denominational_restriction")?.reason,
+  "the pages selected for eligibility were read and do not state it; other pages were not read"
+);
+// The one site-scope absence selection can produce: the model recorded that no
+// candidate page exists. A declaration about the site, and it closes.
+check(
+  "a declared no-candidate purpose is checked_not_stated",
+  stateOf(deriveAvailability(input({ coverage: cov({ eligibility: "not_offered" }) })), "application.excluded_recipients"),
   "checked_not_stated"
 );
 check(
-  "no page on the site could answer it is also checked_not_stated",
-  stateOf(deriveAvailability(input({ coverage: cov({ eligibility: "not_offered" }) })), "application.excluded_recipients"),
-  "checked_not_stated"
+  "...with a reason naming the declaration as its basis, not a site fact",
+  deriveAvailability(input({ coverage: cov({ eligibility: "not_offered" }) })).find((f) => f.key === "application.excluded_recipients")?.reason,
+  "the page-selection model declared no candidate page for eligibility on this site"
 );
 check(
   "never looking is not_checked",
   stateOf(deriveAvailability(input({ coverage: cov() })), "application.excluded_recipients"),
   "not_checked"
 );
-// The distinction, stated as the rule it enforces.
+// The distinction, stated as the rule it enforces: only the model's recorded
+// declaration closes a site fact; reading the selected pages does not.
 check(
-  "only the second of those is offered as more work",
+  "a declared absence is settled, an unlooked-at fact is offered",
   [
-    obtainableGaps(deriveAvailability(input({ coverage: cov({ eligibility: "found" }) }))).some((f) => f.key === "application.excluded_recipients"),
+    obtainableGaps(deriveAvailability(input({ coverage: cov({ eligibility: "not_offered" }) }))).some((f) => f.key === "application.excluded_recipients"),
     obtainableGaps(deriveAvailability(input({ coverage: cov() }))).some((f) => f.key === "application.excluded_recipients"),
   ],
   [false, true]
@@ -148,7 +162,7 @@ check(
 );
 check(
   "a single failed page fails only its own purpose",
-  deriveAvailability(input({ coverage: cov({ eligibility: "retrieval_failed", priorities: "found" }) })).filter((f) => f.state === "retrieval_failed").length > 0,
+  deriveAvailability(input({ coverage: cov({ eligibility: "retrieval_failed", priorities: "read_substantive" }) })).filter((f) => f.state === "retrieval_failed").length > 0,
   true
 );
 check(
@@ -173,7 +187,7 @@ section("A fact with two sources takes the state of the FACT (ruling 0008)");
 // the 990 grant schedule a closed question because a DIFFERENT source was
 // silent. Ruling 0008's test of compliance requires exactly this shape: a
 // source never consulted alongside one read and silent.
-const eitherMixed = deriveAvailability(input({ registry: null, coverage: cov({ grants: "found" }) }));
+const eitherMixed = deriveAvailability(input({ registry: null, coverage: cov({ grants: "read_substantive" }) }));
 check(
   "registry never retrieved + site read and silent => still obtainable",
   stateOf(eitherMixed, "funding.recent_grants"),
@@ -196,10 +210,17 @@ check(
   ["not_checked", "not_checked"]
 );
 
-// Both sources checked and both silent is the only way an either-fact closes.
+// Reading the selected grants pages no longer closes the fact: that is
+// page-scope evidence, and other site pages remain unread (ruling 0024).
 check(
-  "both sources read and silent => checked_not_stated",
-  stateOf(deriveAvailability(input({ coverage: cov({ grants: "found" }) })), "funding.recent_grants"),
+  "registry silent + selected pages silent is still open",
+  stateOf(deriveAvailability(input({ coverage: cov({ grants: "read_substantive" }) })), "funding.recent_grants"),
+  "not_checked"
+);
+// The site half closes only on the model's declared abstention.
+check(
+  "registry silent + declared no grants page => checked_not_stated",
+  stateOf(deriveAvailability(input({ coverage: cov({ grants: "not_offered" }) })), "funding.recent_grants"),
   "checked_not_stated"
 );
 // A failure on one source with the other unread stays obtainable, and reports
@@ -245,14 +266,20 @@ check("stated rules are site facts", factSource("application.denominational_rest
 const summary = availabilitySummary(ledger);
 check("the summary totals the ledger", Object.values(summary).reduce((a, b) => a + b, 0), ledger.length);
 
-// The end-to-end property: a funder we could not reach at all offers retries,
-// and a funder whose site we read completely offers nothing.
+// The end-to-end property: a funder we could not reach at all offers retries;
+// reading every SELECTED page still leaves site work open, because selection
+// is a prediction and the rest of the site is unread (ruling 0024); only the
+// model's declared abstention on every purpose closes the site side.
 const unreachable = deriveAvailability(input({ siteReachable: false, registry: null }));
 const fullyRead = deriveAvailability(
-  input({ coverage: cov({ priorities: "found", eligibility: "found", process: "found", grants: "found" }) })
+  input({ coverage: cov({ priorities: "read_substantive", eligibility: "read_substantive", process: "read_substantive", grants: "read_substantive" }) })
+);
+const declaredBarren = deriveAvailability(
+  input({ coverage: cov({ priorities: "not_offered", eligibility: "not_offered", process: "not_offered", grants: "not_offered" }) })
 );
 check("an unreachable funder has work worth doing", obtainableGaps(unreachable).length > 0, true);
-check("a fully-read funder has none", obtainableGaps(fullyRead).length, 0);
+check("reading every selected page still leaves site work open", obtainableGaps(fullyRead).length > 0, true);
+check("a site the model declared barren offers none", obtainableGaps(declaredBarren).length, 0);
 
 // ---------------------------------------------------------------------------
 section("The live path's actual input: a partial close, labelled partial (ruling 0013)");

@@ -16,6 +16,14 @@
 // claim a find? Over-claiming an absence is how a user ends up trusting a
 // qualification that rests on nothing.
 //
+// The three absences are three facts (ruling 0024) and are never collapsed
+// into one correct outcome: DECLARED (the model abstained via
+// unavailablePurposes -- the abstention channel firing), SILENT (selection ran
+// and claimed no page -- silence, not abstention), and NEVER COVERED
+// (selection never ran -- a fact about the run, not the model). Only the
+// over-claim is a failure, but a reader must be able to see how often
+// correctness was earned by abstention vs. arrived at by accident.
+//
 // Per docs/reviews/0009: individual organizations here are diagnostic cases,
 // not a roadmap. A change that improves one case and regresses another has not
 // improved the system.
@@ -78,7 +86,11 @@ async function main() {
   }
 
   let retrFound = 0, discFound = 0, discTotal = 0, selFound = 0, selTotal = 0, fetchFound = 0, fetchTotal = 0;
-  let absenceCorrect = 0, absenceTotal = 0;
+  // Ruling 0024 clause 3: the three absences are three facts, and the
+  // over-claim is the fourth outcome. Never `declared || !claimed` as one.
+  type AbsenceOutcome = "declared" | "silent" | "neverCovered" | "overClaimed";
+  const absence: Record<AbsenceOutcome, number> = { declared: 0, silent: 0, neverCovered: 0, overClaimed: 0 };
+  const absPerCase = new Map<string, Record<AbsenceOutcome, number>>();
   const rows: string[] = [];
 
   // Per-case tallies behind each recall, accumulated from the same t/d/s/r
@@ -154,14 +166,31 @@ async function main() {
       rows.push(`  ${c.id.padEnd(14)} ${fact.padEnd(24)} ${t}/${wanted.length} retr  ${d}/${wanted.length} manif  ${s}/${wanted.length} sel  ${r}/${wanted.length} read   ${verdict}`);
     }
 
-    // Where a human found nothing, the system must not claim something.
+    // Where a human found nothing, the system must not claim something -- and
+    // where it claimed nothing, HOW it claimed nothing is a second fact. A row
+    // per judgement, not just per failure, so declared vs silent is legible
+    // per case.
+    const selectionRan = manifest.entries.length > 0 && !DISCOVERY_ONLY;
     for (const [fact] of absent) {
-      absenceTotal++;
       const purpose = FACT_TO_PURPOSE[fact];
       const claimed = selection.selected.some((s) => s.purposes.includes(purpose));
       const declared = selection.unavailablePurposes.includes(purpose);
-      if (declared || !claimed) absenceCorrect++;
-      else rows.push(`  ${c.id.padEnd(14)} ${fact.padEnd(24)} human: not published · system selected a page for it — OVER-CLAIM`);
+      // A claimed page is an over-claim whatever else the model said: a
+      // declaration contradicted by a selection is not an abstention.
+      const outcome: AbsenceOutcome = !selectionRan ? "neverCovered"
+        : claimed ? "overClaimed"
+        : declared ? "declared"
+        : "silent";
+      absence[outcome]++;
+      const t = absPerCase.get(c.id) ?? { declared: 0, silent: 0, neverCovered: 0, overClaimed: 0 };
+      t[outcome]++;
+      absPerCase.set(c.id, t);
+      const verdict = outcome === "overClaimed"
+        ? `system selected a page for it — OVER-CLAIM${declared ? " (despite also declaring it unavailable)" : ""}`
+        : outcome === "declared" ? "model declared it unavailable — DECLARED ABSENT"
+        : outcome === "silent" ? "selection ran, no page claimed for it — SILENT (not an abstention)"
+        : "selection never ran — NEVER COVERED (silence, not abstention)";
+      rows.push(`  ${c.id.padEnd(14)} ${fact.padEnd(24)} human: not published · ${verdict}`);
     }
   }
 
@@ -186,7 +215,32 @@ async function main() {
     console.log(`  fetch recall       ${pct(fetchFound, fetchTotal)}   ...and it was actually read`);
     console.log(`                     ${distribution("fetch")}`);
   }
-  if (!DISCOVERY_ONLY) console.log(`  absence precision  ${pct(absenceCorrect, absenceTotal)}   no find claimed where a human found nothing`);
+  // Absence precision, numerator broken down (ruling 0024): "no find claimed"
+  // is true of an abstention, of silence, and of a run where selection never
+  // happened -- three different facts, and only the first is the abstention
+  // channel firing. The denominator is all recorded not_stated judgements.
+  const absenceTotal = absence.declared + absence.silent + absence.neverCovered + absence.overClaimed;
+  const absenceCorrect = absenceTotal - absence.overClaimed;
+  const absenceDistribution = () => {
+    let respected = 0, mixed = 0, allOverClaimed = 0, abstained = 0;
+    for (const t of absPerCase.values()) {
+      const correct = t.declared + t.silent + t.neverCovered;
+      if (t.overClaimed === 0) respected++;
+      else if (correct === 0) allOverClaimed++;
+      else mixed++;
+      if (t.declared > 0) abstained++;
+    }
+    return `per case: ${respected} fully respected, ${mixed} mixed, ${allOverClaimed} fully over-claimed, of ${absPerCase.size} contributing; abstention fired in ${abstained} of ${absPerCase.size}`;
+  };
+  if (DISCOVERY_ONLY) {
+    // Selection never ran, so nothing here is an abstention and precision is
+    // not a property of the model -- saying 100% would be scoring the run's
+    // own inactivity as caution.
+    console.log(`  absence            not scored (--discovery-only: selection never ran; ${absence.neverCovered}/${absenceTotal} judgements never-covered — silence, not abstention)`);
+  } else {
+    console.log(`  absence precision  ${pct(absenceCorrect, absenceTotal)} — ${absence.declared} declared, ${absence.silent} silent, ${absence.neverCovered} never-covered, ${absence.overClaimed} over-claimed   no find claimed where a human found nothing`);
+    console.log(`                     ${absenceDistribution()}`);
+  }
   console.log("=".repeat(60));
 }
 
