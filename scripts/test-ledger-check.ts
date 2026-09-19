@@ -56,6 +56,12 @@ function expectNoViolation(name: string, violations: string[], needle: string) {
   check(name, !hit, `unexpected violation: ${hit}`);
 }
 
+/** A collecting Sink for driving parseOpenItems directly (ruling 0023). */
+function collectSink() {
+  const failed: string[] = [];
+  return { failed, out: { fail: (m: string) => failed.push(m), warn: () => {} } };
+}
+
 // --- fixture ---------------------------------------------------------------
 
 type Fixture = {
@@ -263,8 +269,9 @@ function fixture(): Fixture {
 
   check("0015 the open-items table parses to five columns",
     (() => {
-      const items = parseOpenItems(`| id | owner | status | subject | opened |\n|--|--|--|--|--|\n${row("7", "build", "tested", "ran `scripts/test-availability.ts`, 37 passing")}`);
-      return items.length === 1 && items[0].status === "tested" && items[0].opened === "2026-09-17";
+      const { failed, out } = collectSink();
+      const items = parseOpenItems(`| id | owner | status | subject | opened |\n|--|--|--|--|--|\n${row("7", "build", "tested", "ran `scripts/test-availability.ts`, 37 passing")}`, out);
+      return items.length === 1 && items[0].status === "tested" && items[0].opened === "2026-09-17" && failed.length === 0;
     })());
 
   // FAILING EXAMPLE: a state outside the vocabulary.
@@ -491,20 +498,23 @@ function fixture(): Fixture {
     summaryLines(after).join(" / "));
 
   // --- open items: the denominator holds when a row stops parsing ----------
-  // Ruling 0021's shape applied to STATE.md item 31: a malformed id is dropped
-  // silently, and used to show only as the item count falling. With the row
-  // count printed beside it, the drop is legible as an exclusion.
+  // Ruling 0021's shape applied to STATE.md item 31: a malformed id used to be
+  // dropped silently, showing only as the item count falling. The row count
+  // printed beside it makes the drop legible as an exclusion — and since
+  // ruling 0023 the excluded data row also fails the run (tested in its own
+  // section below).
 
   const rows = (ids: string[]) =>
     `| id | owner | status | subject | opened |\n|--|--|--|--|--|\n` +
     ids.map((id) => `| ${id} | build | proposed | thing | 2026-09-18 |`).join("\n");
+  const parse = (ids: string[]) => parseOpenItems(rows(ids), collectSink().out);
 
   check("0021 the open-item population counts header and separator rows too",
-    openItemRows(rows(["1", "2"])) === 4 && parseOpenItems(rows(["1", "2"])).length === 2,
-    `${openItemRows(rows(["1", "2"]))} rows, ${parseOpenItems(rows(["1", "2"])).length} items`);
+    openItemRows(rows(["1", "2"])) === 4 && parse(["1", "2"]).length === 2,
+    `${openItemRows(rows(["1", "2"]))} rows, ${parse(["1", "2"]).length} items`);
   check("0021 a malformed item id lowers the count while the population holds",
-    openItemRows(rows(["1", "2a"])) === 4 && parseOpenItems(rows(["1", "2a"])).length === 1,
-    `${openItemRows(rows(["1", "2a"]))} rows, ${parseOpenItems(rows(["1", "2a"])).length} items`);
+    openItemRows(rows(["1", "2a"])) === 4 && parse(["1", "2a"]).length === 1,
+    `${openItemRows(rows(["1", "2a"]))} rows, ${parse(["1", "2a"]).length} items`);
 
   // --- rulings: count is parsed rulings, population is the files ------------
 
@@ -543,6 +553,66 @@ function fixture(): Fixture {
   check("0021 running the printed command reproduces the printed count",
     JSON.stringify(fromPrintedCommand) === JSON.stringify(fromPort),
     `printed-command ${fromPrintedCommand.length}, port ${fromPort.length}`);
+}
+
+// ===========================================================================
+// Ruling 0023 — a row that does not parse is a violation, not a skip
+// ===========================================================================
+
+{
+  const f = fixture();
+
+  // FAILING EXAMPLE: ruling 0023's own test of compliance. Adding this row to
+  // an otherwise-valid open-items table fails the check, naming the row.
+  // Before 0023 this row was dropped under a comment reading "header and
+  // separator rows", and every ruling-0015 obligation silently fell away with
+  // it.
+  const badRow = "| 4a | build | tested | anything | 2026-09-19 |";
+  f.state({ items: ["| 1 | build | proposed | thing | 2026-09-19 |", badRow] });
+  const hit = expectViolation("0023 a data row with a non-numeric id fails the run",
+    f.run().violations, `id "4a"`);
+  check("0023 the failure names the row's content", Boolean(hit && hit.includes(badRow)),
+    `violation does not contain the row: ${hit}`);
+
+  // ...and the well-formed row beside it still parses: the violation is a
+  // failure of the run, not a corruption of the parse.
+  check("0023 the well-formed rows beside a malformed one still parse",
+    f.run().openItemCount === 1);
+
+  // The header and separator continue to pass, identified by what they are —
+  // the header by its literal "id" cell, the separator by its dash cells —
+  // not by failing a numeric test.
+  f.state({ items: ["| 1 | build | proposed | thing | 2026-09-19 |"] });
+  expectNoViolation("0023 the header and separator are not violations",
+    f.run().violations, "not numeric");
+
+  // A separator with alignment colons is still structurally a separator.
+  {
+    const { failed, out } = collectSink();
+    const items = parseOpenItems(
+      `| id | owner | status | subject | opened |\n|:--|:--:|---:|---|---|\n| 3 | build | proposed | thing | 2026-09-19 |`,
+      out,
+    );
+    check("0023 an alignment-colon separator is structurally a separator",
+      items.length === 1 && failed.length === 0,
+      `${items.length} items, failures: ${failed.join("; ")}`);
+  }
+
+  // No well-formed row's parse changed: same fields, same values as before.
+  {
+    const { failed, out } = collectSink();
+    const items = parseOpenItems(
+      `| id | owner | status | subject | opened |\n|--|--|--|--|--|\n| 9 | build | tested | ran \`scripts/x.ts\` | 2026-09-18 |`,
+      out,
+    );
+    check("0023 a well-formed table parses identically to before",
+      items.length === 1 && failed.length === 0 &&
+        items[0].id === "9" && items[0].owner === "build" && items[0].status === "tested" &&
+        items[0].subject === "ran `scripts/x.ts`" && items[0].opened === "2026-09-18",
+      JSON.stringify({ items, failed }));
+  }
+
+  f.cleanup();
 }
 
 // ===========================================================================

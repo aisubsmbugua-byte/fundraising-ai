@@ -576,24 +576,44 @@ function tableRowCells(line: string): string[] | null {
 /**
  * The set parseOpenItems ranges over: every table row in the block, header and
  * separator included. Exported so the summary can print "N item(s) over M
- * row(s)" rather than a bare N (ruling 0021). The offset is normally two — the
- * header and the separator — so a third excluded row is visible in the output
- * rather than only to someone who thinks to count the table by hand.
+ * row(s)" rather than a bare N (ruling 0021). The offset is exactly two — the
+ * header and the separator, each identified structurally — because ruling 0023
+ * makes any other non-parsing row fail the run rather than slip out of the
+ * count.
  *
- * This reports the population; it does not change which rows parse. The
- * silently-skipped malformed row is STATE.md item 31 and needs a ruling.
+ * This reports the population; it does not change which rows parse.
  */
 export function openItemRows(block: string): number {
   return block.split(/\r?\n/).filter((l) => tableRowCells(l) !== null).length;
 }
 
-export function parseOpenItems(block: string): OpenItem[] {
+// Ruling 0023: membership in the governed population is decided by what a row
+// IS, not by whether it happens to parse. The table holds exactly three kinds
+// of row, distinguished structurally: the header (its id cell is the literal
+// column name), the separator (every cell is only dashes, colons and
+// whitespace), and data rows — everything else.
+function rowKind(cells: string[]): "header" | "separator" | "data" {
+  if (cells[1] === "id") return "header";
+  if (cells.every((c) => /^[\s:-]*$/.test(c))) return "separator";
+  return "data";
+}
+
+export function parseOpenItems(block: string, out: Sink): OpenItem[] {
   const items: OpenItem[] = [];
   for (const line of block.split(/\r?\n/)) {
     const cells = tableRowCells(line);
     if (!cells) continue;
+    if (rowKind(cells) !== "data") continue; // structurally not items
     const [, id, owner, status] = cells;
-    if (!/^\d+$/.test(id)) continue; // header and separator rows
+    if (!/^\d+$/.test(id)) {
+      // A dropped row would be exempt from every check that governs items —
+      // the cheapest way to free an item from the rules would be a typo in
+      // its id. So it fails the run, naming the row (ruling 0023).
+      out.fail(
+        `STATE.md open-items row has id "${id}", which is not numeric — a data row that does not parse is a violation, not a skip (ruling 0023). The row: ${line.trim()}`,
+      );
+      continue;
+    }
     const opened = cells[cells.length - 2];
     const subject = cells.slice(4, cells.length - 2).join("|");
     items.push({ id, owner, status, subject, opened });
@@ -757,7 +777,7 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
     const openBlock = state.match(/##\s*Open items\s*\r?\n([\s\S]*?)(?=\r?\n##\s|$)/i);
     if (!openBlock) out.fail("STATE.md has no '## Open items' section");
     else {
-      openItems = parseOpenItems(openBlock[1]);
+      openItems = parseOpenItems(openBlock[1], out);
       openItemRowCount = openItemRows(openBlock[1]);
       for (const item of openItems) {
         if (!["decision", "build"].includes(item.owner)) {
