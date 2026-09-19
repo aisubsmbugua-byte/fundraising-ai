@@ -178,3 +178,142 @@ column would have done.
    organisations and no usage data.
 4. Whether anything in the list of pending decisions should be answered before,
    not after, more capability is built.
+
+---
+
+# Annex — technical orientation
+
+For a reader who will work in the code rather than only read about it.
+
+## Stack
+
+Next.js 14 (App Router) on React 18 and TypeScript 5. Supabase for Postgres,
+auth and storage, reached through the Supabase SSR and JS client libraries.
+Anthropic's SDK for model calls. Deployed on Vercel; the default branch deploys
+automatically on push.
+
+**One discrepancy to know before you trust the docs.** `CLAUDE.md` names
+Postmark for email. The dependency in `package.json` is Resend, and `lib/invite.ts`
+uses Resend. The code is right and the document is stale; this was recorded in
+`docs/decisions/0003-two-tracks-and-build-1s-landing.md` and has not yet been
+corrected at source.
+
+## Layout
+
+| path | contents |
+|---|---|
+| `app/` | Routes. Groups for the tenant dashboard, an admin area gated on a superadmin flag, API handlers, and auth callbacks. |
+| `lib/` | 43 modules of domain logic. Server-side; this is where the rules live. |
+| `components/` | Shared React components. |
+| `scripts/` | Test suites and operational tooling, run with `tsx`. |
+| `supabase/migrations/` | 66 numbered SQL migrations, applied in order. |
+| `docs/` | Slices (roadmap), decisions (direction), ledger (binding rules and current state), reviews (build reports). |
+
+Useful entry points: `lib/prospects.ts` and `lib/candidates.ts` for the core
+records, `lib/research.ts` for the funder research path, `lib/availability.ts`
+for what the system will and will not claim to know, `lib/qualification.ts` and
+`lib/tier2/` for the newer evidence-first pipeline that is not yet fully live.
+
+## Running it
+
+`npm run dev` for the dev server, `npm run build` for a production build,
+`npm run lint`, and `npm run ledger` for the governance check described below.
+
+Tests are **not** run by a framework. There is no Jest or Vitest — each suite in
+`scripts/` is a standalone `tsx` program with a local assertion helper, executed
+directly, printing `PASS`/`FAIL` lines and a count, exiting non-zero on failure.
+Run one with `npx tsx scripts/test-prospect-outcomes.ts`. Suites needing database
+credentials take `--env-file=.env.local`. This is deliberate rather than
+neglected: several suites assert against real SQL and a real Postgres policy,
+which a unit-test runner would have encouraged mocking away.
+
+## Invariants you must not break
+
+These are not style preferences. Each has a written rule behind it, and several
+are enforced mechanically.
+
+**Nothing is sent to a funder without a human click, and nothing advances a
+pipeline stage on its own.** AI output lands in a review state, never a done
+state. There is currently no send path at all, so the first guarantee is true by
+absence — if you build one, it must be reachable only from a handler taking an
+approved draft and a live human session.
+
+**Every table holding an organisation's data is tenant-isolated.** It needs an
+`organization_id` column defaulting to the current organisation, and a row-level
+security policy scoped by it, following `supabase/migrations/0033_multi_tenant_rls.sql`.
+**Nothing in the codebase catches a table that skips this** — the only check is
+`scripts/test-tenant-isolation.ts`, which you must extend when you add such a
+table. A foreign key check does not respect row-level security, so a new table
+referencing another organisation's row also wants a trigger asserting the two
+organisation ids match; `supabase/migrations/0066_prospect_outcomes.sql` is the
+current best example of the full pattern.
+
+**Migrations are additive and never rewritten.** Add a table, column, index,
+constraint or enum value; drop, rename and re-type nothing. A new column is
+nullable or has a default. This is checked statically before anything ships.
+
+**Server-only secrets stay server-side.** The Anthropic key, the service-role
+key and the email key are never imported into a client component.
+
+## The conventions that will surprise you
+
+**Capture, don't retype.** Where the system already holds a value, a model must
+select it by reference rather than write its own copy. This is why the research
+agent picks evidence identifiers instead of writing quotes, and why a candidate's
+display name is derived from its parts. Measured compliance with instructions
+given only in prose, on this codebase, is 52–80%, so any guarantee that matters
+is expressed in code rather than wording.
+
+**A field a model wrote is a claim, not a fact.** Store it with its provenance
+and whether the captured source supports it. Never silently delete an
+unsupported value — "not evaluated" and "evaluated and clean" are different
+facts and must not collapse into one.
+
+**Two facts must not collapse into one value.** This is the project's recurring
+defect. Recent instances: a "coverage" figure that was a keyword-match rate; a
+recall number conflating never-retrieved with retrieved-then-discarded; a
+citation count of 407 that was 337 because duplicate files were silently
+included; and a retrieval mean of 72% over a population where eight cases score
+100% and two score zero, with nothing between. Prefer three-valued states to
+two-valued ones when "nobody decided" is possible.
+
+**Absence is often the safest encoding.** The newest example: a funder's revisit
+decision is stored in an append-only table where "undecided" is the absence of a
+row. Nothing stores it, so nothing can get it wrong. "Never" exists only as a
+row a human inserted, the column is not null with no default, and there is no
+delete policy — so retention is enforced by a missing database permission rather
+than by an interface declining to offer a button.
+
+## Governance mechanics, so the check does not surprise you
+
+`scripts/ledger-check.ts` runs at the end of every working session and exits
+non-zero on violation. It enforces that binding rules in `docs/ledger/rulings/`
+are unmodified once sealed, that `docs/ledger/STATE.md` names an authorising
+rule when code changes, that item states are valid and evidenced, that
+migrations ahead of the deployed branch are additive, and that **every file path
+cited anywhere under `docs/` actually exists.**
+
+That last one bites in a specific way: the check treats a backticked token
+containing a path-like extension as a citation. Writing about a file that does
+not exist, or backticking something that merely looks like a path, fails the
+check. The working convention is that backticks mean "this is real" and plain
+text means "I am discussing it" — this is recorded as an open item, not yet a
+formal rule.
+
+Run it yourself with `npm run ledger`. Do not run it with the `--seal` flag;
+that re-records rule hashes and is reserved to the role that issues rules.
+
+## Where the code is weakest
+
+Honest pointers, so you do not have to find these by surprise.
+
+- The evidence-first qualification pipeline under `lib/tier2/` is measured only
+  against twelve hand-read funders, and completely fails on two of them for
+  structural reasons — one keeps its grant pages on a subdomain the crawler
+  never leaves.
+- Whether that pipeline over-claims a finding where a funder publishes nothing
+  is unmeasured, because the measurement needs a paid model run.
+- Two screening systems now exist, one live and rule-based, one evidence-based
+  and mostly dark. Nothing defines what a user sees when they disagree.
+- `docs/slices/` describes intent and has drifted from the built system in
+  places. Read the code and the migrations for current state.
