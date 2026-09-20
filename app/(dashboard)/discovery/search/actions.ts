@@ -14,6 +14,7 @@ import { upsertContact } from "@/lib/contacts";
 import { attestationCorpus, candidateDedupeKey, candidateDisplayName, isAttested, safeHostname, type WebsiteStatus } from "@/lib/candidates";
 import { isAlreadyKnown, type KnownOrg } from "@/lib/candidate-intake";
 import { isAggregatorUrl } from "@/lib/research";
+import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
 // Root cause of the scope-3 reliability problem was traced to
 // web_search_20260318 defaulting to routing through an internal
@@ -152,6 +153,13 @@ export async function runDiscoverySearch(runId: string, channel: Channel) {
 // The session-client path leaves it undefined and relies on RLS, same
 // as everywhere else in the app.
 async function executeChannelSearch(supabase: SupabaseClient, runId: string, channel: Channel, organizationId?: string) {
+  // Run ledger (ruling 0026). One user-perceived operation = one run: the
+  // search call and the extraction call below aggregate into a single ledger
+  // row, joinable to this discovery_search_runs row via source_id. Declared
+  // outside the try so the catch can finalize with whatever consumption had
+  // actually been observed before the failure.
+  const usage = newUsage();
+  let aiRunId: string | null = null;
   try {
     let profileQuery = supabase.from("org_profile").select("*").limit(1);
     if (organizationId) profileQuery = profileQuery.eq("organization_id", organizationId);
@@ -163,6 +171,17 @@ async function executeChannelSearch(supabase: SupabaseClient, runId: string, cha
         : "";
 
     const scope = SEARCH_SCOPE_BY_CHANNEL[channel] ?? DEFAULT_SEARCH_SCOPE;
+
+    // Birth before the first model call (ruling 0026 clause 1): if this
+    // insert fails, the throw lands in the catch below and the operation
+    // does not run. organizationId is only set on the admin-client cron
+    // path, where the column default cannot resolve an org itself.
+    aiRunId = await beginRun(supabase, {
+      operation: "discovery_search",
+      organizationId,
+      sourceTable: "discovery_search_runs",
+      sourceId: runId,
+    });
 
     const searchResponse = await anthropic.messages.create(
       {
@@ -192,6 +211,8 @@ ${profile ? buildProfileSummary(profile) : "(no profile data provided)"}`,
       },
       { timeout: 240_000 }
     );
+
+    addResponseUsage(usage, searchResponse);
 
     console.log(
       `[discovery-search] channel=${channel} search call resolved, stop_reason=${searchResponse.stop_reason} content_blocks=${searchResponse.content.length}`
@@ -296,6 +317,8 @@ ${findings || "(no findings)"}`,
       },
       { timeout: 60_000 }
     );
+
+    addResponseUsage(usage, extractResponse);
 
     const toolUse = extractResponse.content.find((block) => block.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") {
@@ -531,8 +554,34 @@ ${findings || "(no findings)"}`,
       })
       .eq("id", runId);
 
+    // Terminal fact, written once by the code that observed it. "empty" only
+    // where the operation itself already knows it produced nothing: the model
+    // ran and returned zero candidates. Zero INSERTED because every find was
+    // a duplicate is still "completed" -- the run produced results.
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome: found.length === 0 ? "empty" : "completed",
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+    }
+
     revalidatePath("/discovery");
   } catch (err) {
+    // Finalized as failed with whatever consumption was actually observed --
+    // null token counts here mean "no response ever arrived", which is a
+    // fact, not a zero. If the BIRTH insert itself failed, aiRunId is null
+    // and there is correctly no row to finalize: the operation never ran.
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome: "failed",
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        errorNote: err instanceof Error ? err.message : "Something went wrong during the search",
+      });
+    }
     await supabase
       .from("discovery_search_runs")
       .update({

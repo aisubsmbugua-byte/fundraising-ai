@@ -9,6 +9,7 @@ import { channelLabel } from "@/lib/prospects";
 import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { DraftKind } from "@/lib/drafts";
+import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
 export async function generateDraft(prospectId: string, strategyRunId: string, kind: DraftKind) {
   const supabase = createClient();
@@ -30,7 +31,14 @@ export async function generateDraft(prospectId: string, strategyRunId: string, k
 
   const isEmail = kind === "intro_email";
 
-  const response = await anthropic.messages.create({
+  // Run ledger (ruling 0026): birth before the model call. beginRun throws
+  // if the record cannot be written, and then the operation does not run.
+  // The drafts row does not exist yet (and source facts are frozen at
+  // birth), so the reference points at the prospect being drafted for.
+  const aiRunId = await beginRun(supabase, { operation: "draft", sourceTable: "prospects", sourceId: prospectId });
+  const usage = newUsage();
+  try {
+    const response = await anthropic.messages.create({
     model: DRAFT_MODEL,
     max_tokens: 1500,
     tools: [
@@ -79,24 +87,46 @@ Contact: ${prospect.contact_name || "(no named contact)"}${prospect.contact_emai
     ],
   });
 
-  const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("AI did not return a structured draft. Try again.");
+    addResponseUsage(usage, response);
+
+    const toolUse = response.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      throw new Error("AI did not return a structured draft. Try again.");
+    }
+
+    const result = toolUse.input as { subject?: string; content?: string };
+
+    const { error } = await supabase.from("drafts").insert({
+      prospect_id: prospectId,
+      strategy_run_id: strategyRunId,
+      kind,
+      subject: isEmail ? result.subject || "" : null,
+      content: result.content || "",
+      status: "draft",
+      model: DRAFT_MODEL,
+      created_by: user.id,
+    });
+    if (error) throw new Error(error.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+  } catch (err) {
+    // Null token counts mean no response ever arrived -- a fact, not a
+    // zero. finalizeRun never throws, so the operation's own error is what
+    // the caller sees, unmasked.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      errorNote: err instanceof Error ? err.message : "Draft generation failed",
+    });
+    throw err;
   }
-
-  const result = toolUse.input as { subject?: string; content?: string };
-
-  const { error } = await supabase.from("drafts").insert({
-    prospect_id: prospectId,
-    strategy_run_id: strategyRunId,
-    kind,
-    subject: isEmail ? result.subject || "" : null,
-    content: result.content || "",
-    status: "draft",
-    model: DRAFT_MODEL,
-    created_by: user.id,
-  });
-  if (error) throw new Error(error.message);
 
   revalidatePath(`/prospects/${prospectId}`);
 }

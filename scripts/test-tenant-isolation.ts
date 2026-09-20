@@ -1,8 +1,9 @@
 // Demonstrates tenant isolation on the seven Build 1 research tables
 // (research_runs, research_claims, research_expected_facts,
 // research_eval_reviews, research_sources, research_claim_sources,
-// research_evidence) and on the two ruling-0019 outcome tables added in
-// migration 0066 (prospect_outcomes, prospect_outcome_dispositions), in both
+// research_evidence), on the two ruling-0019 outcome tables added in
+// migration 0066 (prospect_outcomes, prospect_outcome_dispositions), and on
+// the ruling-0026 run ledger added in migration 0067 (ai_runs), in both
 // directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -62,6 +63,10 @@ const TEST_EMAILS = [EMAIL_A, EMAIL_B];
 
 let passCount = 0;
 let failCount = 0;
+// Sections that could not run at all -- e.g. a table whose migration is not
+// yet applied. "Not evaluated" and "evaluated and clean" are different facts
+// (CLAUDE.md), so these are reported by name rather than silently skipped.
+const notEvaluated: string[] = [];
 function check(label: string, pass: boolean) {
   console.log(`${pass ? "PASS" : "FAIL"}: ${label}`);
   if (pass) passCount++;
@@ -147,6 +152,17 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
 
   let deletedProspects = 0;
   if (orgIds.length > 0) {
+    // ai_runs references organizations with no cascade and no delete policy
+    // (service role bypasses RLS, which is the only reason this cleanup can
+    // work at all), so its test rows must go before the org rows can.
+    // Error 42P01 (relation does not exist) is tolerated: it just means
+    // migration 0067 has not been applied yet, and the ai_runs section
+    // below reports itself as NOT EVALUATED in that case.
+    const { error: aiRunsError } = await admin.from("ai_runs").delete().in("organization_id", orgIds);
+    if (aiRunsError && aiRunsError.code !== "42P01") {
+      problems.push(`[${phase}] deleting ai_runs in test orgs failed: ${aiRunsError.message}`);
+    }
+
     const { data: prospects, error: prospectsError } = await admin
       .from("prospects")
       .delete()
@@ -542,6 +558,72 @@ async function main() {
     const { data: ownOutcomeDelete } = await clientA.from("prospect_outcomes").delete().eq("id", outcomeA.id).select("id");
     check("prospect_outcomes has no delete policy -- a recorded no is retained, not deleted", (ownOutcomeDelete?.length ?? 0) === 0);
 
+    // --- Ruling 0026's run ledger (migration 0067) ---
+    //
+    // Same treatment as the tables above: two real authenticated sessions,
+    // never the service-role client -- except for the one assertion that is
+    // ABOUT the service role, where bypassing RLS is the point being tested.
+    // The ledger's additional properties: no delete policy (run records are
+    // retained), and updates reach only unfinalized rows, so a terminal
+    // outcome is written once through any session-client code path.
+    const { error: aiRunsProbeError } = await admin.from("ai_runs").select("id").limit(1);
+    if (aiRunsProbeError && aiRunsProbeError.code === "42P01") {
+      notEvaluated.push("ai_runs -- migration 0067 is not applied to this database, so its assertions did not run");
+      console.log("\nNOT EVALUATED: ai_runs (migration 0067 not applied). Apply 0067 and re-run; this is not a pass.\n");
+    } else {
+      const { data: aiRunA, error: aiRunAError } = await clientA
+        .from("ai_runs")
+        .insert({ operation: "research", source_table: "research_runs", source_id: runA.id })
+        .select("id, outcome, ended_at")
+        .single();
+      if (aiRunAError || !aiRunA) throw new Error(`Org A ai_runs birth insert failed: ${aiRunAError?.message}`);
+      check("an ai_runs birth row is born unfinalized (outcome and ended_at null)", aiRunA.outcome === null && aiRunA.ended_at === null);
+
+      const { data: readAiRun } = await clientB.from("ai_runs").select("id").eq("id", aiRunA.id);
+      check("Org B cannot SELECT Org A's ai_runs row by id", (readAiRun?.length ?? 0) === 0);
+
+      const { data: aiRunCrossUpdate } = await clientB
+        .from("ai_runs")
+        .update({ outcome: "completed", ended_at: new Date().toISOString() })
+        .eq("id", aiRunA.id)
+        .select("id");
+      check("Org B's UPDATE on Org A's ai_runs row affects 0 rows", (aiRunCrossUpdate?.length ?? 0) === 0);
+
+      const { error: aiRunCrossInsertError } = await clientB
+        .from("ai_runs")
+        .insert({ operation: "research", organization_id: a.orgId });
+      check("Org B cannot INSERT an ai_runs row claiming Org A's organization_id (insert policy)", !!aiRunCrossInsertError);
+
+      const { data: aiRunFinalize } = await clientA
+        .from("ai_runs")
+        .update({ outcome: "completed", ended_at: new Date().toISOString(), model: "test-model", input_tokens: 1, output_tokens: 1 })
+        .eq("id", aiRunA.id)
+        .select("id");
+      check("Org A can finalize its own unfinalized ai_runs row (update affects 1 row)", (aiRunFinalize?.length ?? 0) === 1);
+
+      const { data: aiRunRefinalize } = await clientA
+        .from("ai_runs")
+        .update({ outcome: "failed", ended_at: new Date().toISOString() })
+        .eq("id", aiRunA.id)
+        .select("id");
+      check(
+        "a finalized ai_runs row is out of update reach even for its own org (terminal written once -- update policy gates on outcome is null)",
+        (aiRunRefinalize?.length ?? 0) === 0
+      );
+
+      const { error: aiRunAdminRewriteError } = await admin
+        .from("ai_runs")
+        .update({ outcome: "failed", ended_at: new Date().toISOString() })
+        .eq("id", aiRunA.id);
+      check(
+        "even the service-role client cannot rewrite a finalized ai_runs row (terminal-once trigger, not just RLS)",
+        !!aiRunAdminRewriteError
+      );
+
+      const { data: aiRunDelete } = await clientA.from("ai_runs").delete().eq("id", aiRunA.id).select("id");
+      check("ai_runs has no delete policy -- a run record is retained, not deleted", (aiRunDelete?.length ?? 0) === 0);
+    }
+
     // --- Symmetry: one probe under Org B, unreachable from Org A ---
     const { data: prospectB } = await clientB
       .from("prospects")
@@ -568,6 +650,7 @@ async function main() {
   }
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
+  for (const n of notEvaluated) console.log(`NOT EVALUATED: ${n}`);
   if (cleanupProblems.length > 0) {
     console.error(
       `\nTeardown left ${cleanupProblems.length} problem(s) above -- test data is still in the live database. ` +

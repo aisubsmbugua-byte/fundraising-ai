@@ -46,6 +46,7 @@ import {
   type ResearchApprovalDecision,
 } from "@/lib/research";
 import { availabilityForResearchRun, offerableGaps } from "@/lib/availability";
+import { beginRun, finalizeRun, newUsage, addUsage } from "@/lib/ai-runs";
 
 // Bump these when the extraction prompt or the tool's input schema shape
 // changes -- they're recorded per-run so evaluation results stay
@@ -177,6 +178,15 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
 
   const startedAt = Date.now();
 
+  // Run ledger (ruling 0026). One research run = one ledger row covering
+  // both model calls (search and extraction), joinable to this
+  // research_runs row via source_id. The two calls deliberately run on
+  // different models; the ledger records the first (search) model and the
+  // aggregate tokens -- the per-call split stays readable on research_runs
+  // itself (model = extraction model, cost_usd priced per call).
+  const ledgerUsage = newUsage();
+  let aiRunId: string | null = null;
+
   try {
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
     if (!prospect) throw new ResearchError("prospect_not_found", "Prospect not found");
@@ -280,6 +290,11 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       }
     }
 
+    // Birth before the first model call (ruling 0026 clause 1): if this
+    // insert fails, the throw lands in the outer catch, the research_runs
+    // row goes to "error", and no model is called.
+    aiRunId = await beginRun(supabase, { operation: "research", sourceTable: "research_runs", sourceId: runId });
+
     const {
       findings,
       usage: searchUsage,
@@ -296,6 +311,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
     } = await searchFunderWeb(researchProspect, "research_only", depth, focus).catch((err) => {
       throw new ResearchError("search_failed", err instanceof Error ? err.message : "Web search step failed");
     });
+    addUsage(ledgerUsage, { model: searchModel, inputTokens: searchUsage.inputTokens, outputTokens: searchUsage.outputTokens });
 
     await supabase
       .from("research_runs")
@@ -455,6 +471,7 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
       throw new ResearchError("extraction_failed", err instanceof Error ? err.message : "Extraction call failed");
     });
     const { claims, model } = extraction;
+    addUsage(ledgerUsage, { model, inputTokens: extraction.usage.inputTokens, outputTokens: extraction.usage.outputTokens });
 
     // Claim rows are inserted next, while status is still "extracting" --
     // the status flip to "ready" below is the LAST write. A consumer that
@@ -744,7 +761,32 @@ export async function runResearch(runId: string, prospectId: string, depthOverri
         completed_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    // Terminal fact, written once. "empty" is the case the status message
+    // above already distinguishes: the run finished and extracted nothing.
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome: claims.length === 0 ? "empty" : "completed",
+        model: ledgerUsage.model,
+        inputTokens: ledgerUsage.inputTokens,
+        outputTokens: ledgerUsage.outputTokens,
+      });
+    }
   } catch (err) {
+    // Finalized with whatever consumption was actually observed -- a failure
+    // after the search call but before extraction still records the search
+    // call's real tokens; null means no response ever arrived. If the birth
+    // insert itself failed, aiRunId is null and there is correctly no row to
+    // finalize: the operation never ran.
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome: "failed",
+        model: ledgerUsage.model,
+        inputTokens: ledgerUsage.inputTokens,
+        outputTokens: ledgerUsage.outputTokens,
+        errorNote: err instanceof Error ? err.message : "Something went wrong during research",
+      });
+    }
     await supabase
       .from("research_runs")
       .update({
@@ -806,6 +848,14 @@ export async function verifyRunClaims(runId: string) {
     return { verified: 0, verdicts: {} as Record<string, number> };
   }
 
+  // Run ledger (ruling 0026): verification is its own user-triggered
+  // operation with its own model call, so it gets its own row, joined to the
+  // run it verifies via source_id. Birth before the model call -- and before
+  // the in_progress flip below, so a birth failure (which throws to the
+  // caller and stops the operation, clause 1) cannot strand
+  // verification_state at "in_progress".
+  const aiRunId = await beginRun(supabase, { operation: "research_verify", sourceTable: "research_runs", sourceId: runId });
+
   await supabase.from("research_runs").update({ verification_state: "in_progress" }).eq("id", runId);
 
   // Each claim's own cited evidence, and nothing else -- this is what the
@@ -833,6 +883,11 @@ export async function verifyRunClaims(runId: string) {
       evidence: evidenceByClaim.get(c.id as string) ?? [],
     })),
   }).catch(async (err) => {
+    // Null token counts: no response ever arrived -- a fact, not a zero.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      errorNote: err instanceof Error ? err.message : "Verification call failed",
+    });
     // The research itself is untouched and the stored evidence is unchanged,
     // so this is retryable. A failed check must never cost a dossier.
     await supabase.from("research_runs").update({ verification_state: "failed" }).eq("id", runId);
@@ -851,10 +906,28 @@ export async function verifyRunClaims(runId: string) {
         evidence_count: v.evidenceCount,
       }))
     );
-    if (error) throw new ResearchError("verification_insert_failed", error.message);
+    if (error) {
+      // The model call happened and its consumption is known -- the
+      // operation failed after it, and the ledger records both facts.
+      await finalizeRun(supabase, aiRunId, {
+        outcome: "failed",
+        model: result.model,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        errorNote: error.message,
+      });
+      throw new ResearchError("verification_insert_failed", error.message);
+    }
   }
 
   await supabase.from("research_runs").update({ verification_state: "complete" }).eq("id", runId);
+
+  await finalizeRun(supabase, aiRunId, {
+    outcome: "completed",
+    model: result.model,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+  });
 
   const counts: Record<string, number> = {};
   for (const v of result.verdicts) counts[v.verdict] = (counts[v.verdict] ?? 0) + 1;

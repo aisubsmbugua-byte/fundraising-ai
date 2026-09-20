@@ -7,6 +7,7 @@ import { anthropic, DRAFT_MODEL } from "@/lib/ai/anthropic";
 import { buildProfileSummary, buildChannelList, type ChannelEvaluation } from "@/lib/channel-match";
 import { CHANNELS } from "@/lib/prospects";
 import type { OrgProfile } from "@/lib/organization";
+import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
 const TOOL_NAME = "submit_channel_fit_analysis";
 
@@ -22,7 +23,15 @@ export async function runChannelMatch() {
     throw new Error("Fill in the Organization Profile before running a channel-fit analysis.");
   }
 
-  const message = await anthropic.messages.create({
+  // Run ledger (ruling 0026): birth before the model call. beginRun throws
+  // if the record cannot be written, and then the operation does not run --
+  // same failure surface as the profile check above. No source row exists
+  // yet (the channel_match_runs row is only inserted after the model
+  // responds), so the reference stays null.
+  const aiRunId = await beginRun(supabase, { operation: "channel_fit" });
+  const usage = newUsage();
+  try {
+    const message = await anthropic.messages.create({
     model: DRAFT_MODEL,
     max_tokens: 2000,
     tools: [
@@ -67,19 +76,41 @@ ${buildChannelList()}`,
     ],
   });
 
-  const toolUse = message.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("AI did not return a structured analysis. Try again.");
+    addResponseUsage(usage, message);
+
+    const toolUse = message.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      throw new Error("AI did not return a structured analysis. Try again.");
+    }
+
+    const evaluations = (toolUse.input as { evaluations: ChannelEvaluation[] }).evaluations;
+
+    const { error } = await supabase.from("channel_match_runs").insert({
+      model: DRAFT_MODEL,
+      evaluations,
+      created_by: user.id,
+    });
+    if (error) throw new Error(error.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+  } catch (err) {
+    // Terminal facts carry what was actually observed: token counts stay
+    // null when no response ever arrived. finalizeRun never throws, so the
+    // operation's own error is what the caller sees, unmasked.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      errorNote: err instanceof Error ? err.message : "Channel-fit analysis failed",
+    });
+    throw err;
   }
-
-  const evaluations = (toolUse.input as { evaluations: ChannelEvaluation[] }).evaluations;
-
-  const { error } = await supabase.from("channel_match_runs").insert({
-    model: DRAFT_MODEL,
-    evaluations,
-    created_by: user.id,
-  });
-  if (error) throw new Error(error.message);
 
   revalidatePath("/organization/channel-fit");
 }

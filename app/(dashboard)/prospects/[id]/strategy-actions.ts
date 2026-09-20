@@ -11,6 +11,7 @@ import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
 import type { Strategy, OrganizationIntel, StrategyRun } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
+import { beginRun, finalizeRun, newUsage, addUsage, addResponseUsage } from "@/lib/ai-runs";
 
 // The heavy-lifting call. Triggered by the DESTINATION page (the
 // prospect's own StrategyPanel) on mount, not by whatever page
@@ -35,6 +36,13 @@ export async function runStrategy(runId: string, prospectId: string) {
     .maybeSingle();
   if (!claimed) return; // already started (or started elsewhere) -- don't run it twice
 
+  // Run ledger (ruling 0026). One strategy run = one ledger row covering
+  // both model calls below (the funder web search and the analysis call),
+  // joinable to this strategy_runs row via source_id. Declared outside the
+  // try so the catch can finalize with the consumption actually observed.
+  const usage = newUsage();
+  let aiRunId: string | null = null;
+
   try {
     const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
     if (!prospect) throw new Error("Prospect not found");
@@ -55,10 +63,16 @@ export async function runStrategy(runId: string, prospectId: string) {
       .eq("permission", "approved");
     const evidencePool = evidenceRows ?? [];
 
+    // Birth before the first model call (ruling 0026 clause 1): if this
+    // insert fails, the throw lands in the catch below, the strategy_runs
+    // row goes to "error", and no model is called.
+    aiRunId = await beginRun(supabase, { operation: "strategy", sourceTable: "strategy_runs", sourceId: runId });
+
     // Shared with the (dark, superadmin-only) Research Agent action --
     // see lib/ai/funder-search.ts. Same prompt/model/tool config as
     // before this was extracted; behavior-preserving refactor only.
-    const { findings, stopReason } = await searchFunderWeb(prospect);
+    const { findings, stopReason, model: searchModel, usage: searchUsage } = await searchFunderWeb(prospect);
+    addUsage(usage, { model: searchModel, inputTokens: searchUsage.inputTokens, outputTokens: searchUsage.outputTokens });
     console.log(`[strategy] search call resolved, stop_reason=${stopReason}`);
 
     await supabase
@@ -221,6 +235,8 @@ ${
       { timeout: 60_000 }
     );
 
+    addResponseUsage(usage, strategyResponse);
+
     const toolUse = strategyResponse.content.find((block) => block.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") {
       throw new Error("AI did not return a structured result. Try again.");
@@ -306,7 +322,31 @@ ${
         })
         .eq("id", runId);
     }
+
+    // Terminal fact, written once. "empty" is the case the operation itself
+    // already distinguishes: the model ran and returned too little to
+    // responsibly propose an approach (the !hasSubstance branch above).
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome: hasSubstance ? "completed" : "empty",
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+    }
   } catch (err) {
+    // Null token counts here mean "no response ever arrived" -- a fact, not
+    // a zero. If the birth insert itself failed, aiRunId is null and there
+    // is correctly no row to finalize: the operation never ran.
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome: "failed",
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        errorNote: err instanceof Error ? err.message : "Something went wrong during research",
+      });
+    }
     await supabase
       .from("strategy_runs")
       .update({

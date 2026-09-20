@@ -10,6 +10,7 @@ import { interactionKindLabel } from "@/lib/interactions";
 import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { Interaction, InteractionKind } from "@/lib/interactions";
+import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
 export async function logInteraction(prospectId: string, kind: InteractionKind, summary: string, occurredAt: string) {
   const supabase = createClient();
@@ -78,7 +79,12 @@ export async function suggestNextStep(prospectId: string) {
   const strategy = latestRun?.approved_strategy as Strategy | null;
   const interactions = recentInteractions ?? [];
 
-  const response = await anthropic.messages.create({
+  // Run ledger (ruling 0026): birth before the model call. beginRun throws
+  // if the record cannot be written, and then the operation does not run.
+  const aiRunId = await beginRun(supabase, { operation: "revisit_suggest", sourceTable: "prospects", sourceId: prospectId });
+  const usage = newUsage();
+  try {
+    const response = await anthropic.messages.create({
     model: DRAFT_MODEL,
     max_tokens: 800,
     tools: [
@@ -125,22 +131,44 @@ ${profile ? buildProfileSummary(profile) : "(no profile data)"}`,
     ],
   });
 
-  const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("AI did not return a structured suggestion. Try again.");
-  }
-  const result = toolUse.input as { next_action?: string; next_action_due?: string; reasoning?: string };
+    addResponseUsage(usage, response);
 
-  const { error } = await supabase
-    .from("prospects")
-    .update({
-      suggested_next_action: result.next_action || "",
-      suggested_next_action_due: result.next_action_due || null,
-      suggested_reasoning: result.reasoning || "",
-      suggested_at: new Date().toISOString(),
-    })
-    .eq("id", prospectId);
-  if (error) throw new Error(error.message);
+    const toolUse = response.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      throw new Error("AI did not return a structured suggestion. Try again.");
+    }
+    const result = toolUse.input as { next_action?: string; next_action_due?: string; reasoning?: string };
+
+    const { error } = await supabase
+      .from("prospects")
+      .update({
+        suggested_next_action: result.next_action || "",
+        suggested_next_action_due: result.next_action_due || null,
+        suggested_reasoning: result.reasoning || "",
+        suggested_at: new Date().toISOString(),
+      })
+      .eq("id", prospectId);
+    if (error) throw new Error(error.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+  } catch (err) {
+    // Null token counts mean no response ever arrived -- a fact, not a
+    // zero. finalizeRun never throws, so the operation's own error is what
+    // the caller sees, unmasked.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      errorNote: err instanceof Error ? err.message : "Next-step suggestion failed",
+    });
+    throw err;
+  }
 
   revalidatePath("/revisit");
   revalidatePath(`/prospects/${prospectId}`);
