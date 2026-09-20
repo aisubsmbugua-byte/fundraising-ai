@@ -24,6 +24,17 @@
 // over-claim is a failure, but a reader must be able to see how often
 // correctness was earned by abstention vs. arrived at by accident.
 //
+// SELECTION RECALL IS SPLIT BY THE ADVERTISED AXIS (ruling 0025). A true
+// page whose manifest line advertises its purpose (mandatory-flagged or
+// opportunity-promoted -- both set at manifest construction, read back here,
+// never recomputed) and one whose line does not are different populations:
+// review 0020 measured 8/8 selected against 0/5 on the same run. The split is
+// derived per URL from the manifest the run built, so it prints under
+// --discovery-only too; a URL that never reached the manifest has no
+// advertised status at all. A manifest offering zero advertised entries
+// (mariners: 0 of 60) is named wherever it bears on the numbers, because
+// selection recall over such a site is name-blind guessing.
+//
 // Per docs/reviews/0009: individual organizations here are diagnostic cases,
 // not a roadmap. A change that improves one case and regresses another has not
 // improved the system.
@@ -86,6 +97,23 @@ async function main() {
   }
 
   let retrFound = 0, discFound = 0, discTotal = 0, selFound = 0, selTotal = 0, fetchFound = 0, fetchTotal = 0;
+  // Ruling 0025 clause 1: selection recall is split by whether the true URL's
+  // manifest line advertises its purpose. Advertised = the entry the run
+  // already built is mandatory-flagged (isMandatoryPath, applied at manifest
+  // construction) or opportunity-promoted (present in
+  // manifest.opportunityMatches). Both read off the built manifest -- never
+  // recomputed here a second way, never hard-coded.
+  let selAdvFound = 0, selAdvTotal = 0, selUnadvFound = 0, selUnadvTotal = 0;
+  // The advertised status of every distinct stated (case, URL) pair. A URL
+  // that never reached the manifest has NO advertised status -- it never
+  // reached selection -- and that is a third value, not a forced member of
+  // either class ("not evaluated" and "evaluated" must not collapse).
+  type AdvertisedStatus = "advertised" | "unadvertised" | "no_manifest_entry";
+  const advertisedAxis = new Map<string, AdvertisedStatus>();
+  // Each contributing case's name-signal profile: how many of its manifest
+  // entries carry any advertised signal at all (ruling 0025 clause 3). A
+  // manifest with zero offers a name-reading selector nothing to read.
+  const nameSignal: { id: string; advertised: number; total: number }[] = [];
   // Ruling 0024 clause 3: the three absences are three facts, and the
   // over-claim is the fourth outcome. Never `declared || !claimed` as one.
   type AbsenceOutcome = "declared" | "silent" | "neverCovered" | "overClaimed";
@@ -100,8 +128,9 @@ async function main() {
   // Computed independently per stage, because the stages genuinely differ:
   // cma is complete at retrieval and zero at shortlist.
   type CaseTally = { found: number; total: number };
-  const perCase: Record<"retrieval" | "shortlist" | "selection" | "fetch", Map<string, CaseTally>> = {
-    retrieval: new Map(), shortlist: new Map(), selection: new Map(), fetch: new Map(),
+  const perCase: Record<"retrieval" | "shortlist" | "selection" | "selectionAdvertised" | "selectionUnadvertised" | "fetch", Map<string, CaseTally>> = {
+    retrieval: new Map(), shortlist: new Map(), selection: new Map(),
+    selectionAdvertised: new Map(), selectionUnadvertised: new Map(), fetch: new Map(),
   };
   const tally = (stage: keyof typeof perCase, caseId: string, found: number, total: number) => {
     const t = perCase[stage].get(caseId) ?? { found: 0, total: 0 };
@@ -136,6 +165,16 @@ async function main() {
     // a completely different fix.
     const retrievedUrls = new Set(found.urls.map((u) => canon(u.url)));
     const manifestUrls = new Set(manifest.entries.map((e) => canon(e.url)));
+    // Advertised, per ruling 0025: this entry's one line of evidence (URL +
+    // title) carries a name signal -- the mandatory flag the manifest builder
+    // set, or promotion into manifest.opportunityMatches. Derived from the
+    // entries this run just constructed; no second code path, no model call,
+    // so it prints under --discovery-only too.
+    const oppUrls = new Set(manifest.opportunityMatches.map((e) => canon(e.url)));
+    const advertisedUrls = new Set(
+      manifest.entries.filter((e) => e.mandatory || oppUrls.has(canon(e.url))).map((e) => canon(e.url))
+    );
+    nameSignal.push({ id: c.id, advertised: advertisedUrls.size, total: manifest.entries.length });
 
     const selection = manifest.entries.length && !DISCOVERY_ONLY
       ? await selectPages({ manifest, funderName: c.funder })
@@ -158,12 +197,37 @@ async function main() {
       tally("shortlist", c.id, d, wanted.length);
       tally("selection", c.id, s, wanted.length);
       tally("fetch", c.id, r, wanted.length);
+      // Split the in-manifest URLs by the advertised axis. Only URLs that
+      // reached the manifest have a status; the rest never reached selection
+      // and belong to neither population.
+      const inManifest = wanted.filter((u) => manifestUrls.has(u));
+      const adv = inManifest.filter((u) => advertisedUrls.has(u));
+      const unadv = inManifest.filter((u) => !advertisedUrls.has(u));
+      for (const u of wanted) {
+        advertisedAxis.set(`${c.id} ${u}`,
+          !manifestUrls.has(u) ? "no_manifest_entry"
+          : advertisedUrls.has(u) ? "advertised"
+          : "unadvertised");
+      }
+      const sAdv = adv.filter((u) => selectedUrls.has(u)).length;
+      const sUnadv = unadv.filter((u) => selectedUrls.has(u)).length;
+      if (adv.length > 0) { selAdvTotal += adv.length; selAdvFound += sAdv; tally("selectionAdvertised", c.id, sAdv, adv.length); }
+      if (unadv.length > 0) { selUnadvTotal += unadv.length; selUnadvFound += sUnadv; tally("selectionUnadvertised", c.id, sUnadv, unadv.length); }
       const verdict = r > 0 ? "READ"
         : s > 0 ? "selected, not read"
         : d > 0 ? "in manifest, not selected"
         : t > 0 ? "RETRIEVED, DROPPED BY REDUCTION"
         : "NEVER RETRIEVED";
-      rows.push(`  ${c.id.padEnd(14)} ${fact.padEnd(24)} ${t}/${wanted.length} retr  ${d}/${wanted.length} manif  ${s}/${wanted.length} sel  ${r}/${wanted.length} read   ${verdict}`);
+      // "adv a/d": of the d in-manifest URLs, a are advertised. "adv n/a"
+      // when no URL reached the manifest -- no status, not a zero.
+      const advCol = d === 0 ? "adv n/a" : `adv ${adv.length}/${d}`;
+      rows.push(`  ${c.id.padEnd(14)} ${fact.padEnd(24)} ${t}/${wanted.length} retr  ${d}/${wanted.length} manif  ${advCol.padEnd(7)}  ${s}/${wanted.length} sel  ${r}/${wanted.length} read   ${verdict}`);
+    }
+    // Clause 3 of ruling 0025, beside the rows it bears on: a manifest with
+    // zero advertised entries gives a name-reading selector nothing to read,
+    // so this case's selection numbers are guesses among unlabeled doors.
+    if (stated.length > 0 && manifest.entries.length > 0 && advertisedUrls.size === 0) {
+      rows.push(`  ${c.id.padEnd(14)} ^ this manifest has 0 advertised entries of ${manifest.entries.length} — no name signal anywhere for selection to read (ruling 0025 clause 3)`);
     }
 
     // Where a human found nothing, the system must not claim something -- and
@@ -202,14 +266,43 @@ async function main() {
   console.log(`                     ${distribution("retrieval")}`);
   console.log(`  shortlist recall   ${pct(discFound, discTotal)}   ...and it survived cleaning, grouping and the cap`);
   console.log(`                     ${distribution("shortlist")}`);
+  // The advertised axis (ruling 0025), derivable without a model call so it
+  // prints in every mode. Population: distinct stated (case, URL) pairs;
+  // only pairs whose URL is in a built manifest carry a status.
+  const axis = { advertised: 0, unadvertised: 0, no_manifest_entry: 0 };
+  for (const v of advertisedAxis.values()) axis[v]++;
+  const inManifestPairs = axis.advertised + axis.unadvertised;
+  console.log("");
+  console.log(`  advertised axis    ${inManifestPairs} distinct in-manifest true (case, URL) pairs: ${axis.advertised} advertised, ${axis.unadvertised} unadvertised`);
+  console.log(`                     advertised = the run's own manifest entry is mandatory-flagged or opportunity-promoted;`);
+  console.log(`                     ${axis.no_manifest_entry} further stated pairs never reached a manifest — no advertised status, outside both populations`);
+  // Clause 3: each contributing case's name-signal profile -- how many of its
+  // manifest entries advertise anything at all. Zero means selection recall
+  // on that site is name-blind guessing, knowable before any model call.
+  console.log(`  name signal        advertised entries per built manifest (${nameSignal.length} cases reached discovery): ${nameSignal.map((p) => `${p.id} ${p.advertised}/${p.total}`).join(" · ")}`);
+  const zeroSignal = nameSignal.filter((p) => p.total > 0 && p.advertised === 0);
+  if (zeroSignal.length > 0) {
+    console.log(`                     zero advertised entries: ${zeroSignal.map((p) => `${p.id} (0 of ${p.total})`).join(", ")} — selection there reads names that do not exist (ruling 0025 clause 3)`);
+  }
   console.log("");
   console.log("  These are REFERENCE-PAGE SHORTLIST RECALL. Not research coverage, and");
   console.log("  not decision accuracy: a page reaching the shortlist is not evidence");
   console.log("  that the fact was read, understood, or correctly acted on.");
   if (DISCOVERY_ONLY) console.log("  selection / fetch     not measured (--discovery-only)");
   else {
-    console.log(`  selection recall   ${pct(selFound, selTotal)}   ...and the model chose to read it`);
+    // Ruling 0025 clause 1: the blended number may stand as the total, but
+    // selection recall is REPORTED SPLIT by the advertised axis, each
+    // population with its own denominator and per-case distribution. The
+    // blended denominator counts every stated (fact, URL) pair; the split
+    // covers the pairs whose URL is in a manifest -- the remainder never
+    // reached selection and can be missed by no selector.
+    console.log(`  selection recall   ${pct(selFound, selTotal)}   ...and the model chose to read it (total, both populations blended)`);
     console.log(`                     ${distribution("selection")}`);
+    console.log(`    advertised       ${pct(selAdvFound, selAdvTotal)}   in-manifest (fact, URL) pairs whose entry is mandatory-flagged or opportunity-promoted`);
+    console.log(`                     ${distribution("selectionAdvertised")}`);
+    console.log(`    unadvertised     ${pct(selUnadvFound, selUnadvTotal)}   in-manifest (fact, URL) pairs with neither name signal — the known ceiling (ruling 0025 clause 2)`);
+    console.log(`                     ${distribution("selectionUnadvertised")}`);
+    console.log(`                     (${selTotal - selAdvTotal - selUnadvTotal} of the blended ${selTotal} pairs are in neither population: URL never reached a manifest)`);
   }
   if (!DISCOVERY_ONLY) {
     console.log(`  fetch recall       ${pct(fetchFound, fetchTotal)}   ...and it was actually read`);
