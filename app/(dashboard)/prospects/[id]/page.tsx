@@ -68,12 +68,17 @@ export default async function ProspectDetailPage({
   // Workflow state covers runs still in flight, which loadProspectIntelligence
   // deliberately cannot see (it only reads finished ones) -- so both are
   // needed, and neither is derivable from the other.
-  const [intelligence, workflow, readiness, outcome] = await Promise.all([
+  const [intelligence, workflow, readiness, outcomeView] = await Promise.all([
     loadProspectIntelligence(supabase, prospect.id),
     loadProspectWorkflow(supabase, prospect.id),
     strategyReadiness(supabase, prospect.id),
     loadProspectOutcome(supabase, prospect.id),
   ]);
+  // The outcome IN EFFECT -- ruling 0027's derivation, applied in the loader.
+  // A retracted outcome is null here, so every chip and panel below treats the
+  // prospect as having no recorded outcome; the retracted record itself stays
+  // readable via the trace the Overview panel shows.
+  const outcome = outcomeView.effective;
 
   const [
     { data: history },
@@ -361,6 +366,7 @@ export default async function ProspectDetailPage({
                   strategyRun={strategyRun ?? null}
                   recentHistory={(history ?? []).slice(0, 3)}
                   outcome={outcome}
+                  retractedTrace={outcomeView.retractedTrace}
                 />
               )}
               {activeTab === "research" && (

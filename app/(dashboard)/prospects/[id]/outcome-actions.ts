@@ -111,6 +111,41 @@ async function writeRevisitDisposition(
   }
 }
 
+// Ruling 0027: retract a recorded outcome. An explicit human click, appending
+// a fact -- the outcome row is not touched, and the schema would refuse if
+// this tried (no update or delete policy reaches it). After this, the one
+// derivation in lib/prospect-outcomes.ts reports no outcome in effect and the
+// prospect stands as if nothing were recorded; recording a decline again later
+// is a new outcome row, not a resurrection of this one.
+export async function retractProspectOutcome(
+  prospectId: string,
+  outcomeId: string,
+  note: string,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const supabase = createClient();
+
+    const { error } = await supabase.from("prospect_outcome_retractions").insert({
+      prospect_outcome_id: outcomeId,
+      note: note.trim() || null,
+      retracted_by: user.id,
+    });
+    if (error) {
+      // 23505: the unique constraint on prospect_outcome_id. The first
+      // retraction already voided this outcome, so this one asserts nothing --
+      // say so instead of surfacing a constraint name.
+      if (error.code === "23505") return { error: "This record was already retracted." };
+      return { error: error.message };
+    }
+
+    revalidateOutcomeSurfaces(prospectId);
+    return { success: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not retract that record." };
+  }
+}
+
 function revalidateOutcomeSurfaces(prospectId: string) {
   revalidatePath(`/prospects/${prospectId}`);
   revalidatePath("/revisit");

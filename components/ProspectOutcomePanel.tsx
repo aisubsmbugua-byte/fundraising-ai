@@ -1,9 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ban, CalendarClock, HelpCircle, History } from "lucide-react";
-import { recordProspectDecline, setRevisitDisposition } from "@/app/(dashboard)/prospects/[id]/outcome-actions";
-import { describeDisposition, type ProspectOutcome, type RevisitDisposition } from "@/lib/prospect-outcomes";
+import { Ban, CalendarClock, HelpCircle, History, Undo2 } from "lucide-react";
+import { recordProspectDecline, retractProspectOutcome, setRevisitDisposition } from "@/app/(dashboard)/prospects/[id]/outcome-actions";
+import {
+  describeDisposition,
+  type OutcomeRetractionRow,
+  type ProspectOutcome,
+  type ProspectOutcomeRow,
+  type RevisitDisposition,
+} from "@/lib/prospect-outcomes";
 import {
   spacing,
   colors,
@@ -14,6 +20,7 @@ import {
   chipStyle,
   buttonPrimary,
   buttonSecondary,
+  buttonDanger,
 } from "@/lib/ui";
 
 // The interface ruling 0019 authorizes: record a decline, and separately set or
@@ -30,24 +37,34 @@ const CHOICES: { value: RevisitDisposition; label: string; hint: string; icon: t
   { value: "undecided", label: "Leave it open", hint: "Stays on the list of open questions.", icon: HelpCircle },
 ];
 
+export type RetractedTrace = { outcome: ProspectOutcomeRow; retraction: OutcomeRetractionRow };
+
 export default function ProspectOutcomePanel({
   prospectId,
   outcome,
+  retractedTrace = null,
   showRecordForm = true,
 }: {
   prospectId: string;
+  // The outcome IN EFFECT (ruling 0027's derivation is applied by the
+  // loaders); null both when nothing was recorded and when what was recorded
+  // has been retracted.
   outcome: ProspectOutcome | null;
+  // When a recorded outcome was retracted and none is in effect: the record
+  // and its retraction, so the panel can say the record was taken back
+  // instead of showing an absence indistinguishable from "nothing happened".
+  retractedTrace?: RetractedTrace | null;
   // The follow-up page only ever shows prospects that already have an outcome,
   // so it has no use for the record form.
   showRecordForm?: boolean;
 }) {
   if (!outcome) {
-    return showRecordForm ? <RecordDeclineSection prospectId={prospectId} /> : null;
+    return showRecordForm ? <RecordDeclineSection prospectId={prospectId} retractedTrace={retractedTrace} /> : null;
   }
   return <OutcomeSection prospectId={prospectId} outcome={outcome} />;
 }
 
-function RecordDeclineSection({ prospectId }: { prospectId: string }) {
+function RecordDeclineSection({ prospectId, retractedTrace }: { prospectId: string; retractedTrace: RetractedTrace | null }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -63,9 +80,21 @@ function RecordDeclineSection({ prospectId }: { prospectId: string }) {
         )}
       </div>
       {!open ? (
-        <p style={{ fontSize: 13, color: colors.textFaint, margin: 0 }}>
-          No outcome recorded. A decline is kept with its reason — a no is data, not a dead end.
-        </p>
+        <>
+          <p style={{ fontSize: 13, color: colors.textFaint, margin: 0 }}>
+            No outcome recorded. A decline is kept with its reason — a no is data, not a dead end.
+          </p>
+          {retractedTrace && (
+            // Ruling 0027 clause 2: the record survives its own reversal, and
+            // that includes visually -- an absence with a retraction behind it
+            // is a different fact from nothing ever having happened.
+            <p style={{ fontSize: 12, color: colors.textFaint, margin: 0 }}>
+              A decline recorded on {new Date(retractedTrace.outcome.occurred_on + "T00:00:00").toLocaleDateString()} was
+              retracted on {new Date(retractedTrace.retraction.retracted_at).toLocaleDateString()}
+              {retractedTrace.retraction.note ? ` — “${retractedTrace.retraction.note}”` : ""}. Both records are kept.
+            </p>
+          )}
+        </>
       ) : (
         <form
           action={(formData) => {
@@ -118,6 +147,9 @@ function OutcomeSection({ prospectId, outcome }: { prospectId: string; outcome: 
   const [choice, setChoice] = useState<RevisitDisposition | "">("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [retractOpen, setRetractOpen] = useState(false);
+  const [retractError, setRetractError] = useState<string | null>(null);
+  const [isRetracting, startRetracting] = useTransition();
 
   const presentation = describeDisposition(outcome.current);
   const isNever = outcome.current.disposition === "never";
@@ -246,6 +278,58 @@ function OutcomeSection({ prospectId, outcome }: { prospectId: string; outcome: 
           </ul>
         </div>
       )}
+
+      {/* Ruling 0027: an explicit human action that voids this record by
+          APPENDING a retraction -- the decline and its dispositions stay
+          exactly as written (the database grants no update or delete on them
+          anyway). Confirm-style, same expand-then-confirm shape as the record
+          form above: nothing happens on the first click. */}
+      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: spacing.md }}>
+        {!retractOpen ? (
+          <button
+            type="button"
+            onClick={() => setRetractOpen(true)}
+            style={{ ...buttonDanger, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <Undo2 size={13} /> Recorded by mistake? Retract this record
+          </button>
+        ) : (
+          <form
+            action={(formData) => {
+              setRetractError(null);
+              startRetracting(async () => {
+                const result = await retractProspectOutcome(
+                  prospectId,
+                  outcome.outcome.id,
+                  (formData.get("retraction_note") as string) ?? "",
+                );
+                if ("error" in result) setRetractError(result.error);
+                else setRetractOpen(false);
+              });
+            }}
+            style={{ display: "grid", gap: spacing.sm }}
+          >
+            <p style={{ fontSize: 13, color: colors.text, margin: 0 }}>
+              Retracting voids this decline without deleting anything — the record and the retraction are both kept in
+              the relationship history. The prospect goes back to having no recorded outcome, and returns to any list
+              its dates put it on.
+            </p>
+            <label style={labelStyle}>
+              Why? (optional)
+              <textarea name="retraction_note" rows={2} placeholder="e.g. Recorded on the wrong prospect" style={fieldStyle} />
+            </label>
+            {retractError && <p style={{ fontSize: 13, color: colors.danger, margin: 0 }}>{retractError}</p>}
+            <div style={{ display: "flex", gap: spacing.sm }}>
+              <button type="submit" disabled={isRetracting} style={buttonDanger}>
+                {isRetracting ? "Retracting…" : "Retract the record"}
+              </button>
+              <button type="button" onClick={() => setRetractOpen(false)} style={{ ...buttonSecondary, padding: "6px 12px", fontSize: 13 }}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

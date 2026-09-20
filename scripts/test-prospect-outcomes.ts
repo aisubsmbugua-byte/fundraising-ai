@@ -22,7 +22,7 @@
 //
 // Usage: npx tsx scripts/test-prospect-outcomes.ts
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseRevisitChoice,
@@ -32,9 +32,14 @@ import {
   describeDisposition,
   isOpenQuestion,
   isScheduledRevisit,
+  isOutcomeInEffect,
+  latestOutcomeInEffect,
+  isClosedToWork,
+  isRevisitDue,
   REVISIT_DISPOSITIONS,
   type RevisitDispositionRow,
   type ProspectOutcomeRow,
+  type OutcomeRetractionRow,
 } from "../lib/prospect-outcomes";
 
 const root = join(__dirname, "..");
@@ -73,6 +78,17 @@ function outcomeRow(over: Partial<ProspectOutcomeRow> = {}): ProspectOutcomeRow 
     occurred_on: "2026-09-01",
     recorded_by: "u1",
     recorded_at: "2026-09-01T09:00:00Z",
+    ...over,
+  };
+}
+
+function retraction(over: Partial<OutcomeRetractionRow> = {}): OutcomeRetractionRow {
+  return {
+    id: "r1",
+    prospect_outcome_id: "o1",
+    note: null,
+    retracted_by: "u1",
+    retracted_at: "2026-09-02T09:00:00Z",
     ...over,
   };
 }
@@ -248,6 +264,7 @@ const index = buildOutcomeIndex(
     disposition({ id: "d1", prospect_outcome_id: "o1", disposition: "never", reason: "old" }),
     disposition({ id: "d2", prospect_outcome_id: "o3", disposition: "revisit_on", revisit_on: "2027-04-01" }),
   ],
+  [],
 );
 
 check("one entry per prospect", index.size, 2);
@@ -260,9 +277,120 @@ check("a prospect with a scheduled revisit keeps its date", index.get("p2")!.cur
 ok("an outcome with no dispositions is an open question", isOpenQuestion(index.get("p1")!));
 ok("...and a scheduled one is not", !isOpenQuestion(index.get("p2")!));
 ok("...and is instead a scheduled revisit", isScheduledRevisit(index.get("p2")!));
-check("empty inputs give an empty index", buildOutcomeIndex([], []).size, 0);
-check("null inputs give an empty index", buildOutcomeIndex(null, null).size, 0);
+check("empty inputs give an empty index", buildOutcomeIndex([], [], []).size, 0);
+check("null inputs give an empty index", buildOutcomeIndex(null, null, null).size, 0);
 check("history is retained in full", index.get("p2")!.history.length, 1);
+
+// --- 3b. Ruling 0027: the outcome in effect --------------------------------
+//
+// THE derivation, tested directly: effective outcome = the recorded outcome
+// unless a retraction row exists for it, and after retraction the prospect
+// stands as if no outcome were recorded.
+
+console.log("--- ruling 0027: the outcome in effect ---");
+
+ok("an outcome with no retractions is in effect", isOutcomeInEffect("o1", []));
+ok("an outcome with null retractions is in effect", isOutcomeInEffect("o1", null));
+ok("a retracted outcome is NOT in effect", !isOutcomeInEffect("o1", [retraction({ prospect_outcome_id: "o1" })]));
+ok(
+  "a retraction of a different outcome changes nothing",
+  isOutcomeInEffect("o1", [retraction({ prospect_outcome_id: "o9" })]),
+);
+
+check("an outcome alone is the outcome in effect", latestOutcomeInEffect([outcomeRow()], [])?.id, "o1");
+check(
+  "outcome + retraction = no outcome in effect (the ruling's test of compliance)",
+  latestOutcomeInEffect([outcomeRow()], [retraction()]),
+  null,
+);
+check("no outcomes at all is no outcome in effect", latestOutcomeInEffect([], []), null);
+check("null outcomes is no outcome in effect", latestOutcomeInEffect(null, null), null);
+check(
+  "a NEW outcome recorded after a retraction is in effect — a new row, not a resurrection",
+  latestOutcomeInEffect(
+    [
+      outcomeRow({ id: "o1", recorded_at: "2026-01-01T00:00:00Z" }),
+      outcomeRow({ id: "o2", recorded_at: "2026-06-01T00:00:00Z", reason: "They declined again" }),
+    ],
+    [retraction({ prospect_outcome_id: "o1" })],
+  )?.id,
+  "o2",
+);
+check(
+  "retracting the newest outcome leaves an older unretracted one standing — only the retracted row is voided",
+  latestOutcomeInEffect(
+    [
+      outcomeRow({ id: "o1", recorded_at: "2026-01-01T00:00:00Z" }),
+      outcomeRow({ id: "o2", recorded_at: "2026-06-01T00:00:00Z" }),
+    ],
+    [retraction({ prospect_outcome_id: "o2" })],
+  )?.id,
+  "o1",
+);
+ok(
+  "the retracted row itself is untouched by the derivation — the record survives its own reversal",
+  (() => {
+    const rows = [outcomeRow()];
+    latestOutcomeInEffect(rows, [retraction()]);
+    return rows.length === 1 && rows[0].reason === "Priorities moved";
+  })(),
+);
+
+console.log("--- retraction flows through the index, not around it ---");
+
+const retractedIndex = buildOutcomeIndex(
+  [
+    outcomeRow({ id: "o1", prospect_id: "p1" }),
+    outcomeRow({ id: "o3", prospect_id: "p2", reason: "Out of geography" }),
+  ],
+  [disposition({ id: "d1", prospect_outcome_id: "o1", disposition: "never", reason: "Closed for good" })],
+  [retraction({ prospect_outcome_id: "o1" })],
+);
+ok(
+  "a prospect whose only outcome is retracted is ABSENT from the index — absence semantics restored",
+  !retractedIndex.has("p1"),
+);
+ok("...and its retracted `never` closes nothing", !isClosedToWork(retractedIndex.get("p1")));
+ok("an unretracted prospect is unaffected", retractedIndex.has("p2"));
+ok(
+  "a disposition hanging off the retracted outcome does not leak into any surface's view",
+  retractedIndex.get("p1") === undefined,
+);
+
+// --- 3c. Ruling 0028: work-list predicates ---------------------------------
+
+console.log("--- ruling 0028: what closes work, and what is due ---");
+
+const withDisposition = (d: RevisitDispositionRow[]) =>
+  buildOutcomeIndex([outcomeRow()], d, []).get("p1")!;
+
+ok("no outcome closes nothing (null)", !isClosedToWork(null));
+ok("no outcome closes nothing (undefined)", !isClosedToWork(undefined));
+ok("`undecided` changes nothing — the prospect is offered as its dates say", !isClosedToWork(withDisposition([])));
+ok(
+  "`revisit_on` is scheduled work, not closed work",
+  !isClosedToWork(withDisposition([disposition({ disposition: "revisit_on", revisit_on: "2027-01-01" })])),
+);
+ok(
+  "an effective `never` closes the prospect to every work list",
+  isClosedToWork(withDisposition([disposition({ disposition: "never", reason: "Board closed the fund" })])),
+);
+ok(
+  "a `never` later reversed to undecided no longer closes it",
+  !isClosedToWork(
+    withDisposition([
+      disposition({ id: "d1", disposition: "never", decided_at: "2026-09-01T10:00:00Z" }),
+      disposition({ id: "d2", disposition: "undecided", decided_at: "2026-09-02T10:00:00Z" }),
+    ]),
+  ),
+);
+
+const scheduledOutcome = withDisposition([disposition({ disposition: "revisit_on", revisit_on: "2026-10-01" })]);
+ok("a revisit is not due before its date", !isRevisitDue(scheduledOutcome, "2026-09-30"));
+ok("a revisit is due ON its date", isRevisitDue(scheduledOutcome, "2026-10-01"));
+ok("a revisit stays due after its date", isRevisitDue(scheduledOutcome, "2026-11-15"));
+ok("`never` is never due", !isRevisitDue(withDisposition([disposition({ disposition: "never" })]), "2099-01-01"));
+ok("`undecided` is never due as a revisit", !isRevisitDue(withDisposition([]), "2099-01-01"));
 
 console.log("--- display is derived, never restated ---");
 for (const d of REVISIT_DISPOSITIONS) {
@@ -344,6 +472,71 @@ ok("nothing is renamed", !/\brename\b/.test(sql));
 ok("nothing is re-typed", !/\balter\s+column\s+\S+\s+(set data )?type\b/.test(sql));
 ok("no column is added to an existing table at all", !/\badd\s+column\b/.test(sql));
 
+// --- 4b. Migration 0068 (ruling 0027), read from the file ------------------
+
+console.log("--- migration 0068, read from the file ---");
+
+const migration68 = readFileSync(join(root, "supabase/migrations/0068_prospect_outcome_retractions.sql"), "utf8");
+const sql68 = migration68.replace(/--[^\n]*/g, " ").replace(/\s+/g, " ").toLowerCase();
+
+ok("the retraction table is created", sql68.includes("create table prospect_outcome_retractions"));
+ok(
+  "it addresses the outcome the way 0066's disposition log does, and cascades with it",
+  sql68.includes("prospect_outcome_id uuid not null references prospect_outcomes (id) on delete cascade"),
+);
+ok(
+  "one retraction per outcome — the first already voids it, a second would assert nothing",
+  sql68.includes("unique (prospect_outcome_id)"),
+);
+ok(
+  "the note is nullable — a note nobody wrote is missing, not an empty string",
+  /\bnote text,/.test(sql68),
+  sql68.match(/note text[^,]*/)?.[0] ?? "no note column found",
+);
+ok("who retracted is recorded, referencing auth.users like 0066's authorship columns", sql68.includes("retracted_by uuid not null references auth.users (id)"));
+ok(
+  "prospect_outcome_retractions carries organization_id defaulting to my_organization_id()",
+  /create table prospect_outcome_retractions \([^;]*organization_id uuid not null references organizations \(id\) default my_organization_id\(\)/.test(sql68),
+);
+ok("row level security is enabled", sql68.includes("alter table prospect_outcome_retractions enable row level security"));
+{
+  const policies68 = [...sql68.matchAll(/create policy "[^"]+" on prospect_outcome_retractions for (\w+)/g)].map((m) => m[1]);
+  ok("there is an insert policy", policies68.includes("insert"));
+  ok("there is a select policy", policies68.includes("select"));
+  ok("there is NO update policy — a retraction is an appended fact (ruling 0027 clause 4)", !policies68.includes("update"));
+  ok("there is NO delete policy — a retraction is itself retained (ruling 0027 clause 4)", !policies68.includes("delete"));
+  check("and those are the only policies", policies68.length, 2);
+}
+ok(
+  "a retraction cannot be pointed at another org's outcome (FK checks bypass RLS — 0066's org-match trigger pattern)",
+  sql68.includes("create trigger prospect_outcome_retractions_org_match before insert on prospect_outcome_retractions"),
+);
+{
+  const bodies68 = migration68.split(/create policy/).slice(1);
+  const unscoped68 = bodies68.filter((b) => !b.includes("my_organization_id()"));
+  ok(`all ${bodies68.length} policies in 0068 are scoped by my_organization_id()`, unscoped68.length === 0, unscoped68.join("\n"));
+  ok("no 0068 policy is written as using (true)", !/using\s*\(\s*true\s*\)/.test(migration68));
+}
+ok(
+  "no column stores whether an outcome is retracted — being in effect is DERIVED, never a status column that could drift",
+  !/\b(retracted|in_effect|effective|status)\s+(boolean|text)\b/.test(sql68),
+);
+
+console.log("--- ruling 0020: migration 0068 is additive ---");
+ok("0068 drops nothing", !/\bdrop\s+(column|table)\b/.test(sql68));
+ok("0068 renames nothing", !/\brename\b/.test(sql68));
+ok("0068 re-types nothing", !/\balter\s+column\s+\S+\s+(set data )?type\b/.test(sql68));
+ok("0068 adds no column to any existing table", !/\badd\s+column\b/.test(sql68));
+{
+  // Every `alter table` in the file targets only the table the file creates.
+  const altered = [...sql68.matchAll(/alter table (\S+)/g)].map((m) => m[1]);
+  ok(
+    `every alter table in 0068 targets prospect_outcome_retractions (${altered.length} of ${altered.length})`,
+    altered.length > 0 && altered.every((t) => t === "prospect_outcome_retractions"),
+    altered.join(", "),
+  );
+}
+
 // --- 5. No other module constructs a disposition --------------------------
 //
 // The brand makes this a compile error; this catches the `as` cast that would
@@ -386,6 +579,81 @@ console.log("--- source scan ---");
     !/from\(["']prospects["']\)/.test(actions),
     "an outcome must not move a prospect through a stage",
   );
+  ok(
+    "hard rule 2 survives the retraction action too: retracting touches only the retraction table",
+    !/retractProspectOutcome[\s\S]*?from\(["'](?:prospects|prospect_outcomes|prospect_outcome_dispositions)["']\)/.test(
+      actions.slice(actions.indexOf("export async function retractProspectOutcome")),
+    ),
+    "a retraction must append its own row, never edit the outcome or move the prospect",
+  );
+}
+
+// --- 6. One derivation, every consumer (rulings 0027 clause 3, 0028 clause 4)
+//
+// No surface may keep its own copy of what "closed" or "in effect" means. Two
+// scans, over app/ components/ lib/ in full rather than a hand-kept file list,
+// so a NEW surface that re-implements the rule fails here instead of shipping.
+
+console.log("--- one derivation, every consumer ---");
+{
+  const walk = (dir: string): string[] => {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...walk(full));
+      else if (/\.(ts|tsx)$/.test(entry.name)) out.push(full);
+    }
+    return out;
+  };
+  const sources = [...walk(join(root, "app")), ...walk(join(root, "components")), ...walk(join(root, "lib"))];
+
+  // (a) Only the derivation module reads the retraction table, and only the
+  // retraction action writes it. A page querying retractions directly would be
+  // on its way to a second copy of "in effect".
+  const touching = sources.filter((f) => readFileSync(f, "utf8").includes('from("prospect_outcome_retractions")'));
+  const touchingRel = touching.map((f) => f.slice(root.length + 1)).sort();
+  check(
+    "exactly two modules touch the retraction table: the derivation (reads) and the action (writes)",
+    touchingRel,
+    ["app/(dashboard)/prospects/[id]/outcome-actions.ts", "lib/prospect-outcomes.ts"],
+  );
+  ok(
+    "the action only inserts — it never selects its own view of what is retracted",
+    !/from\("prospect_outcome_retractions"\)\s*\.\s*(select|update|delete)/.test(
+      readFileSync(join(root, "app/(dashboard)/prospects/[id]/outcome-actions.ts"), "utf8"),
+    ),
+  );
+
+  // (b) Every file that mentions the closed disposition at all does it through
+  // the lib. Outside lib/prospect-outcomes.ts, no .ts/.tsx file under app/ or
+  // components/ compares a disposition to "never" -- surfaces call
+  // isClosedToWork / describeDisposition instead of restating the rule.
+  const restaters = sources.filter((f) => {
+    if (f.endsWith("lib/prospect-outcomes.ts")) return false;
+    const code = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/[^\n]*/gm, " ");
+    return /disposition\s*[=!]==?\s*["']never["']/.test(code);
+  });
+  check(
+    "no surface outside the lib compares a disposition to \"never\" — what closed means lives in one place",
+    restaters.map((f) => f.slice(root.length + 1)).sort(),
+    ["app/(dashboard)/prospects/[id]/outcome-actions.ts", "components/ProspectOutcomePanel.tsx"],
+  );
+  // The two legitimate appearances, pinned by the equality above so any third
+  // fails: the ACTION checks the branded choice being WRITTEN (never needs a
+  // reason — a rule about recording, not about what closed means), and the
+  // PANEL words its own heading ("Reverse this") off the current disposition
+  // it is displaying. Neither is a work-list decision; isClosedToWork there
+  // would be the wrong question.
+
+  // (c) The four surfaces that offer work all consult the shared predicate.
+  for (const rel of [
+    "app/(dashboard)/revisit/page.tsx",
+    "app/(dashboard)/layout.tsx",
+    "app/(dashboard)/dashboard/page.tsx",
+    "app/(dashboard)/pipeline/page.tsx",
+  ]) {
+    ok(`${rel} consults isClosedToWork`, readFileSync(join(root, rel), "utf8").includes("isClosedToWork"));
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

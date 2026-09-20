@@ -48,6 +48,7 @@ const ICON_BY_KIND: Record<InteractionKind, typeof Mail> = {
 
 export default function FollowupWorkspace({
   dueNow,
+  dueRevisits,
   waiting,
   scheduled,
   revisitLater,
@@ -57,6 +58,9 @@ export default function FollowupWorkspace({
   interactionsByProspect,
 }: {
   dueNow: Prospect[];
+  // Ruling 0028 clause 3: a declined prospect whose revisit date has arrived
+  // is due work, so it sits in the same "Due now" tab as everything else due.
+  dueRevisits: DeclinedProspect[];
   waiting: Prospect[];
   scheduled: Prospect[];
   revisitLater: Candidate[];
@@ -70,7 +74,10 @@ export default function FollowupWorkspace({
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const rowsByTab: Record<Tab, Row[]> = {
-    due_now: dueNow.map((p) => ({ kind: "prospect", data: p })),
+    due_now: [
+      ...dueNow.map((p) => ({ kind: "prospect" as const, data: p })),
+      ...dueRevisits.map((d) => ({ kind: "declined" as const, data: d.prospect, outcome: d.outcome })),
+    ],
     open_questions: openQuestions.map((d) => ({ kind: "declined", data: d.prospect, outcome: d.outcome })),
     waiting: waiting.map((p) => ({ kind: "prospect", data: p })),
     scheduled: scheduled.map((p) => ({ kind: "prospect", data: p })),

@@ -12,6 +12,7 @@ import {
   type StageChange,
 } from "@/lib/prospects";
 import type { ScreeningResult } from "@/lib/screening";
+import { loadOutcomeIndex, isClosedToWork, type ProspectOutcome } from "@/lib/prospect-outcomes";
 import { spacing, colors, type as typeScale, radiusSm, cardStyle, fieldStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import NextActionPopover from "@/components/NextActionPopover";
 import BoardView from "./board-view";
@@ -37,6 +38,12 @@ export default async function PipelinePage({
   if (error) {
     return <p style={{ color: colors.danger }}>Error loading pipeline: {error.message}</p>;
   }
+
+  // The outcome in effect per prospect (rulings 0027/0028): shown on every
+  // board card as a fact with its reason -- closed is displayed, never hidden
+  // -- and consulted by the two work signals below. Retracted outcomes are
+  // absent from the index by derivation.
+  const outcomeIndex = await loadOutcomeIndex(supabase);
 
   const { data: screenings } = await supabase
     .from("screening_results")
@@ -81,13 +88,18 @@ export default async function PipelinePage({
   });
   const totalPotential = all.reduce((sum, p) => sum + (p.ask_amount ?? 0), 0);
 
-  const stuckLongest = all
+  // Both of these offer prospects as work -- "Review next action" and a count
+  // of what needs attention -- so a prospect closed by an effective `never`
+  // outcome is not in them (ruling 0028 clause 1). It stays on the board
+  // itself: exclusion is for work signals, never for listings.
+  const offered = all.filter((p) => !isClosedToWork(outcomeIndex.get(p.id)));
+  const stuckLongest = offered
     .map((p) => ({ p, days: daysInStage(p) }))
     .sort((a, b) => b.days - a.days)
     .slice(0, 3)
     .filter((x) => x.days >= 1);
 
-  const needsAttentionCount = all.filter((p) => {
+  const needsAttentionCount = offered.filter((p) => {
     const h = computeHealthStatus(p.next_action_due);
     return h === "due_soon" || h === "stalled";
   }).length;
@@ -100,6 +112,8 @@ export default async function PipelinePage({
   latestTierByProspect.forEach((tier, id) => (tierByProspect[id] = tier));
   const daysInStageByProspect: Record<string, number> = {};
   for (const p of all) daysInStageByProspect[p.id] = daysInStage(p);
+  const outcomeByProspect: Record<string, ProspectOutcome> = {};
+  outcomeIndex.forEach((outcome, id) => (outcomeByProspect[id] = outcome));
 
   return (
     <div>
@@ -181,7 +195,12 @@ export default async function PipelinePage({
           daysInStageByProspect={daysInStageByProspect}
         />
       ) : (
-        <BoardView prospects={all} tierByProspect={tierByProspect} daysInStageByProspect={daysInStageByProspect} />
+        <BoardView
+          prospects={all}
+          tierByProspect={tierByProspect}
+          daysInStageByProspect={daysInStageByProspect}
+          outcomeByProspect={outcomeByProspect}
+        />
       )}
     </div>
   );

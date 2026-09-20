@@ -2,8 +2,10 @@
 // (research_runs, research_claims, research_expected_facts,
 // research_eval_reviews, research_sources, research_claim_sources,
 // research_evidence), on the two ruling-0019 outcome tables added in
-// migration 0066 (prospect_outcomes, prospect_outcome_dispositions), and on
-// the ruling-0026 run ledger added in migration 0067 (ai_runs), in both
+// migration 0066 (prospect_outcomes, prospect_outcome_dispositions), on the
+// ruling-0026 run ledger added in migration 0067 (ai_runs), and on the
+// ruling-0027 retraction table added in migration 0068
+// (prospect_outcome_retractions), in both
 // directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -120,9 +122,10 @@ async function findTestOrgIds(): Promise<string[]> {
 //                 research_claims, research_sources, research_evidence,
 //                 research_claim_sources, research_claim_verifications,
 //                 research_eval_reviews, research_expected_facts,
-//                 prospect_outcomes and prospect_outcome_dispositions, all of
+//                 prospect_outcomes, prospect_outcome_dispositions and (via
+//                 prospect_outcomes) prospect_outcome_retractions, all of
 //                 which carry an `auth.users` FK that would otherwise block
-//                 the user delete (0035:22/88/167, 0066:44/74).
+//                 the user delete (0035:22/88/167, 0066:44/74, 0068:47).
 //   profiles   -- `references organizations(id)` with no cascade (0032:30),
 //                 so a surviving profile blocks the org delete.
 //   auth users -- referenced by prospects.owner_id and friends with no
@@ -557,6 +560,91 @@ async function main() {
 
     const { data: ownOutcomeDelete } = await clientA.from("prospect_outcomes").delete().eq("id", outcomeA.id).select("id");
     check("prospect_outcomes has no delete policy -- a recorded no is retained, not deleted", (ownOutcomeDelete?.length ?? 0) === 0);
+
+    // --- Ruling 0027's retraction table (migration 0068) ---
+    //
+    // Same treatment: two real authenticated sessions, never the service-role
+    // client. The table's own properties beyond isolation: append-only (no
+    // update, no delete, even for the owning org), one retraction per outcome,
+    // and -- ruling 0027's test of compliance -- after a retraction both the
+    // outcome row and the retraction row are still readable.
+    const { error: retractionsProbeError } = await admin.from("prospect_outcome_retractions").select("id").limit(1);
+    if (retractionsProbeError && retractionsProbeError.code === "42P01") {
+      notEvaluated.push(
+        "prospect_outcome_retractions -- migration 0068 is not applied to this database, so its assertions did not run"
+      );
+      console.log(
+        "\nNOT EVALUATED: prospect_outcome_retractions (migration 0068 not applied). Apply 0068 and re-run; this is not a pass.\n"
+      );
+    } else {
+      const { data: retractionA, error: retractionAError } = await clientA
+        .from("prospect_outcome_retractions")
+        .insert({ prospect_outcome_id: outcomeA.id, note: "[test] Org A retraction", retracted_by: a.userId })
+        .select("id")
+        .single();
+      if (retractionAError || !retractionA)
+        throw new Error(`Org A prospect_outcome_retractions insert failed: ${retractionAError?.message}`);
+
+      // Ruling 0027's test of compliance: record, retract, and BOTH rows stay
+      // readable -- the retraction voids the outcome without erasing it.
+      const { data: outcomeStillReadable } = await clientA.from("prospect_outcomes").select("id").eq("id", outcomeA.id);
+      check(
+        "after retraction, the retracted outcome row is still readable by its own org (ruling 0027: the record survives its own reversal)",
+        (outcomeStillReadable?.length ?? 0) === 1
+      );
+      const { data: retractionReadable } = await clientA
+        .from("prospect_outcome_retractions")
+        .select("id")
+        .eq("id", retractionA.id);
+      check("...and so is the retraction row itself", (retractionReadable?.length ?? 0) === 1);
+
+      const { data: readRetraction } = await clientB
+        .from("prospect_outcome_retractions")
+        .select("id")
+        .eq("id", retractionA.id);
+      check("Org B cannot SELECT Org A's prospect_outcome_retractions row by id", (readRetraction?.length ?? 0) === 0);
+
+      // FK checks bypass RLS; the org-match trigger is what stops this.
+      const { error: crossRetractionError } = await clientB.from("prospect_outcome_retractions").insert({
+        prospect_outcome_id: outcomeA.id,
+        note: "[test] cross-org attempt",
+        retracted_by: b.userId,
+      });
+      check(
+        "Org B cannot INSERT a prospect_outcome_retractions row against Org A's outcome (org-match trigger)",
+        !!crossRetractionError
+      );
+
+      const { data: ownRetractionUpdate } = await clientA
+        .from("prospect_outcome_retractions")
+        .update({ note: "edited" })
+        .eq("id", retractionA.id)
+        .select("id");
+      check(
+        "prospect_outcome_retractions has no update policy -- even Org A's own UPDATE on its own row affects 0 rows",
+        (ownRetractionUpdate?.length ?? 0) === 0
+      );
+
+      const { data: ownRetractionDelete } = await clientA
+        .from("prospect_outcome_retractions")
+        .delete()
+        .eq("id", retractionA.id)
+        .select("id");
+      check(
+        "prospect_outcome_retractions has no delete policy -- a retraction is itself retained (ruling 0027 clause 4)",
+        (ownRetractionDelete?.length ?? 0) === 0
+      );
+
+      const { error: secondRetractionError } = await clientA.from("prospect_outcome_retractions").insert({
+        prospect_outcome_id: outcomeA.id,
+        note: "[test] second retraction of the same outcome",
+        retracted_by: a.userId,
+      });
+      check(
+        "a second retraction of the same outcome is refused (unique on prospect_outcome_id) -- the first already voided it",
+        !!secondRetractionError
+      );
+    }
 
     // --- Ruling 0026's run ledger (migration 0067) ---
     //

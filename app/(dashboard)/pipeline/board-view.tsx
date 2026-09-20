@@ -15,6 +15,7 @@ import {
 } from "@dnd-kit/core";
 import { Compass, Mail, FileText, Scale, Award, Users, type LucideIcon } from "lucide-react";
 import { STAGES, type Prospect, type Stage } from "@/lib/prospects";
+import type { ProspectOutcome } from "@/lib/prospect-outcomes";
 import { spacing, colors, radiusSm } from "@/lib/ui";
 import { moveProspectStage } from "./actions";
 import ProspectCard from "./prospect-card";
@@ -45,10 +46,14 @@ export default function BoardView({
   prospects,
   tierByProspect,
   daysInStageByProspect,
+  outcomeByProspect,
 }: {
   prospects: Prospect[];
   tierByProspect: Record<string, number>;
   daysInStageByProspect: Record<string, number>;
+  // The outcome in effect per prospect (rulings 0027/0028) -- shown on the
+  // card as a fact with its reason; a prospect with none has no entry.
+  outcomeByProspect: Record<string, ProspectOutcome>;
 }) {
   const [items, setItems] = useState(prospects);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -118,6 +123,7 @@ export default function BoardView({
               prospects={byStage.get(s.value) ?? []}
               tierByProspect={tierByProspect}
               daysInStageByProspect={daysInStageByProspect}
+              outcomeByProspect={outcomeByProspect}
             />
           ))}
         </div>
@@ -128,6 +134,7 @@ export default function BoardView({
             prospect={activeProspect}
             tier={tierByProspect[activeProspect.id]}
             daysInStage={daysInStageByProspect[activeProspect.id] ?? 0}
+            outcome={outcomeByProspect[activeProspect.id] ?? null}
           />
         )}
       </DragOverlay>
@@ -141,12 +148,14 @@ function Column({
   prospects,
   tierByProspect,
   daysInStageByProspect,
+  outcomeByProspect,
 }: {
   stage: string;
   label: string;
   prospects: Prospect[];
   tierByProspect: Record<string, number>;
   daysInStageByProspect: Record<string, number>;
+  outcomeByProspect: Record<string, ProspectOutcome>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const Icon = STAGE_ICONS[stage] ?? Compass;
@@ -181,6 +190,7 @@ function Column({
             prospect={p}
             tier={tierByProspect[p.id]}
             daysInStage={daysInStageByProspect[p.id] ?? 0}
+            outcome={outcomeByProspect[p.id] ?? null}
           />
         ))}
         {prospects.length === 0 && <p style={{ fontSize: 12, color: colors.textFaint }}>No prospects</p>}
@@ -193,10 +203,12 @@ function DraggableCard({
   prospect,
   tier,
   daysInStage,
+  outcome,
 }: {
   prospect: Prospect;
   tier?: number;
   daysInStage: number;
+  outcome: ProspectOutcome | null;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: prospect.id });
 
@@ -207,7 +219,7 @@ function DraggableCard({
       {...attributes}
       style={{ opacity: isDragging ? 0.4 : 1, cursor: "grab", minWidth: 0 }}
     >
-      <ProspectCard prospect={prospect} tier={tier} daysInStage={daysInStage} />
+      <ProspectCard prospect={prospect} tier={tier} daysInStage={daysInStage} outcome={outcome} />
     </div>
   );
 }

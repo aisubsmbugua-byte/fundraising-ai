@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { countStrategiesReadyForReview } from "@/lib/strategy";
 import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
+import { loadOutcomeIndex, isClosedToWork, isRevisitDue } from "@/lib/prospect-outcomes";
 import { colors } from "@/lib/ui";
 import Sidebar from "@/components/Sidebar";
 
@@ -20,20 +21,36 @@ export default async function DashboardLayout({
   // human -- pending Donor Finder candidates, proposed strategies
   // ready_for_review, unverified evidence -- so they all get the same
   // "needs a look" treatment.
-  const [readyForReviewCount, { count: pendingCandidateCount }, { data: pipelineProspects }, { count: needsReviewEvidenceCount }] =
-    await Promise.all([
-      countStrategiesReadyForReview(supabase),
-      supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
-      supabase.from("prospects").select("stage, next_action_due").returns<Pick<Prospect, "stage" | "next_action_due">[]>(),
-      supabase.from("evidence_items").select("*", { count: "exact", head: true }).is("verified_at", null),
-    ]);
+  const [
+    readyForReviewCount,
+    { count: pendingCandidateCount },
+    { data: pipelineProspects },
+    { count: needsReviewEvidenceCount },
+    outcomeIndex,
+  ] = await Promise.all([
+    countStrategiesReadyForReview(supabase),
+    supabase.from("candidates").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("prospects").select("id, stage, next_action_due").returns<Pick<Prospect, "id" | "stage" | "next_action_due">[]>(),
+    supabase.from("evidence_items").select("*", { count: "exact", head: true }).is("verified_at", null),
+    loadOutcomeIndex(supabase),
+  ]);
 
   const stageCounts = STAGES.map((s) => ({
     value: s.value,
     label: s.label,
     count: (pipelineProspects ?? []).filter((p) => p.stage === s.value).length,
   }));
+  // The Follow-up badge counts the same "Due now" list the Follow-up page
+  // builds -- date-due prospects not closed by an effective `never` outcome
+  // (ruling 0028 clause 1, via ruling 0027's derivation in loadOutcomeIndex),
+  // plus declined prospects whose revisit date has arrived (clause 3). A badge
+  // that counted differently from the list it opens would be an interface
+  // asserting what the code decided otherwise.
+  const todayIso = new Date().toISOString().slice(0, 10);
   const dueNowCount = (pipelineProspects ?? []).filter((p) => {
+    const outcome = outcomeIndex.get(p.id);
+    if (isClosedToWork(outcome)) return false;
+    if (outcome && isRevisitDue(outcome, todayIso)) return true;
     const h = computeHealthStatus(p.next_action_due);
     return h === "due_soon" || h === "stalled";
   }).length;

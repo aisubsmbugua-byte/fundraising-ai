@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { CalendarClock } from "lucide-react";
 import { STAGES, channelColor, computeHealthStatus, formatAmountCompact, type Prospect } from "@/lib/prospects";
-import { colors, spacing } from "@/lib/ui";
+import { describeDisposition, type ProspectOutcome } from "@/lib/prospect-outcomes";
+import { colors, spacing, chipStyle } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 import HealthChip from "@/components/HealthChip";
 import NextActionPopover from "@/components/NextActionPopover";
@@ -15,13 +16,22 @@ export default function ProspectCard({
   prospect,
   tier,
   daysInStage,
+  outcome = null,
 }: {
   prospect: Prospect;
   tier?: number;
   daysInStage: number;
+  // The outcome IN EFFECT (rulings 0027/0028): a declined prospect stays on
+  // the board -- closed is displayed, never hidden -- with the outcome shown
+  // as a fact and its reason beside it. A retracted outcome arrives as null
+  // and the card reads as if nothing were recorded.
+  outcome?: ProspectOutcome | null;
 }) {
   const stageIndex = STAGES.findIndex((s) => s.value === prospect.stage);
   const health = computeHealthStatus(prospect.next_action_due);
+  // Both labels derived from the rule, never restated here (ruling 0028
+  // clause 4) -- the same describeDisposition every other surface reads.
+  const disposition = outcome ? describeDisposition(outcome.current) : null;
 
   return (
     <Link
@@ -86,6 +96,28 @@ export default function ProspectCard({
           />
         </div>
       </div>
+      {outcome && disposition && (
+        <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
+          <div style={{ display: "flex", gap: spacing.xs, flexWrap: "wrap" }}>
+            <span style={chipStyle("red")}>Declined</span>
+            <span style={chipStyle(disposition.tone)}>{disposition.label}</span>
+          </div>
+          {outcome.outcome.reason && (
+            <div
+              style={{
+                fontSize: 11,
+                color: colors.textMuted,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={outcome.outcome.reason}
+            >
+              {outcome.outcome.reason}
+            </div>
+          )}
+        </div>
+      )}
       {health && (
         <div style={{ marginTop: 6 }}>
           <HealthChip status={health} />

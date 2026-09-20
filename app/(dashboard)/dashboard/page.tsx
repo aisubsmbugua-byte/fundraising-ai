@@ -26,6 +26,7 @@ import {
   type HealthStatus,
 } from "@/lib/prospects";
 import { countStrategiesReadyForReview } from "@/lib/strategy";
+import { loadOutcomeIndex, isClosedToWork } from "@/lib/prospect-outcomes";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import type { DiscoverySearchRun } from "@/lib/discovery-search";
 import type { Candidate } from "@/lib/candidates";
@@ -64,12 +65,13 @@ export default async function DashboardPage() {
     readyForReviewCount,
     { data: prospects },
     { count: newProspectsThisWeek },
-    { count: followUpsDueThisWeek },
+    { data: dueThisWeekProspects },
     { data: recentRuns },
     { data: recentReviewed },
     { data: dueProspects },
     { data: pendingCandidates },
     { data: rulesData },
+    outcomeIndex,
   ] = await Promise.all([
     supabase.auth.getUser().then((r) => ({ data: r.data.user })),
     supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>(),
@@ -82,12 +84,16 @@ export default async function DashboardPage() {
     countStrategiesReadyForReview(supabase),
     supabase.from("prospects").select("stage, ask_amount").returns<Pick<Prospect, "stage" | "ask_amount">[]>(),
     supabase.from("prospects").select("*", { count: "exact", head: true }).gte("created_at", sevenDaysAgo),
+    // ids rather than a head-count: the number shown must range over prospects
+    // actually offered as work, and an effective-`never` outcome (ruling 0028)
+    // is only knowable per row, through the derivation -- not in a count query.
     supabase
       .from("prospects")
-      .select("*", { count: "exact", head: true })
+      .select("id")
       .not("next_action_due", "is", null)
       .gte("next_action_due", todayStr)
-      .lte("next_action_due", sevenDaysOut),
+      .lte("next_action_due", sevenDaysOut)
+      .returns<Pick<Prospect, "id">[]>(),
     supabase
       .from("discovery_search_runs")
       .select("*")
@@ -110,6 +116,7 @@ export default async function DashboardPage() {
       .returns<Pick<Prospect, "id" | "name" | "next_action" | "next_action_due">[]>(),
     supabase.from("candidates").select("*").eq("status", "pending").returns<Candidate[]>(),
     supabase.from("screening_rules").select("*").eq("active", true),
+    loadOutcomeIndex(supabase),
   ]);
 
   const firstName = (user?.email ?? "there").split("@")[0].replace(/[._]+/g, " ").trim();
@@ -117,10 +124,17 @@ export default async function DashboardPage() {
 
   // Lead with due work, not metrics -- an on-track item isn't a
   // priority yet, only what's due soon or already overdue is.
+  //
+  // Both work lists below exclude prospects whose effective outcome closes
+  // them (ruling 0028 clause 1): a funder a human closed with `never` is not
+  // offered as work anywhere, however its dates read. `outcomeIndex` already
+  // holds only outcomes in effect -- a retracted one is absent (ruling 0027).
   const priorityProspects = (dueProspects ?? [])
+    .filter((p) => !isClosedToWork(outcomeIndex.get(p.id)))
     .map((p) => ({ ...p, health: computeHealthStatus(p.next_action_due) }))
     .filter((p) => p.health === "due_soon" || p.health === "stalled")
     .slice(0, 3);
+  const followUpsDueThisWeek = (dueThisWeekProspects ?? []).filter((p) => !isClosedToWork(outcomeIndex.get(p.id))).length;
 
   const byStage = new Map<string, number>();
   const potentialByStage = new Map<string, number>();
@@ -277,7 +291,7 @@ export default async function DashboardPage() {
           href="/pipeline"
           icon={CalendarClock}
           label="Follow-ups due"
-          value={followUpsDueThisWeek ?? 0}
+          value={followUpsDueThisWeek}
           sub="Due in the next 7 days"
         />
         <StatCard href="/prospects/review" icon={ClipboardCheck} label="Strategy to review" value={readyForReviewCount} sub="Awaiting review" />

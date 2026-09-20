@@ -105,6 +105,50 @@ export type RevisitDispositionRow = {
   decided_at: string;
 };
 
+// Ruling 0027. A retraction is an appended fact: its own row, one per outcome
+// (unique in 0068), never an edit or a deletion of the outcome it voids.
+export type OutcomeRetractionRow = {
+  id: string;
+  prospect_outcome_id: string;
+  note: string | null;
+  retracted_by: string | null;
+  retracted_at: string;
+};
+
+// --- The outcome in effect (ruling 0027 clause 3) ---------------------------
+//
+// THE one derivation of whether a recorded outcome is in effect. Effective
+// outcome = the recorded outcome unless a retraction row exists for it. Every
+// consumer -- pages, queries, any future export -- reads this (directly, or
+// through latestOutcomeInEffect / the loaders below, which apply it before
+// returning anything); no surface keeps its own copy of what closed means
+// (ruling 0028 clause 4).
+
+export function isOutcomeInEffect(
+  outcomeId: string,
+  retractions: readonly OutcomeRetractionRow[] | null | undefined,
+): boolean {
+  return !(retractions ?? []).some((r) => r.prospect_outcome_id === outcomeId);
+}
+
+// One prospect's outcome in effect: the most recently recorded outcome row
+// that no retraction voids, and null when there is none -- either nothing was
+// ever recorded, or everything recorded has been retracted. After retraction
+// the prospect stands as if no outcome were recorded (absence semantics, the
+// same encoding 0066 uses for `undecided`). Recording a decline again after a
+// retraction is a NEW row, so it is in effect on its own account.
+export function latestOutcomeInEffect(
+  outcomes: readonly ProspectOutcomeRow[] | null | undefined,
+  retractions: readonly OutcomeRetractionRow[] | null | undefined,
+): ProspectOutcomeRow | null {
+  let latest: ProspectOutcomeRow | null = null;
+  for (const o of outcomes ?? []) {
+    if (!isOutcomeInEffect(o.id, retractions)) continue;
+    if (!latest || Date.parse(o.recorded_at) > Date.parse(latest.recorded_at)) latest = o;
+  }
+  return latest;
+}
+
 // --- Derivation -----------------------------------------------------------
 
 export type CurrentDisposition = {
@@ -172,11 +216,18 @@ export type ProspectOutcome = {
   history: RevisitDispositionRow[];
 };
 
-// The latest outcome per prospect, with its disposition derived. One pass, so
-// a page showing every declined prospect does not issue a query per row.
+// The outcome in effect per prospect, with its disposition derived. One pass,
+// so a page showing every declined prospect does not issue a query per row.
+//
+// `retractions` is a required parameter, not an optional one, because ruling
+// 0027 clause 3 makes the index wrong without it: a caller that "forgot" the
+// retractions would silently show retracted outcomes as still standing.
+// Prospects whose every outcome is retracted are simply ABSENT from the index,
+// the same absence semantics the disposition log uses for `undecided`.
 export function buildOutcomeIndex(
   outcomes: readonly ProspectOutcomeRow[] | null | undefined,
   dispositions: readonly RevisitDispositionRow[] | null | undefined,
+  retractions: readonly OutcomeRetractionRow[] | null | undefined,
 ): Map<string, ProspectOutcome> {
   const byOutcome = new Map<string, RevisitDispositionRow[]>();
   for (const d of dispositions ?? []) {
@@ -185,14 +236,17 @@ export function buildOutcomeIndex(
     else byOutcome.set(d.prospect_outcome_id, [d]);
   }
 
-  const latestPerProspect = new Map<string, ProspectOutcomeRow>();
+  const byProspect = new Map<string, ProspectOutcomeRow[]>();
   for (const o of outcomes ?? []) {
-    const held = latestPerProspect.get(o.prospect_id);
-    if (!held || Date.parse(o.recorded_at) > Date.parse(held.recorded_at)) latestPerProspect.set(o.prospect_id, o);
+    const list = byProspect.get(o.prospect_id);
+    if (list) list.push(o);
+    else byProspect.set(o.prospect_id, [o]);
   }
 
   const index = new Map<string, ProspectOutcome>();
-  for (const [prospectId, outcome] of latestPerProspect) {
+  for (const [prospectId, rows] of byProspect) {
+    const outcome = latestOutcomeInEffect(rows, retractions);
+    if (!outcome) continue;
     const history = sortByDecidedAt(byOutcome.get(outcome.id) ?? []);
     index.set(prospectId, { outcome, current: deriveCurrentDisposition(history), history });
   }
@@ -249,6 +303,29 @@ export function isScheduledRevisit(outcome: ProspectOutcome): boolean {
   return outcome.current.disposition === "revisit_on";
 }
 
+// --- Work-list predicates (ruling 0028) -------------------------------------
+//
+// Every surface that offers a prospect as due, actionable or suggested work
+// consults these two, never its own copy of what closed means (clause 4). A
+// ProspectOutcome handed around this codebase is already the outcome IN
+// EFFECT -- buildOutcomeIndex and the loaders apply ruling 0027's derivation
+// before returning anything -- so a retracted outcome never reaches here and
+// closes nothing.
+
+// Clause 1: an effective `never` leaves every work list. Nothing else does --
+// `undecided` changes nothing about how the prospect was already offered, and
+// `revisit_on` is scheduled work, not closed work. Exclusion is for WORK LISTS
+// only; the prospect stays visible wherever prospects are listed (clause 2).
+export function isClosedToWork(outcome: ProspectOutcome | null | undefined): boolean {
+  return outcome?.current.disposition === "never";
+}
+
+// Clause 3: a scheduled revisit surfaces as due when its date arrives and not
+// before. `todayIso` is YYYY-MM-DD; ISO dates compare correctly as strings.
+export function isRevisitDue(outcome: ProspectOutcome, todayIso: string): boolean {
+  return outcome.current.disposition === "revisit_on" && outcome.current.revisitOn !== null && outcome.current.revisitOn <= todayIso;
+}
+
 // --- Loading --------------------------------------------------------------
 
 // Both queries are scoped by RLS to the caller's own organization; neither adds
@@ -256,10 +333,23 @@ export function isScheduledRevisit(outcome: ProspectOutcome): boolean {
 // codebase (see lib/prospect-intelligence.ts). Isolation is enforced in the
 // database so an action cannot forget it.
 
+export type ProspectOutcomeView = {
+  // The outcome in effect (ruling 0027 clause 3), or null -- either nothing
+  // was ever recorded, or everything recorded has been retracted. Consumers
+  // treat null exactly as "no outcome recorded".
+  effective: ProspectOutcome | null;
+  // Populated only when at least one outcome was recorded and NONE is in
+  // effect: the most recently recorded outcome and the retraction that voided
+  // it. Display-only, so the interface can say a record was taken back rather
+  // than showing an absence indistinguishable from "nothing ever happened" --
+  // never silently delete, even visually.
+  retractedTrace: { outcome: ProspectOutcomeRow; retraction: OutcomeRetractionRow } | null;
+};
+
 export async function loadProspectOutcome(
   supabase: SupabaseClient,
   prospectId: string,
-): Promise<ProspectOutcome | null> {
+): Promise<ProspectOutcomeView> {
   const { data: outcomes } = await supabase
     .from("prospect_outcomes")
     .select("*")
@@ -267,8 +357,25 @@ export async function loadProspectOutcome(
     .order("recorded_at", { ascending: false })
     .returns<ProspectOutcomeRow[]>();
 
-  const outcome = outcomes?.[0];
-  if (!outcome) return null;
+  if (!outcomes || outcomes.length === 0) return { effective: null, retractedTrace: null };
+
+  const { data: retractions } = await supabase
+    .from("prospect_outcome_retractions")
+    .select("*")
+    .in(
+      "prospect_outcome_id",
+      outcomes.map((o) => o.id),
+    )
+    .returns<OutcomeRetractionRow[]>();
+
+  const outcome = latestOutcomeInEffect(outcomes, retractions);
+  if (!outcome) {
+    // outcomes[0] is the most recently recorded (ordered above), and with no
+    // outcome in effect it necessarily has a retraction.
+    const latest = outcomes[0];
+    const retraction = (retractions ?? []).find((r) => r.prospect_outcome_id === latest.id) ?? null;
+    return { effective: null, retractedTrace: retraction ? { outcome: latest, retraction } : null };
+  }
 
   const { data: dispositions } = await supabase
     .from("prospect_outcome_dispositions")
@@ -277,13 +384,14 @@ export async function loadProspectOutcome(
     .returns<RevisitDispositionRow[]>();
 
   const history = sortByDecidedAt(dispositions ?? []);
-  return { outcome, current: deriveCurrentDisposition(history), history };
+  return { effective: { outcome, current: deriveCurrentDisposition(history), history }, retractedTrace: null };
 }
 
 export async function loadOutcomeIndex(supabase: SupabaseClient): Promise<Map<string, ProspectOutcome>> {
-  const [{ data: outcomes }, { data: dispositions }] = await Promise.all([
+  const [{ data: outcomes }, { data: dispositions }, { data: retractions }] = await Promise.all([
     supabase.from("prospect_outcomes").select("*").returns<ProspectOutcomeRow[]>(),
     supabase.from("prospect_outcome_dispositions").select("*").returns<RevisitDispositionRow[]>(),
+    supabase.from("prospect_outcome_retractions").select("*").returns<OutcomeRetractionRow[]>(),
   ]);
-  return buildOutcomeIndex(outcomes, dispositions);
+  return buildOutcomeIndex(outcomes, dispositions, retractions);
 }
