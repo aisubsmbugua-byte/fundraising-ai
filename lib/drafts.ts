@@ -25,4 +25,11 @@ export type Draft = {
   updated_at: string;
   approved_by: string | null;
   approved_at: string | null;
+  // Send facts (migration 0069) -- written once by the send handler,
+  // never cleared (ruling 0029 clause 3). Optional because a database
+  // that predates 0069 simply doesn't return them; both absent and null
+  // mean "no confirmed send on record".
+  sent_at?: string | null;
+  sent_by?: string | null;
+  resend_message_id?: string | null;
 };

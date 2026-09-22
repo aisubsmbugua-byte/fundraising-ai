@@ -3,9 +3,10 @@
 // research_eval_reviews, research_sources, research_claim_sources,
 // research_evidence), on the two ruling-0019 outcome tables added in
 // migration 0066 (prospect_outcomes, prospect_outcome_dispositions), on the
-// ruling-0026 run ledger added in migration 0067 (ai_runs), and on the
+// ruling-0026 run ledger added in migration 0067 (ai_runs), on the
 // ruling-0027 retraction table added in migration 0068
-// (prospect_outcome_retractions), in both
+// (prospect_outcome_retractions), and on the ruling-0029 send-attempt
+// ledger added in migration 0069 (draft_send_attempts), in both
 // directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -164,6 +165,16 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
     const { error: aiRunsError } = await admin.from("ai_runs").delete().in("organization_id", orgIds);
     if (aiRunsError && aiRunsError.code !== "42P01") {
       problems.push(`[${phase}] deleting ai_runs in test orgs failed: ${aiRunsError.message}`);
+    }
+
+    // draft_send_attempts references drafts with NO cascade (0069 -- a
+    // draft with send history is deliberately undeletable), so surviving
+    // attempts would block the prospects->drafts cascade delete below.
+    // 42P01/PGRST205 tolerated: migration 0069 not applied yet, and the
+    // section below reports itself NOT EVALUATED in that case.
+    const { error: sendAttemptsError } = await admin.from("draft_send_attempts").delete().in("organization_id", orgIds);
+    if (sendAttemptsError && sendAttemptsError.code !== "42P01" && sendAttemptsError.code !== "PGRST205") {
+      problems.push(`[${phase}] deleting draft_send_attempts in test orgs failed: ${sendAttemptsError.message}`);
     }
 
     const { data: prospects, error: prospectsError } = await admin
@@ -710,6 +721,90 @@ async function main() {
 
       const { data: aiRunDelete } = await clientA.from("ai_runs").delete().eq("id", aiRunA.id).select("id");
       check("ai_runs has no delete policy -- a run record is retained, not deleted", (aiRunDelete?.length ?? 0) === 0);
+    }
+
+    // --- Ruling 0029's send-attempt ledger (migration 0069) ---
+    //
+    // Same treatment: two real authenticated sessions. The ledger's own
+    // guarantees (birth preconditions, one live attempt, terminal-once,
+    // the drafts mirror) are exercised in scripts/test-send-draft.ts; this
+    // section owns the tenant-isolation half -- hard rule 6 on the new
+    // org-scoped table -- plus its no-delete retention.
+    const { error: sendAttemptsProbeError } = await admin.from("draft_send_attempts").select("id").limit(1);
+    if (sendAttemptsProbeError && (sendAttemptsProbeError.code === "42P01" || sendAttemptsProbeError.code === "PGRST205")) {
+      notEvaluated.push("draft_send_attempts -- migration 0069 is not applied to this database, so its assertions did not run");
+      console.log("\nNOT EVALUATED: draft_send_attempts (migration 0069 not applied). Apply 0069 and re-run; this is not a pass.\n");
+    } else {
+      // An APPROVED draft under Org A -- the attempt birth trigger refuses
+      // anything else, and that refusal is test-send-draft.ts's subject,
+      // not this one's.
+      const { data: draftA, error: draftAError } = await clientA
+        .from("drafts")
+        .insert({
+          prospect_id: prospectA.id,
+          kind: "intro_email",
+          subject: "[test] Org A draft subject",
+          content: "[test] Org A draft body",
+          status: "approved",
+          created_by: a.userId,
+        })
+        .select("id")
+        .single();
+      if (draftAError || !draftA) throw new Error(`Org A draft insert failed: ${draftAError?.message}`);
+
+      const attemptPayload = {
+        draft_id: draftA.id,
+        recipient_email: "org-a-funder@example.org",
+        subject: "[test] Org A draft subject",
+        body: "[test] Org A draft body",
+      };
+      const { data: attemptA, error: attemptAError } = await clientA
+        .from("draft_send_attempts")
+        .insert({ ...attemptPayload, attempted_by: a.userId })
+        .select("id, outcome, completed_at")
+        .single();
+      if (attemptAError || !attemptA) throw new Error(`Org A send attempt birth failed: ${attemptAError?.message}`);
+      check("a draft_send_attempts row is born unfinalized (outcome and completed_at null)", attemptA.outcome === null && attemptA.completed_at === null);
+
+      const { data: readAttempt } = await clientB.from("draft_send_attempts").select("id").eq("id", attemptA.id);
+      check("Org B cannot SELECT Org A's draft_send_attempts row by id", (readAttempt?.length ?? 0) === 0);
+
+      const { error: crossAttemptError } = await clientB
+        .from("draft_send_attempts")
+        .insert({ ...attemptPayload, attempted_by: b.userId });
+      check("Org B cannot INSERT a send attempt against Org A's draft (org-match birth trigger)", !!crossAttemptError);
+
+      const { error: impersonationError } = await clientA
+        .from("draft_send_attempts")
+        .insert({ ...attemptPayload, attempted_by: b.userId });
+      check("an attempt cannot name someone else as its author (insert policy: attempted_by = auth.uid())", !!impersonationError);
+
+      const { data: crossUpdate } = await clientB
+        .from("draft_send_attempts")
+        .update({ outcome: "failed", completed_at: new Date().toISOString(), error_note: "[test] cross-org" })
+        .eq("id", attemptA.id)
+        .select("id");
+      check("Org B's UPDATE on Org A's draft_send_attempts row affects 0 rows", (crossUpdate?.length ?? 0) === 0);
+
+      const { data: attemptDelete } = await clientA.from("draft_send_attempts").delete().eq("id", attemptA.id).select("id");
+      check("draft_send_attempts has no delete policy -- even Org A's own DELETE on its own row affects 0 rows", (attemptDelete?.length ?? 0) === 0);
+
+      const { data: finalize } = await clientA
+        .from("draft_send_attempts")
+        .update({ outcome: "failed", completed_at: new Date().toISOString(), error_note: "[test] provider refused" })
+        .eq("id", attemptA.id)
+        .select("id");
+      check("Org A can finalize its own unfinalized attempt (update affects 1 row)", (finalize?.length ?? 0) === 1);
+
+      const { data: refinalize } = await clientA
+        .from("draft_send_attempts")
+        .update({ outcome: "failed", completed_at: new Date().toISOString(), error_note: "[test] second write" })
+        .eq("id", attemptA.id)
+        .select("id");
+      check(
+        "a finalized attempt is out of update reach even for its own org (terminal written once -- update policy gates on outcome is null)",
+        (refinalize?.length ?? 0) === 0
+      );
     }
 
     // --- Symmetry: one probe under Org B, unreachable from Org A ---

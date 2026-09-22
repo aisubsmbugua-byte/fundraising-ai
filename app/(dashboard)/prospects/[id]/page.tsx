@@ -24,6 +24,7 @@ import InitialsAvatar from "@/components/InitialsAvatar";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle, sectionStyle } from "@/lib/ui";
 import type { StrategyRun } from "@/lib/strategy";
 import type { Draft } from "@/lib/drafts";
+import type { DraftSendAttempt } from "@/lib/draft-send";
 import type { Contact } from "@/lib/contacts";
 
 // Strategy generation runs two sequential AI calls with real web search,
@@ -111,6 +112,18 @@ export default async function ProspectDetailPage({
     supabase.from("screening_rules").select("*").eq("active", true),
     supabase.from("contacts").select("*").eq("source_prospect_id", prospect.id).returns<Contact[]>(),
   ]);
+
+  // Send attempts for this prospect's drafts (Slice 8, ruling 0029) --
+  // needs the draft ids, so it runs after the batch above. Tolerant of a
+  // database that predates migration 0069: the select errors, data stays
+  // null, and the panel shows no send history -- nothing can actually be
+  // sent pre-migration either, because the handler's birth insert fails
+  // before the provider is ever called.
+  const draftIds = (drafts ?? []).map((d) => d.id);
+  const { data: sendAttempts } =
+    draftIds.length > 0
+      ? await supabase.from("draft_send_attempts").select("*").in("draft_id", draftIds).returns<DraftSendAttempt[]>()
+      : { data: [] as DraftSendAttempt[] };
 
   const latestScreening = screenings?.[0] ?? null;
   const rules = (rulesData ?? []) as ScreeningRule[];
@@ -426,7 +439,13 @@ export default async function ProspectDetailPage({
                     )}
                   </div>
                   {strategyRun?.approved_strategy && (
-                    <DraftPanel prospectId={prospect.id} strategyRunId={strategyRun.id} drafts={drafts ?? []} />
+                    <DraftPanel
+                      prospectId={prospect.id}
+                      strategyRunId={strategyRun.id}
+                      drafts={drafts ?? []}
+                      sendAttempts={sendAttempts ?? []}
+                      contactEmail={prospect.contact_email}
+                    />
                   )}
                 </>
               )}
