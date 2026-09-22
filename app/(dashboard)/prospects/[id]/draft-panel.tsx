@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { generateDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
+import { generateDraft, composeDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
 import { sendApprovedDraft } from "./send-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -26,7 +26,13 @@ export default function DraftPanel({
   sender,
 }: {
   prospectId: string;
-  strategyRunId: string;
+  // Null when no approved strategy exists (STATE item 60). AI drafting
+  // stays gated on it exactly as before -- the buttons don't render and
+  // generateDraft is never called without one -- but the panel itself now
+  // renders regardless, because composing an email by hand needs no
+  // strategy. The drafts list and the approve/send flow are identical in
+  // both modes.
+  strategyRunId: string | null;
   drafts: Draft[];
   sendAttempts: DraftSendAttempt[];
   contactEmail: string | null;
@@ -39,6 +45,7 @@ export default function DraftPanel({
   const [, startTransition] = useTransition();
 
   function handleDraft(kind: DraftKind) {
+    if (!strategyRunId) return; // AI drafting requires an approved strategy; the buttons don't render without one.
     setPendingKinds((prev) => new Set(prev).add(kind));
     startTransition(async () => {
       try {
@@ -56,25 +63,37 @@ export default function DraftPanel({
   return (
     <div style={{ marginTop: spacing.xxl }}>
       <h2 style={{ fontSize: 16 }}>Outreach</h2>
-      <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
-        Draft outreach content based on the approved strategy. Each draft needs explicit approval, and
-        nothing gets sent automatically — an approved email goes out only when you confirm the exact
-        message on a final review, one click, one message.
-      </p>
-      <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md }}>
-        {DRAFT_KINDS.map((k) => (
-          <button
-            key={k.value}
-            type="button"
-            disabled={pendingKinds.has(k.value)}
-            onClick={() => handleDraft(k.value)}
-            style={buttonSecondary}
-          >
-            {pendingKinds.has(k.value) ? "Drafting…" : `Draft ${k.label}`}
-          </button>
-        ))}
-      </div>
+      {strategyRunId ? (
+        <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
+          Draft outreach content based on the approved strategy, or compose an email yourself. Each draft
+          needs explicit approval, and nothing gets sent automatically — an approved email goes out only
+          when you confirm the exact message on a final review, one click, one message.
+        </p>
+      ) : (
+        <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.xs }}>
+          AI drafting unlocks once a strategy is approved, but you can compose an email yourself at any
+          time. Each draft needs explicit approval, and nothing gets sent automatically — an approved
+          email goes out only when you confirm the exact message on a final review, one click, one
+          message.
+        </p>
+      )}
+      {strategyRunId && (
+        <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md }}>
+          {DRAFT_KINDS.map((k) => (
+            <button
+              key={k.value}
+              type="button"
+              disabled={pendingKinds.has(k.value)}
+              onClick={() => handleDraft(k.value)}
+              style={buttonSecondary}
+            >
+              {pendingKinds.has(k.value) ? "Drafting…" : `Draft ${k.label}`}
+            </button>
+          ))}
+        </div>
+      )}
       <LoadingStatus active={pendingKinds.size > 0} messages={DRAFT_MESSAGES} />
+      <ComposeSection prospectId={prospectId} />
 
       <div style={{ display: "grid", gap: spacing.md, marginTop: spacing.lg }}>
         {drafts.map((d) => (
@@ -88,6 +107,82 @@ export default function DraftPanel({
           />
         ))}
         {drafts.length === 0 && <p style={{ color: colors.textFaint, fontSize: 13 }}>No drafts yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+// Human-composed email (STATE item 60): a plain form that saves a draft
+// via composeDraft -- no AI call anywhere on this path. The saved draft
+// lands in the same list below with the same edit/approve/send flow; this
+// section never touches approval or sending.
+function ComposeSection({ prospectId }: { prospectId: string }) {
+  const [open, setOpen] = useState(false);
+  const [subject, setSubject] = useState("");
+  const [content, setContent] = useState("");
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  if (!open) {
+    return (
+      <div style={{ marginTop: spacing.md }}>
+        <button type="button" onClick={() => setOpen(true)} style={buttonSecondary}>
+          Compose email
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...cardStyle, marginTop: spacing.md }}>
+      <strong style={{ fontSize: 14 }}>Compose email</strong>
+      <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs }}>
+        You are writing this email yourself — no AI involved. Like every draft, it still needs explicit
+        approval, and nothing gets sent until you confirm the exact message.
+      </p>
+      <label style={{ ...labelStyle, display: "block", marginTop: spacing.sm }}>
+        Subject
+        <input value={subject} onChange={(e) => setSubject(e.target.value)} style={fieldStyle} />
+      </label>
+      <label style={{ ...labelStyle, display: "block", marginTop: spacing.sm }}>
+        Body
+        <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={8} style={fieldStyle} />
+      </label>
+      {composeError && (
+        <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{composeError}</p>
+      )}
+      <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md }}>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() =>
+            startTransition(async () => {
+              const result = await composeDraft(prospectId, subject, content);
+              if ("error" in result) {
+                setComposeError(result.error);
+              } else {
+                setComposeError(null);
+                setSubject("");
+                setContent("");
+                setOpen(false);
+              }
+            })
+          }
+          style={buttonPrimary}
+        >
+          {isPending ? "Saving…" : "Save draft"}
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => {
+            setOpen(false);
+            setComposeError(null);
+          }}
+          style={buttonSecondary}
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );

@@ -442,6 +442,101 @@ ok(
   panelText.includes("sendApprovedDraft(draft.id, prospectId)")
 );
 
+// --- 3b. composeDraft: human-composed, no AI, no new send path -------------
+// STATE item 60: a human can compose an email draft with no strategy at
+// all. The action is construction-checked here the way the handler is:
+// no model call (so no ai_runs row -- ruling 0026 covers model calls and
+// compose makes none), the generateDraft insert shape minus the AI-only
+// fields, refusals returned as plain messages, and NOTHING touching the
+// send machinery -- the closed-set scan above is the proof that compose
+// introduced no new send call and no new importer of lib/send-draft.ts.
+
+section("composeDraft source: human-written draft, no model call, refusals in plain words");
+
+const draftActionsText = fileText.get("app/(dashboard)/prospects/[id]/draft-actions.ts") ?? "";
+const composeStart = draftActionsText.indexOf("export async function composeDraft");
+const composeEnd = draftActionsText.indexOf("export async function", composeStart + 1);
+const composeRaw = composeStart >= 0 ? draftActionsText.slice(composeStart, composeEnd < 0 ? undefined : composeEnd) : "";
+// Statements only -- the comments legitimately DISCUSS what must not
+// exist (the same discipline as the migration checks above).
+const composeBody = composeRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+ok("composeDraft exists in draft-actions.ts, beside generateDraft", composeStart >= 0);
+ok(
+  "composeDraft takes (prospectId, subject, content) -- the human's own words, no strategy parameter",
+  /composeDraft\(\s*prospectId:\s*string,\s*subject:\s*string,\s*content:\s*string\s*\)/.test(composeBody)
+);
+ok(
+  "composeDraft makes NO model call and records NO ai_runs row (no anthropic, no beginRun/finalizeRun -- ruling 0026 covers model calls and none is made)",
+  composeBody.length > 0 && !/anthropic|beginRun|finalizeRun/.test(composeBody)
+);
+ok(
+  "composeDraft never touches the send path: no sendFunderEmail, no send-draft import, no draft_send_attempts",
+  composeBody.length > 0 && !/sendFunderEmail|send-draft|draft_send_attempts/.test(composeBody)
+);
+ok(
+  "validation trims BOTH fields and refuses empties with returned plain messages",
+  (composeBody.match(/\.trim\(\)/g) ?? []).length >= 2 &&
+    /if\s*\(!trimmedSubject\)\s*return\s*\{\s*error:/.test(composeBody) &&
+    /if\s*\(!trimmedContent\)\s*return\s*\{\s*error:/.test(composeBody)
+);
+ok(
+  "composeDraft throws nothing -- every refusal is a returned message (production redacts thrown server-action errors)",
+  composeBody.length > 0 && !/\bthrow\b/.test(composeBody)
+);
+ok(
+  "the insert mirrors generateDraft's shape: drafts row with kind intro_email, status 'draft', created_by the authenticated user",
+  /\.from\("drafts"\)\.insert\(/.test(composeBody) &&
+    /kind:\s*"intro_email"/.test(composeBody) &&
+    /status:\s*"draft"/.test(composeBody) &&
+    /created_by:\s*user\.id/.test(composeBody)
+);
+ok(
+  "the insert stores the TRIMMED values the validation checked -- what was validated is what is saved",
+  /subject:\s*trimmedSubject/.test(composeBody) && /content:\s*trimmedContent/.test(composeBody)
+);
+ok(
+  "no model and no strategy_run_id are written -- their absence is the honest record that no model and no strategy produced this",
+  !/model:/.test(composeBody) && !/strategy_run_id/.test(composeBody)
+);
+ok(
+  "org scoping is generateDraft's exactly: no organization_id in the insert (the column defaults to my_organization_id(), hard rule 6)",
+  /\.from\("drafts"\)\.insert\(/.test(composeBody) && !/organization_id/.test(composeBody)
+);
+ok(
+  "composeDraft requires an authenticated user before anything else",
+  /supabase\.auth\.getUser\(\)/.test(composeBody) && /if\s*\(!user\)\s*redirect\("\/login"\)/.test(composeBody)
+);
+
+// The UI side: compose renders WITHOUT an approved strategy, AI drafting
+// keeps its gate, and the composed draft joins the same list.
+const pageText = fileText.get(PROSPECT_PAGE) ?? "";
+ok(
+  "the prospect page renders DraftPanel unconditionally on the Strategy tab, with strategyRunId null when no approved strategy exists",
+  /strategyRunId=\{strategyRun\?\.approved_strategy \? strategyRun\.id : null\}/.test(pageText) &&
+    !/approved_strategy\s*&&\s*\(\s*<DraftPanel/.test(pageText)
+);
+ok(
+  "the panel gates the AI-draft buttons on strategyRunId (render guard AND a handler guard that never calls generateDraft without one)",
+  /\{strategyRunId && \(\s*<div/.test(panelText) && /if \(!strategyRunId\) return;/.test(panelText)
+);
+ok(
+  "the compose affordance is NOT gated on strategyRunId (ComposeSection renders outside the strategyRunId guard)",
+  /<ComposeSection prospectId=\{prospectId\} \/>/.test(panelText) &&
+    !/strategyRunId && \([\s\S]{0,400}<ComposeSection/.test(panelText)
+);
+ok(
+  "the compose form saves through composeDraft and shows the returned refusal message instead of swallowing it",
+  /composeDraft\(prospectId, subject, content\)/.test(panelText) && /setComposeError\(result\.error\)/.test(panelText)
+);
+ok(
+  "the compose form says plainly the email is human-written and still needs approval before anything is sent",
+  /writing this email yourself/.test(panelText) && /no AI involved/.test(panelText) && /needs explicit\s+approval/.test(panelText)
+);
+
 // --- 4. Pure logic: every precondition combination --------------------------
 
 section("evaluateSendReadiness: the clause-2 preconditions, offline");

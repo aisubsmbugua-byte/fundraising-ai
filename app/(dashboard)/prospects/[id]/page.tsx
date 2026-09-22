@@ -447,24 +447,27 @@ export default async function ProspectDetailPage({
                       </div>
                     )}
                   </div>
-                  {strategyRun?.approved_strategy && (
-                    <DraftPanel
-                      prospectId={prospect.id}
-                      strategyRunId={strategyRun.id}
-                      drafts={drafts ?? []}
-                      sendAttempts={sendAttempts ?? []}
-                      contactEmail={prospect.contact_email}
-                      sender={{
-                        // RESEND_FROM_EMAIL is an address, not a secret (the
-                        // API key never leaves lib/send-draft.ts) -- read here
-                        // server-side so the confirmation can display the
-                        // exact from identity the send will carry.
-                        orgName: orgProfileName?.name ?? null,
-                        fromAddress: process.env.RESEND_FROM_EMAIL ?? null,
-                        userEmail: user?.email ?? null,
-                      }}
-                    />
-                  )}
+                  {/* The panel is no longer gated on an approved strategy
+                      (STATE item 60): a human can compose an email with no
+                      strategy at all. AI drafting keeps its gate -- the
+                      strategyRunId is null until a strategy is approved, and
+                      the panel renders no AI controls without one. */}
+                  <DraftPanel
+                    prospectId={prospect.id}
+                    strategyRunId={strategyRun?.approved_strategy ? strategyRun.id : null}
+                    drafts={drafts ?? []}
+                    sendAttempts={sendAttempts ?? []}
+                    contactEmail={prospect.contact_email}
+                    sender={{
+                      // RESEND_FROM_EMAIL is an address, not a secret (the
+                      // API key never leaves lib/send-draft.ts) -- read here
+                      // server-side so the confirmation can display the
+                      // exact from identity the send will carry.
+                      orgName: orgProfileName?.name ?? null,
+                      fromAddress: process.env.RESEND_FROM_EMAIL ?? null,
+                      userEmail: user?.email ?? null,
+                    }}
+                  />
                 </>
               )}
               {activeTab === "activity" && <ActivityTab history={history ?? []} />}

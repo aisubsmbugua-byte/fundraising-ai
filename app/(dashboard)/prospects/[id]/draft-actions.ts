@@ -131,6 +131,51 @@ Contact: ${prospect.contact_name || "(no named contact)"}${prospect.contact_emai
   revalidatePath(`/prospects/${prospectId}`);
 }
 
+// A human-composed email draft (STATE item 60): no strategy required, no
+// AI call -- and therefore no ai_runs row, because ruling 0026 covers
+// model calls and this makes none. The inserted row is an ordinary draft:
+// it takes the exact same downstream path as a generated one (review,
+// explicit approval, the one confirmed send of ruling 0029 -- none of
+// that machinery is touched here). Refusals RETURN plain messages instead
+// of throwing, because production redacts thrown server-action errors.
+export async function composeDraft(
+  prospectId: string,
+  subject: string,
+  content: string
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const trimmedSubject = subject.trim();
+  const trimmedContent = content.trim();
+  if (!trimmedSubject) return { error: "Give the email a subject before saving." };
+  if (!trimmedContent) return { error: "Write the email body before saving." };
+
+  const { data: prospect } = await supabase.from("prospects").select("id").eq("id", prospectId).single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  // Same insert shape as generateDraft, minus what only an AI draft has:
+  // no strategy_run_id (there may be no strategy at all) and no model --
+  // a null model is the honest record that no model wrote this. Org
+  // scoping is identical to generateDraft's insert: organization_id
+  // defaults to my_organization_id() in the database (hard rule 6).
+  const { error } = await supabase.from("drafts").insert({
+    prospect_id: prospectId,
+    kind: "intro_email",
+    subject: trimmedSubject,
+    content: trimmedContent,
+    status: "draft",
+    created_by: user.id,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/prospects/${prospectId}`);
+  return { ok: true };
+}
+
 export async function updateDraft(draftId: string, prospectId: string, subject: string | null, content: string) {
   const supabase = createClient();
   const {
