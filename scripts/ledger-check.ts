@@ -38,6 +38,11 @@
 //         ranged over and how that set was determined. Not a check on anything
 //         else -- it is the tool declining to emit the shape of number the
 //         ruling forbids. See summaryCounts().
+//   0023  a STATE.md data row that does not parse is a violation, not a skip.
+//   0031  backticks assert, plain text discusses: a backticked name offered as
+//         a table must name a real table (with one dated exemption for the
+//         sealed ruling 0018's own recorded wrong claim), and a hex run in a
+//         released row is read as a commit only when the row offers it as one.
 //
 // The module exports its checks so scripts/test-ledger-check.ts can drive them
 // against fixtures. Nothing here runs on import.
@@ -222,33 +227,47 @@ export function readRulings(rulingsDir: string, out: Sink): Ruling[] {
     .filter((r): r is Ruling => r !== null);
 }
 
-// --- .baseline.json (ruling 0014) ------------------------------------------
+// --- .baseline.json (ruling 0014, citation exemptions per ruling 0031) ------
 //
 // Two kinds of entry, and they are not the same fact:
 //
 //   grandfathered  uncommitted governed paths that predate the protocol. Frozen
 //                  at ledger creation; never re-derived by any command.
 //   exempted       anything exempted since, each carrying the date it was
-//                  exempted and the reason. Written only by --baseline.
+//                  exempted and the reason. Path entries ({ path }) are written
+//                  by --baseline; citation entries ({ file, token }) are written
+//                  by the decision space by hand (ruling 0031 clause 3: only for
+//                  content inside sealed rulings, which cannot be corrected).
+//                  No sealing is needed to edit either kind -- --seal never
+//                  touches this file.
 //
 // The old schema was a flat { note, paths } list, which could not tell the two
 // apart -- and --seal rewrote it wholesale every time a ruling was settled.
 
+/** Ruling 0031: (file, token) pair the citation checks report as exempt rather than fail. */
+export type CitationExemption = { file: string; token: string; date: string; reason: string };
+
 export type BaselineFile = {
   grandfathered: { note: string; date?: string; paths: string[] };
-  exempted: { path: string; date: string; reason: string }[];
+  exempted: ({ path: string; date: string; reason: string } | CitationExemption)[];
 };
 
-export type BaselineRead = { exempt: Set<string>; legacy: boolean; file: BaselineFile | null };
+export type BaselineRead = {
+  exempt: Set<string>;
+  citationExemptions: CitationExemption[];
+  legacy: boolean;
+  file: BaselineFile | null;
+};
 
 export function readBaseline(baselinePath: string, out?: Sink): BaselineRead {
-  if (!existsSync(baselinePath)) return { exempt: new Set(), legacy: false, file: null };
+  if (!existsSync(baselinePath))
+    return { exempt: new Set(), citationExemptions: [], legacy: false, file: null };
   let parsed: any;
   try {
     parsed = JSON.parse(readFileSync(baselinePath, "utf8"));
   } catch (e) {
     out?.fail(`.baseline.json is not valid JSON: ${(e as Error).message}`);
-    return { exempt: new Set(), legacy: false, file: null };
+    return { exempt: new Set(), citationExemptions: [], legacy: false, file: null };
   }
 
   // Legacy flat schema, kept readable so an un-migrated checkout still guards
@@ -257,7 +276,7 @@ export function readBaseline(baselinePath: string, out?: Sink): BaselineRead {
     out?.warn(
       `.baseline.json is in the pre-0014 flat schema — a path grandfathered at ledger creation cannot be told from one exempted later. Migrate it to { grandfathered, exempted }.`,
     );
-    return { exempt: new Set(parsed.paths as string[]), legacy: true, file: null };
+    return { exempt: new Set(parsed.paths as string[]), citationExemptions: [], legacy: true, file: null };
   }
 
   const file: BaselineFile = {
@@ -270,20 +289,31 @@ export function readBaseline(baselinePath: string, out?: Sink): BaselineRead {
   };
 
   const exempt = new Set<string>(file.grandfathered.paths);
-  for (const e of file.exempted) {
-    if (!e || typeof e.path !== "string" || !e.path) {
+  const citationExemptions: CitationExemption[] = [];
+  for (const e of file.exempted as any[]) {
+    // A citation exemption (ruling 0031) names the doc and the token; a path
+    // exemption (ruling 0014) names the dirty governed path. Both carry a
+    // dated reason -- an undated or unjustified exemption of either kind fails.
+    const isCitation = e && (typeof e.token === "string" || typeof e.file === "string");
+    const label = isCitation ? `${e?.file ?? "?"} token \`${e?.token ?? "?"}\`` : e?.path;
+    if (isCitation && (!e.file || !e.token)) {
+      out?.fail(`.baseline.json: a citation exemption must name both "file" and "token" (ruling 0031)`);
+      continue;
+    }
+    if (!isCitation && (!e || typeof e.path !== "string" || !e.path)) {
       out?.fail(`.baseline.json: an "exempted" entry has no path`);
       continue;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date ?? "")) {
-      out?.fail(`.baseline.json: exemption for ${e.path} has no ISO date — ruling 0014 requires one`);
+      out?.fail(`.baseline.json: exemption for ${label} has no ISO date — ruling 0014 requires one`);
     }
     if (!e.reason || !String(e.reason).trim()) {
-      out?.fail(`.baseline.json: exemption for ${e.path} names no reason — ruling 0014 requires one`);
+      out?.fail(`.baseline.json: exemption for ${label} names no reason — ruling 0014 requires one`);
     }
-    exempt.add(e.path);
+    if (isCitation) citationExemptions.push(e as CitationExemption);
+    else exempt.add(e.path);
   }
-  return { exempt, legacy: false, file };
+  return { exempt, citationExemptions, legacy: false, file };
 }
 
 // --- rulings/.confirmed.json (ruling 0012) ---------------------------------
@@ -377,8 +407,9 @@ function walk(dir: string, onFile: (abs: string) => void, onDir?: (abs: string) 
 // --- 0018: every repo path cited in docs/** exists -------------------------
 //
 // Scope, stated so the report does not overclaim: this checks *paths*. Table
-// names and code symbols are not checked -- see the build report for the
-// measurement that says why, and the STATE item raised on it.
+// names are checked separately (ruling 0031, checkTableClaims below); code
+// symbols are not checked -- ruling 0031 clause 2 keeps symbol checking off on
+// measured noise (19 misses, most legitimately planned-not-present).
 //
 // A citation is a backticked token that looks like a repo path. Deliberately
 // conservative, because this runs on a Stop hook every turn and a check that
@@ -424,17 +455,28 @@ export function citationDocs(root: string): string[] {
   return files.sort();
 }
 
+/**
+ * The prose of one document: every line outside fenced code blocks. A fence
+ * holds quoted output, not the document asserting anything -- the same reading
+ * for path citations (0018) and table claims (0031), factored so the two checks
+ * cannot drift on what counts as prose.
+ */
+function forEachProseLine(text: string, cb: (ln: string, lineNo: number) => void) {
+  let fenced = false;
+  text.split(/\r?\n/).forEach((ln, i) => {
+    if (/^\s*(```|~~~)/.test(ln)) {
+      fenced = !fenced;
+      return;
+    }
+    if (fenced) return;
+    cb(ln, i + 1);
+  });
+}
+
 export function collectCitations(root: string): Citation[] {
   const out: Citation[] = [];
   for (const rel of citationDocs(root)) {
-    const lines = readFileSync(join(root, rel), "utf8").split(/\r?\n/);
-    let fenced = false;
-    lines.forEach((ln, i) => {
-      if (/^\s*(```|~~~)/.test(ln)) {
-        fenced = !fenced;
-        return;
-      }
-      if (fenced) return;
+    forEachProseLine(readFileSync(join(root, rel), "utf8"), (ln, lineNo) => {
       for (const m of ln.matchAll(/`([^`\n]+)`/g)) {
         const token = m[1];
         if (!TOKEN_CHARS.test(token)) continue;
@@ -443,20 +485,30 @@ export function collectCitations(root: string): Citation[] {
         if (/^\.[A-Za-z0-9_-]+\//.test(token)) continue; // .claude/ and friends
         if (/^\.[a-z]+$/.test(token)) continue; // a bare extension
         if (!(token.includes("/") || DOC_EXT.test(token))) continue;
-        out.push({ doc: rel, line: i + 1, token });
+        out.push({ doc: rel, line: lineNo, token });
       }
     });
   }
   return out;
 }
 
+/** Ruling 0031 clause 3: is this (doc, token) violation exempted in the baseline? */
+function citationExemption(
+  exemptions: CitationExemption[],
+  doc: string,
+  token: string,
+): CitationExemption | undefined {
+  return exemptions.find((e) => e.file === doc && e.token === token);
+}
+
 export function checkCitations(
   root: string,
   out: Sink,
-): { checked: number; docs: number; unresolved: Citation[] } {
+  exemptions: CitationExemption[] = [],
+): { checked: number; docs: number; unresolved: Citation[]; exempt: string[] } {
   const docs = citationDocs(root).length;
   const citations = collectCitations(root);
-  if (citations.length === 0) return { checked: 0, docs, unresolved: [] };
+  if (citations.length === 0) return { checked: 0, docs, unresolved: [], exempt: [] };
 
   const byBase = new Map<string, string[]>();
   const record = (abs: string) => {
@@ -496,12 +548,127 @@ export function checkCitations(
     unresolved.push(c);
   }
 
+  const exempt: string[] = [];
+  const failed: Citation[] = [];
   for (const c of unresolved) {
+    const ex = citationExemption(exemptions, c.doc, c.token);
+    if (ex) {
+      exempt.push(
+        `${c.doc}:${c.line} cites \`${c.token}\`, which does not exist — exempted ${ex.date}: ${ex.reason}`,
+      );
+      continue;
+    }
+    failed.push(c);
     out.fail(
       `${c.doc}:${c.line} cites \`${c.token}\`, which does not exist. Ruling 0018: a name is not evidence — cite the artifact you opened, or say "not checked".`,
     );
   }
-  return { checked: citations.length, docs, unresolved };
+  return { checked: citations.length, docs, unresolved: failed, exempt };
+}
+
+// --- 0031: a backticked name offered as a table names a real table ---------
+//
+// Clause 2 grows the checkable vocabulary to table names. The rule, chosen as
+// the strictest one that measures zero false flags on the current tree (the
+// one true flag is ruling 0018's own recorded wrong claim, exempted per
+// clause 3):
+//
+//   A backticked bare identifier (`[a-z_]+`, no dot, no slash) is an ASSERTED
+//   table only when the word "table"/"tables" is immediately adjacent on the
+//   same line ("the `prospects` table", "table `drafts`") -- and not negated
+//   ("There is no `outcomes` table" is a correct absence claim in the
+//   established idiom of this repo's as-built notes, not an assertion of
+//   existence; the negation window reaches back through the previous prose
+//   line because prose hard-wraps). An asserted name must match a table
+//   parsed from the migrations, or resolve as a file. Anything not offered as
+//   a table -- columns, status values, flags, env vars, key names -- is not
+//   checked at all: measured over the tree on 2026-09-21, 1032 bare backticked
+//   identifiers, 10 offered as tables, 3 negated, 1 flagged (the 0018 entry).
+//
+// Symbol checking stays OFF (ruling 0031 clause 2: measured noise says the
+// vocabulary cannot yet carry it).
+
+// The table population is defined by this one pattern; the summary prints the
+// equivalent command so a reader can reproduce the set (ruling 0021). The code
+// additionally tolerates leading whitespace, `public.` and quoting; today the
+// two agree exactly (34 tables, verified 2026-09-21), and a test runs the
+// printed command and compares.
+const CREATE_TABLE_RE = /^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z_]+)"?/gim;
+export const TABLES_CMD = `grep -hoE '^create table (if not exists )?[a-z_]+' supabase/migrations/*.sql`;
+
+/**
+ * The set the table check verifies claims against: every table created by a
+ * migration. Line-anchored on the raw SQL rather than run through stripSql,
+ * because stripSql's comment pass eats a `--` inside a string literal and
+ * swallows the statement after it (0066_prospect_outcomes.sql, line 69).
+ */
+export function tableNames(root: string): string[] {
+  const dir = join(root, "supabase", "migrations");
+  if (!existsSync(dir)) return [];
+  const names = new Set<string>();
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+    for (const m of readFileSync(join(dir, f), "utf8").matchAll(CREATE_TABLE_RE)) {
+      names.add(m[1].toLowerCase());
+    }
+  }
+  return [...names].sort();
+}
+
+/** "no/not/never …" within the 25 non-backtick chars before the token. */
+const TABLE_NEGATION_RE = /\b(no|not|never|nor|without|isn't|aren't|wasn't)\b[^`]{0,25}$/i;
+
+export type TableClaim = { doc: string; line: number; token: string };
+
+/** Backticked bare identifiers the prose offers as tables (see the rule above). */
+export function collectTableClaims(root: string): TableClaim[] {
+  const out: TableClaim[] = [];
+  for (const rel of citationDocs(root)) {
+    let prevProse = "";
+    forEachProseLine(readFileSync(join(root, rel), "utf8"), (ln, lineNo) => {
+      for (const m of ln.matchAll(/`([a-z_]+)`/g)) {
+        const before = ln.slice(0, m.index!);
+        const after = ln.slice(m.index! + m[0].length);
+        const offered =
+          /\btables?\b[\s:,]{0,3}$/i.test(before) || /^\s{0,3}tables?\b/i.test(after);
+        if (!offered) continue;
+        if (TABLE_NEGATION_RE.test(prevProse + " " + before)) continue;
+        out.push({ doc: rel, line: lineNo, token: m[1] });
+      }
+      if (ln.trim()) prevProse = ln;
+    });
+  }
+  return out;
+}
+
+export function checkTableClaims(
+  root: string,
+  out: Sink,
+  exemptions: CitationExemption[] = [],
+): { claims: number; tables: number; exempt: string[] } {
+  const tables = new Set(tableNames(root));
+  const claims = collectTableClaims(root);
+  const exempt: string[] = [];
+
+  const byBase = new Set<string>();
+  walk(root, (abs) => byBase.add(basename(abs)), (abs) => byBase.add(basename(abs)));
+
+  for (const c of claims) {
+    if (tables.has(c.token)) continue;
+    // Clause 2: checked only where it "names no table and no file".
+    const asFile = [join(root, c.token), join(root, dirname(c.doc), c.token), join(root, "docs", c.token)];
+    if (asFile.some((p) => existsSync(p)) || byBase.has(c.token)) continue;
+    const ex = citationExemption(exemptions, c.doc, c.token);
+    if (ex) {
+      exempt.push(
+        `${c.doc}:${c.line} offers \`${c.token}\` as a table, and no migration creates it — exempted ${ex.date}: ${ex.reason}`,
+      );
+      continue;
+    }
+    out.fail(
+      `${c.doc}:${c.line} offers \`${c.token}\` as a table, and no migration creates it. Ruling 0031: backticks assert existence — name the real table, or discuss the absent one in plain text.`,
+    );
+  }
+  return { claims: claims.length, tables: tables.size, exempt };
 }
 
 // --- 0020: a migration ahead of the deployed branch must be additive -------
@@ -624,6 +791,43 @@ export function parseOpenItems(block: string, out: Sink): OpenItem[] {
 const REPO_PATH_RE = /\b[\w@.\-/()[\]]*[\w)\]]\.(?:ts|tsx|sql|mjs|js|jsx|json|md|py|sh)\b/g;
 const SHA_RE = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g;
 
+/**
+ * Ruling 0031 clause 4: hex looks like many things, and a released row's hex is
+ * ancestry-checked only when the row offers it as a commit. The predicate, per
+ * hex run (7-40 chars, at least one digit and one letter):
+ *
+ *   - adjacent to a dash: never a commit. This is a dashed UUID's 8- and
+ *     12-char segments, which the old regex read as two separate "commits".
+ *   - 7-10 chars: a commit. This is the short-SHA shape this ledger actually
+ *     cites ("at 79161f5", "carries cd88f31"), and treating the length itself
+ *     as the offer is what keeps every existing citation verifying -- proved
+ *     occurrence-identical against the live STATE.md on 2026-09-21.
+ *   - 11-40 chars: a commit only when "commit(s)" or "sha" appears within the
+ *     40 characters before it. A 32-hex provider message id in prose (the
+ *     Resend incident this clause exists for) has no such offer and stays out.
+ *
+ * namesEvidence() is deliberately unchanged: whether a row cites *evidence* and
+ * whether a hex run is an *asserted commit* are different questions, and a row
+ * whose only hex is a provider id now fails "cites nothing checkable" rather
+ * than failing ancestry — which is the ruling's point.
+ */
+export function commitCitations(subject: string): string[] {
+  const found: string[] = [];
+  const re = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g;
+  for (const m of subject.matchAll(re)) {
+    const tok = m[0];
+    const start = m.index!;
+    if (subject[start - 1] === "-" || subject[start + tok.length] === "-") continue;
+    if (tok.length <= 10) {
+      found.push(tok);
+      continue;
+    }
+    const pre = subject.slice(Math.max(0, start - 40), start);
+    if (/\b(commits?|sha)\b/i.test(pre)) found.push(tok);
+  }
+  return found;
+}
+
 /** Anything past `implemented` names what was run, merged or observed. */
 export function namesEvidence(subject: string): boolean {
   if (REPO_PATH_RE.test(subject)) {
@@ -665,6 +869,12 @@ export type LedgerResult = {
   citationsChecked: number;
   /** `.md` files under docs/ — the set citationsChecked ranged over. */
   citationDocCount: number;
+  /** Backticked names offered as tables in prose (ruling 0031 clause 2). */
+  tableCitationsChecked: number;
+  /** Tables created by supabase/migrations/*.sql — the set they were checked against. */
+  tableCount: number;
+  /** Violations that were exempted in .baseline.json — reported, not silent (ruling 0031 clause 3). */
+  exemptLines: string[];
   migrationsAhead: number;
 };
 
@@ -791,8 +1001,24 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
     }
   }
 
+  // Read once: the path exemptions guard the dirty-tree check below, and the
+  // citation exemptions let the two citation checks report a sealed document's
+  // own violation as exempt rather than fail (ruling 0031 clause 3).
+  const { exempt, citationExemptions } = readBaseline(BASELINE_FILE, out);
+
   // --- 0018: citations -----------------------------------------------------
-  const { checked: citationsChecked, docs: citationDocCount } = checkCitations(root, out);
+  const {
+    checked: citationsChecked,
+    docs: citationDocCount,
+    exempt: exemptCitations,
+  } = checkCitations(root, out, citationExemptions);
+
+  // --- 0031: table claims --------------------------------------------------
+  const {
+    claims: tableCitationsChecked,
+    tables: tableCount,
+    exempt: exemptTables,
+  } = checkTableClaims(root, out, citationExemptions);
 
   // --- 0020: migrations ahead of the deployed branch -----------------------
   const { ahead } = checkMigrations(root, git, out);
@@ -800,7 +1026,6 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
   // --- the check with teeth ------------------------------------------------
   // Code changed in a governed area, with nothing authorizing it.
 
-  const { exempt } = readBaseline(BASELINE_FILE, out);
   const dirty = git.dirtyPaths();
   if (dirty === null) {
     out.warn("not a git repository — cannot check for unauthorized code changes");
@@ -826,6 +1051,9 @@ export function runLedger(root: string, git: GitPort): LedgerResult {
     authorizedRuling,
     citationsChecked,
     citationDocCount,
+    tableCitationsChecked,
+    tableCount,
+    exemptLines: [...exemptCitations, ...exemptTables],
     migrationsAhead: ahead.length,
   };
 }
@@ -899,7 +1127,9 @@ function checkItemStatus(item: OpenItem, root: string, git: GitPort, out: Sink) 
     }
   }
 
-  for (const s of subject.match(SHA_RE) ?? []) {
+  // Ruling 0031 clause 4: only hex the row offers as a commit is checked --
+  // see commitCitations. A provider id or UUID in prose is not a citation.
+  for (const s of commitCitations(subject)) {
     verifiable++;
     if (!git.isAncestorOfDeployed(s)) {
       out.fail(
@@ -971,6 +1201,13 @@ export function summaryCounts(r: LedgerResult): CountedOver[] {
         `${r.citationDocCount} file(s): find docs -name "*.md" -type f`,
     },
     {
+      label: "table citations",
+      count: r.tableCitationsChecked,
+      over:
+        `backticked names offered as tables ("table \`x\`" / "\`x\` table", un-negated) in the same ` +
+        `${r.citationDocCount} file(s), checked against ${r.tableCount} table(s): ${TABLES_CMD}`,
+    },
+    {
       label: `migrations ahead of ${DEPLOYED_BRANCH}`,
       count: r.migrationsAhead,
       over: MIGRATIONS_AHEAD_CMD,
@@ -1039,7 +1276,12 @@ export function addBaselineExemptions(
       added.push(p);
     }
   }
-  file.exempted.sort((a, b) => (a.date === b.date ? a.path.localeCompare(b.path) : a.date.localeCompare(b.date)));
+  // A citation exemption ({ file, token }) has no .path; sort both kinds stably.
+  const sortKey = (e: BaselineFile["exempted"][number]) =>
+    "path" in e && e.path ? e.path : `${(e as CitationExemption).file}#${(e as CitationExemption).token}`;
+  file.exempted.sort((a, b) =>
+    a.date === b.date ? sortKey(a).localeCompare(sortKey(b)) : a.date.localeCompare(b.date),
+  );
   writeFileSync(BASELINE_FILE, JSON.stringify(file, null, 2) + "\n");
   return { added, alreadyExempt };
 }
@@ -1085,6 +1327,9 @@ function main() {
   if (!(quiet && clean && r.warnings.length === 0)) {
     if (!quiet || !clean) {
       console.log("\n" + summaryLines(r).join("\n"));
+      // An exemption is reported, not silent (ruling 0031 clause 3) -- but it is
+      // not a warning, so the --quiet hook output for a passing run is unchanged.
+      for (const e of r.exemptLines) console.log(`  exempt  ${e}`);
     }
     for (const w of r.warnings) console.log(`  warn  ${w}`);
     for (const v of r.violations) console.log(`  FAIL  ${v}`);

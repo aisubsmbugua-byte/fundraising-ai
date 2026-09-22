@@ -32,7 +32,11 @@ import {
   rulingFiles,
   summaryCounts,
   summaryLines,
+  tableNames,
+  collectTableClaims,
+  commitCitations,
   MIGRATIONS_AHEAD_CMD,
+  TABLES_CMD,
   DEPLOYED_BRANCH,
   type GitPort,
 } from "./ledger-check";
@@ -460,9 +464,9 @@ function fixture(): Fixture {
   check("0021 every printed count names its unit",
     summaryCounts(f.run()).every((c) => c.label.trim().length > 0));
 
-  check("0021 the four counts on the summary are rulings, open items, citations and migrations",
+  check("0021 the five counts on the summary are rulings, open items, citations, table citations and migrations",
     JSON.stringify(summaryCounts(f.run()).map((c) => c.label)) ===
-      JSON.stringify(["rulings", "open items", "doc citations", `migrations ahead of ${DEPLOYED_BRANCH}`]));
+      JSON.stringify(["rulings", "open items", "doc citations", "table citations", `migrations ahead of ${DEPLOYED_BRANCH}`]));
 
   // The pre-0021 line — four counts, no populations — must not come back.
   check("0021 the summary no longer prints the bare 'N doc citation(s)' shape",
@@ -613,6 +617,221 @@ function fixture(): Fixture {
   }
 
   f.cleanup();
+}
+
+// ===========================================================================
+// Ruling 0031 — backticks assert, plain text discusses
+// ===========================================================================
+
+// --- clause 2: a backticked name offered as a table names a real table -----
+{
+  const f = fixture();
+  f.write(
+    "supabase/migrations/0001_base.sql",
+    "create table prospects (\n  id uuid primary key\n);\n\ncreate table if not exists drafts (id uuid);\n",
+  );
+
+  check("0031 tableNames parses the migrations, `if not exists` included",
+    JSON.stringify(tableNames(f.root)) === JSON.stringify(["drafts", "prospects"]),
+    tableNames(f.root).join(", "));
+
+  // A name offered as a table and created by a migration passes, both shapes.
+  f.write("docs/notes/tables.md", "Rows land in the `prospects` table, then table `drafts` picks them up.\n");
+  expectNoViolation("0031 an asserted table a migration creates passes",
+    f.run().violations, "as a table");
+
+  // FAILING EXAMPLE: a name offered as a table that no migration creates.
+  f.write("docs/notes/tables.md", "The `imaginary_things` table holds them.\n");
+  expectViolation("0031 an asserted table no migration creates fails", f.run().violations,
+    "offers `imaginary_things` as a table, and no migration creates it");
+
+  // A bare identifier NOT offered as a table is never checked -- a column, a
+  // status value, a key name or a flag must not be flagged (clause 2:
+  // "where it is unambiguous").
+  f.write(
+    "docs/notes/tables.md",
+    "Set `source_missing` on the row, read `website_status`, pass `--discovery-only`, key `revisit_on`.\n",
+  );
+  expectNoViolation("0031 an identifier not offered as a table is not checked",
+    f.run().violations, "as a table");
+  check("0031 only offered names are collected as table claims",
+    collectTableClaims(f.root).length === 0,
+    JSON.stringify(collectTableClaims(f.root)));
+
+  // A negated offer is an absence claim, not an assertion of existence --
+  // the established idiom of the as-built notes ("There is no `outcomes`
+  // table"), including when prose hard-wraps across the line break.
+  f.write("docs/notes/tables.md", "There is no `outcomes` table.\n");
+  expectNoViolation("0031 a negated absence claim is not an assertion",
+    f.run().violations, "as a table");
+  f.write("docs/notes/tables.md", "Contrary to the plan, there is no\n`case_studies` table here.\n");
+  expectNoViolation("0031 a negation on the previous prose line still negates",
+    f.run().violations, "as a table");
+
+  // Inside a fence it is quoted output, not the document asserting a table.
+  f.write("docs/notes/tables.md", "```\nthe `imaginary_things` table\n```\n");
+  expectNoViolation("0031 a table claim inside a fenced block is not checked",
+    f.run().violations, "as a table");
+
+  // A name that resolves as a file is not checked against the table set
+  // (clause 2: "names no table and no file").
+  mkdirSync(join(f.root, "docs", "fixtures"), { recursive: true });
+  f.write("docs/notes/tables.md", "The `fixtures` table of contents.\n");
+  expectNoViolation("0031 an offered name that resolves as a file is not flagged",
+    f.run().violations, "as a table");
+
+  f.cleanup();
+}
+
+// --- clause 3: the exempted baseline schema --------------------------------
+{
+  const f = fixture();
+  f.write("supabase/migrations/0001_base.sql", "create table interactions (id uuid);\n");
+  f.write("docs/notes/wrong.md", "a `followup` table exists\n");
+
+  // Without an exemption the wrong claim fails...
+  expectViolation("0031 the wrong claim fails while unexempted", f.run().violations,
+    "offers `followup` as a table");
+
+  // ...and with one it is reported as exempt: not a violation, not a warning,
+  // not silence.
+  f.write(
+    "docs/ledger/.baseline.json",
+    JSON.stringify(
+      {
+        grandfathered: { note: "", paths: [] },
+        exempted: [
+          {
+            file: "docs/notes/wrong.md",
+            token: "followup",
+            reason: "sealed ruling records the wrong claim it rules against",
+            date: "2026-09-21",
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  const r = f.run();
+  expectNoViolation("0031 the exempted claim does not fail", r.violations, "offers `followup`");
+  check("0031 the exempted claim is reported distinctly, not silently passed",
+    r.exemptLines.length === 1 && r.exemptLines[0].includes("`followup`") &&
+      r.exemptLines[0].includes("exempted 2026-09-21"),
+    JSON.stringify(r.exemptLines));
+  check("0031 an exemption is not a warning",
+    !r.warnings.some((w) => w.includes("followup")),
+    r.warnings.join("; "));
+
+  // The exemption is (file, token)-scoped: the same wrong claim in another
+  // document still fails.
+  f.write("docs/notes/elsewhere.md", "a `followup` table exists\n");
+  expectViolation("0031 the exemption does not travel to other documents",
+    f.run().violations, "docs/notes/elsewhere.md");
+
+  // FAILING EXAMPLES: a citation exemption is dated, justified, and complete.
+  const baselineWith = (entry: object) =>
+    f.write(
+      "docs/ledger/.baseline.json",
+      JSON.stringify({ grandfathered: { note: "", paths: [] }, exempted: [entry] }, null, 2),
+    );
+  baselineWith({ file: "docs/notes/wrong.md", token: "followup", reason: "r" });
+  expectViolation("0031 an undated citation exemption fails", f.run().violations, "has no ISO date");
+  baselineWith({ file: "docs/notes/wrong.md", token: "followup", date: "2026-09-21" });
+  expectViolation("0031 an unjustified citation exemption fails", f.run().violations, "names no reason");
+  baselineWith({ token: "followup", date: "2026-09-21", reason: "r" });
+  expectViolation("0031 a citation exemption naming no file fails", f.run().violations,
+    'must name both "file" and "token"');
+
+  // --baseline coexists with a citation exemption: it appends its path entry
+  // and rewrites the file without dropping or corrupting the citation entry.
+  baselineWith({ file: "docs/notes/wrong.md", token: "followup", date: "2026-09-21", reason: "sealed" });
+  addBaselineExemptions(
+    f.root,
+    "vendored",
+    { dirtyPaths: () => ["lib/dirty.ts"], migrationsAheadOfDeployed: () => [], existsOnDeployed: () => true, isAncestorOfDeployed: () => true },
+    "2026-09-22",
+  );
+  const written = JSON.parse(readFileSync(join(f.root, "docs", "ledger", ".baseline.json"), "utf8"));
+  check("0031 --baseline preserves a citation exemption beside its path entries",
+    written.exempted.length === 2 &&
+      written.exempted.some((e: any) => e.token === "followup") &&
+      written.exempted.some((e: any) => e.path === "lib/dirty.ts"),
+    JSON.stringify(written.exempted));
+
+  f.cleanup();
+}
+
+// --- clause 4: a released row's hex is a commit only when offered as one ---
+{
+  check("0031 a short sha is read as a commit",
+    JSON.stringify(commitCitations("origin main at 79161f5 carries cd88f31")) ===
+      JSON.stringify(["79161f5", "cd88f31"]));
+  check("0031 a 32-hex provider message id is not read as a commit",
+    commitCitations("Resend accepted it, message id 4f2a9b1c4d5e6f708192a3b4c5d6e7f0").length === 0);
+  check("0031 a dashed uuid's segments are not read as commits",
+    commitCitations("provider run 0f8fad5b-d9cb-469f-a165-70867728950e recorded").length === 0);
+  check("0031 a 40-hex offered as a commit is still read as one",
+    JSON.stringify(commitCitations("commit e3b0c44298fc1c149afbf4c8996fb92427ae41e4")) ===
+      JSON.stringify(["e3b0c44298fc1c149afbf4c8996fb92427ae41e4"]));
+  check("0031 an unoffered 40-hex is not read as a commit",
+    commitCitations("content hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4 recorded").length === 0);
+
+  const f = fixture();
+  const row = (id: string, subject: string) =>
+    `| ${id} | build | released | ${subject} | 2026-09-19 |`;
+  f.write("lib/x.ts", "export const x = 1;\n");
+
+  // A real short-SHA citation still ancestry-checks: FAILING EXAMPLE when the
+  // commit is not on the deployed branch...
+  f.state({ items: [row("7", "landed at 4bceef12 with `lib/x.ts`")] });
+  expectViolation("0031 a cited short sha off the deployed branch still fails",
+    f.run({ isAncestorOfDeployed: () => false }).violations,
+    "citing commit 4bceef12, which is not an ancestor");
+  // ...and passes when it is.
+  expectNoViolation("0031 a cited short sha on the deployed branch still passes",
+    f.run({ isAncestorOfDeployed: () => true }).violations, "not an ancestor");
+
+  // FAILING EXAMPLE (the Resend incident, inverted): a provider id in prose is
+  // NOT ancestry-checked, so the row stands on its real evidence instead of
+  // failing on a hex run that was never a commit.
+  f.state({ items: [row("8", "send confirmed, provider message id 4f2a9b1c4d5e6f708192a3b4c5d6e7f0, shipped `lib/x.ts`")] });
+  expectNoViolation("0031 a provider-id-shaped hex in a released row is not ancestry-checked",
+    f.run({ isAncestorOfDeployed: () => false }).violations, "not an ancestor");
+
+  f.state({ items: [row("9", "provider run 0f8fad5b-d9cb-469f-a165-70867728950e recorded, shipped `lib/x.ts`")] });
+  expectNoViolation("0031 a uuid in a released row is not ancestry-checked",
+    f.run({ isAncestorOfDeployed: () => false }).violations, "not an ancestor");
+
+  f.cleanup();
+}
+
+{
+  // The printed table population reproduces: a reader who runs TABLES_CMD gets
+  // the same set tableNames parsed (ruling 0021, same claim as the
+  // migrations-ahead command). Run against this repository, because only a
+  // real migrations directory can establish it.
+  const here = join(import.meta.dirname ?? ".", "..");
+  const fromCode = tableNames(here);
+  let fromPrintedCommand: string[] = [];
+  let ran = false;
+  try {
+    fromPrintedCommand = [
+      ...new Set(
+        execFileSync("bash", ["-c", TABLES_CMD], { cwd: here, encoding: "utf8" })
+          .split("\n")
+          .map((l) => l.replace(/^create table (if not exists )?/, "").trim())
+          .filter(Boolean),
+      ),
+    ].sort();
+    ran = true;
+  } catch {
+    ran = false;
+  }
+  check("0031 the table-population command in the summary runs as printed", ran);
+  check("0031 running the printed command reproduces the parsed table set",
+    JSON.stringify(fromPrintedCommand) === JSON.stringify(fromCode),
+    `printed-command ${fromPrintedCommand.length}, code ${fromCode.length}`);
 }
 
 // ===========================================================================

@@ -33,5 +33,12 @@
       "supabase/migrations/0065_discovery_handoff.sql"
     ]
   },
-  "exempted": []
+  "exempted": [
+    {
+      "file": "docs/ledger/rulings/0018-a-finding-cites-the-artifact-it-read.md",
+      "token": "followup",
+      "reason": "The table of wrong claims in ruling 0018 records the wrong table name it is ruling against (the real table is interactions). The file is sealed and immutable, so the citation cannot be corrected — ruling 0031 clause 3 exempts it instead.",
+      "date": "2026-09-21"
+    }
+  ]
 }
