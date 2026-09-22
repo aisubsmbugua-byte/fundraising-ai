@@ -41,13 +41,17 @@ Add to `drafts`:
 ## Where this grows
 See `CLAUDE.md`'s "The advancement workflow" — outreach and proposal content both eventually flow through this exact same gate (approve, then a confirmed send click), just triggered from more places in the sequence (post-strategy outreach, post-proposal-approval ask) rather than only from a single generic draft. The mechanism doesn't change: the system only ever sends as the direct, immediate result of a human's confirmed click.
 
-## As built — verified 2026-09-17
+## As built — verified 2026-09-21 (supersedes the 2026-09-17 note)
 
-**Status: proposed. Not built. Nothing in this document exists.**
+**Status: built under ruling 0029, migration 0069 pending owner application.**
 
-- No send route, no send server action, no confirmation dialog.
-- `drafts` has no `sent_at`, `sent_by` or `resend_id` column — grep the
-  migrations; they appear nowhere.
+Two namings drifted from this spec, both deliberate: the provider id column
+is `resend_message_id` (per the item 52 authorization), and the logged
+interaction kind is `email` — the `interaction_kind` enum from migration
+0031 has no `email_logged` value and enums only grow by migration. The spec
+also gained an attempt ledger (`draft_send_attempts`, born before the
+provider call) the original data section did not foresee; it is how
+"attempted but no response" is a recorded state instead of silence.
 - `RESEND_API_KEY` sits in `.env.example` marked for this slice and is
   referenced nowhere in the code. The `resend` package is installed and dormant.
 - Team invitations go through Supabase Auth's own `inviteUserByEmail`
