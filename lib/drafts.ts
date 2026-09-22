@@ -12,11 +12,15 @@ export const DRAFT_KINDS = [
 
 export type OutreachDraftKind = (typeof DRAFT_KINDS)[number]["value"];
 
-// Everything the drafts.kind enum can hold (migration 0017 + 0071).
-export type DraftKind = OutreachDraftKind | "proposal";
+// Everything the drafts.kind enum can hold (migration 0017 + 0071 +
+// 0072). 'deck' (STATE item 66) follows 'proposal' the same way: its own
+// control and its own action (generateDeckOutline), never routed through
+// the generateDraft buttons.
+export type DraftKind = OutreachDraftKind | "proposal" | "deck";
 
 export function draftKindLabel(kind: string) {
   if (kind === "proposal") return "Grant Proposal";
+  if (kind === "deck") return "Deck Outline";
   return DRAFT_KINDS.find((k) => k.value === kind)?.label ?? kind;
 }
 

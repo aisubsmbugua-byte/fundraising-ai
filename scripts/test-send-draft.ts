@@ -621,6 +621,102 @@ ok(
   );
 }
 
+// --- 3d. generateDeckOutline: same gates as the proposal, never sendable ----
+// STATE item 66. The deck outline is a reviewable draft like the proposal;
+// nothing about it may reach the send machinery. The closed-set scan above
+// already proves no new send call and no new importer of lib/send-draft.ts
+// exists anywhere under app/ or lib/ (the deck view route included, since
+// the scan walks all of app/); the assertions here pin the action's own
+// construction and the UI gates. The deck's parser and view have their own
+// suite (scripts/test-deck-outline.ts).
+
+section("generateDeckOutline source: approved strategy in, evidence by id, never sendable");
+
+const deckStart = draftActionsText.indexOf("export async function generateDeckOutline");
+const deckEnd = draftActionsText.indexOf("export async function", deckStart + 1);
+const deckRaw = deckStart >= 0 ? draftActionsText.slice(deckStart, deckEnd < 0 ? undefined : deckEnd) : "";
+// Statements only -- comments legitimately DISCUSS what must not exist.
+const deckBody = deckRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+ok("generateDeckOutline exists in draft-actions.ts, beside generateProposalDraft", deckStart >= 0);
+ok(
+  "it refuses without an APPROVED strategy, with a returned plain message (the gate is in the action, not only the UI)",
+  /if\s*\(!run\s*\|\|\s*!run\.approved_strategy\)\s*\{\s*return\s*\{\s*error:/.test(deckBody)
+);
+ok(
+  "it fails closed BEFORE any model call when migration 0072 is missing: the enum-literal probe precedes the anthropic call and its refusal names the migration",
+  deckBody.indexOf('.eq("kind", "deck")') >= 0 &&
+    deckBody.indexOf('.eq("kind", "deck")') < deckBody.indexOf("await anthropic.messages.create") &&
+    /0072/.test(deckRaw)
+);
+ok(
+  "the evidence pool query IS the permission gate: verified_at not null AND permission = 'approved', nothing else reaches the prompt",
+  /\.not\("verified_at", "is", null\)/.test(deckBody) && /\.eq\("permission", "approved"\)/.test(deckBody)
+);
+ok(
+  "evidence is handed to the model WITH ids; the ids cited in the outline are parsed back out with the SHARED parser and validated against the pool (capture, don't retype -- one copy of the fact)",
+  /parseDeckOutline\(content\)\.evidenceIds/.test(deckBody) && /evidencePoolIds\.has\(/.test(deckBody)
+);
+ok(
+  "an id outside the pool is logged and KEPT in the outline for human review -- never silently dropped",
+  /kept in the outline for human review/.test(deckRaw)
+);
+ok(
+  "the strategy's own selections (strategy_runs.evidence_item_ids) are flagged in the list the model sees",
+  /evidence_item_ids/.test(deckBody) && /cited in the approved strategy/.test(deckRaw)
+);
+ok(
+  "the stored outline begins with the format's self-documentation, prepended in CODE (ensureOutlineHeader), never trusted to the model",
+  /content:\s*ensureOutlineHeader\(content\)/.test(deckBody)
+);
+ok(
+  "the insert is a reviewable deck draft: kind 'deck', status 'draft', tied to the approved strategy run, model recorded, author recorded",
+  /kind:\s*"deck"/.test(deckBody) &&
+    /status:\s*"draft"/.test(deckBody) &&
+    /strategy_run_id:\s*strategyRunId/.test(deckBody) &&
+    /model:\s*DRAFT_MODEL/.test(deckBody) &&
+    /created_by:\s*user\.id/.test(deckBody)
+);
+ok(
+  "org scoping is generateDraft's exactly: no organization_id in the insert (the column defaults to my_organization_id(), hard rule 6)",
+  /\.from\("drafts"\)\.insert\(/.test(deckBody) && !/organization_id/.test(deckBody)
+);
+ok(
+  "generateDeckOutline never touches the send path: no sendFunderEmail, no send-draft import, no draft_send_attempts",
+  deckBody.length > 0 && !/sendFunderEmail|send-draft|draft_send_attempts/.test(deckBody)
+);
+ok(
+  "its failures finalize the run and RETURN the error -- never a rethrow production would redact",
+  /catch\s*\(err\)\s*\{[\s\S]*finalizeRun\([\s\S]*return\s*\{\s*error:/.test(deckBody) && !/throw err/.test(deckBody)
+);
+
+// The UI side: the deck control sits behind the SAME approved-strategy
+// gate as the other AI-draft buttons, and no deck draft can reach Send
+// (SendSection is intro_email-only, asserted above); the approved deck
+// card links to the read-only deck view, not to any send affordance.
+ok(
+  "the panel's deck handler carries the same approved-strategy gate as handleProposal (guard in the handler, button inside the strategyRunId block)",
+  /function handleDeck\(\) \{\s*if \(!strategyRunId\) return;/.test(panelText) &&
+    /strategyRunId && \([\s\S]{0,1400}Draft Deck Outline/.test(panelText)
+);
+{
+  const deckLinkAt = panelText.indexOf('draft.kind === "deck" && (');
+  const approvedBranchAt = panelText.indexOf("{isApproved && (");
+  const confirmDialogAt = panelText.indexOf("<ConfirmDialog");
+  ok(
+    "an APPROVED deck draft's card links to the deck view route -- the link renders inside the isApproved branch only",
+    deckLinkAt >= 0 &&
+      approvedBranchAt >= 0 &&
+      deckLinkAt > approvedBranchAt &&
+      (confirmDialogAt < 0 || deckLinkAt < confirmDialogAt) &&
+      /href=\{`\/prospects\/\$\{prospectId\}\/deck\/\$\{draft\.id\}`\}/.test(panelText),
+    `deck link at ${deckLinkAt}, isApproved branch at ${approvedBranchAt}, ConfirmDialog at ${confirmDialogAt}`
+  );
+}
+
 // --- 4. Pure logic: every precondition combination --------------------------
 
 section("evaluateSendReadiness: the clause-2 preconditions, offline");
@@ -672,6 +768,14 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   // unreachable for it.
   const r = evaluateSendReadiness({ ...baseDraft, kind: "proposal" }, [], "funder@example.org", baseSender);
   ok("a proposal draft can NEVER be sent -- refused as not_email before any other precondition", !r.ok && r.code === "not_email");
+}
+{
+  // STATE item 66: the deck outline gets the same first-check refusal.
+  // Even approved, with a valid recipient, subject and body, kind 'deck'
+  // never reaches any downstream precondition -- the send path is
+  // intro_email only.
+  const r = evaluateSendReadiness({ ...baseDraft, kind: "deck" }, [], "funder@example.org", baseSender);
+  ok("a deck draft can NEVER be sent -- refused as not_email before any other precondition", !r.ok && r.code === "not_email");
 }
 {
   const r = evaluateSendReadiness({ ...baseDraft, status: "draft" }, [], "funder@example.org", baseSender);

@@ -9,6 +9,7 @@ import { channelLabel } from "@/lib/prospects";
 import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { OutreachDraftKind } from "@/lib/drafts";
+import { parseDeckOutline, ensureOutlineHeader } from "@/lib/deck-outline";
 import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
 // kind is the OUTREACH vocabulary only (intro_email | call_prep): the
@@ -335,6 +336,213 @@ ${
       errorNote: err instanceof Error ? err.message : "Proposal generation failed",
     });
     return { error: err instanceof Error ? err.message : "Proposal generation failed." };
+  }
+
+  revalidatePath(`/prospects/${prospectId}`);
+  return { ok: true };
+}
+
+// The pitch-deck outline (STATE item 66, decision 0007 phase 3's second
+// half). generateProposalDraft's machinery exactly -- approved strategy
+// required, org profile, the permission-gated evidence pool handed over
+// WITH ids, birth before the model call as a DISTINCT ai_runs operation
+// ('deck_draft'), fail-closed enum probe before any tokens are spent,
+// errors returned not thrown -- with one difference in the artifact:
+//
+//   The model produces a structured OUTLINE in the plain-text format
+//   lib/deck-outline.ts defines (# title lines, bullet lines,
+//   "> evidence: <id>" citations). A human shapes and approves it in the
+//   ordinary draft editor, and the deck view renders the APPROVED text
+//   deterministically -- what was approved is what appears (rule 3 all
+//   the way down). The format's explanatory header is prepended HERE, in
+//   code (ensureOutlineHeader), never trusted to the model.
+//
+//   Cited ids are captured IN the outline text itself ("> evidence:"
+//   lines), so validation parses them back out with the same shared
+//   parser the renderer uses and checks them against the pool the model
+//   was given -- one copy of the fact, not a second model-typed list that
+//   could disagree. An unknown id is logged and KEPT in the text (never
+//   silently dropped): the human sees it in review, and the deck view
+//   renders it as explicitly unresolved.
+//
+// A deck is NEVER sendable: evaluateSendReadiness refuses any kind but
+// intro_email, and the panel renders no send control for it.
+export async function generateDeckOutline(
+  prospectId: string,
+  strategyRunId: string
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Fail closed BEFORE any model call when migration 0072 is not applied:
+  // filtering the enum column by 'deck' errors (invalid enum input) while
+  // the value does not exist, and then no tokens are spent on an outline
+  // that could never be stored.
+  const { error: kindProbeError } = await supabase.from("drafts").select("id").eq("kind", "deck").limit(1);
+  if (kindProbeError) {
+    return { error: `Deck drafting is not available on this database yet (is migration 0072 applied?): ${kindProbeError.message}` };
+  }
+
+  const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  const { data: run } = await supabase.from("strategy_runs").select("*").eq("id", strategyRunId).single();
+  if (!run || !run.approved_strategy) {
+    return { error: "Strategy must be approved before drafting a deck outline." };
+  }
+  const strategy = run.approved_strategy as Strategy;
+  const strategyEvidenceIds = new Set<string>(Array.isArray(run.evidence_item_ids) ? run.evidence_item_ids : []);
+
+  const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
+
+  // The same permission gate the strategy and proposal prompts use: only
+  // evidence a human has verified AND marked approved is eligible to be
+  // cited to a funder.
+  const { data: evidenceRows } = await supabase
+    .from("evidence_items")
+    .select("id, title, description, type, program, geography")
+    .not("verified_at", "is", null)
+    .eq("permission", "approved");
+  const evidencePool = evidenceRows ?? [];
+
+  // Run ledger (ruling 0026): birth before the model call, as a DISTINCT
+  // operation. The drafts row does not exist yet, so the reference points
+  // at the prospect being drafted for (generateDraft's reasoning).
+  const aiRunId = await beginRun(supabase, { operation: "deck_draft", sourceTable: "prospects", sourceId: prospectId });
+  const usage = newUsage();
+  try {
+    const response = await anthropic.messages.create(
+      {
+        model: DRAFT_MODEL,
+        max_tokens: 3000,
+        tools: [
+          {
+            name: "submit_deck_outline",
+            description: "Submit the drafted pitch-deck outline.",
+            input_schema: {
+              type: "object",
+              properties: {
+                content: {
+                  type: "string",
+                  description:
+                    'The deck outline as plain text in exactly this line format: a line starting "# " opens a new slide with that title; each plain line under it is one bullet point on that slide; a line "> evidence: <id>" cites an evidence item on that slide. No other markup. Do not write any explanatory header -- it is added automatically.',
+                },
+              },
+              required: ["content"],
+            },
+          },
+        ],
+        tool_choice: { type: "tool", name: "submit_deck_outline" },
+        messages: [
+          {
+            role: "user",
+            content: `Draft a pitch-deck outline for "${prospect.name}" (${channelLabel(prospect.channel)} channel), based on the approved strategy below.
+
+Write it in the plain-text outline format: a "# " line per slide title, short bullet lines under each, and "> evidence: <id>" lines citing evidence. A human will edit and approve this outline before any deck is shown, so keep bullets short and concrete -- talking points, not paragraphs. Aim for roughly 6 to 10 slides covering: a title slide, the need, the program, outcomes, the ask, and next steps. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state.
+
+Ground every outcome, metric, or story you assert in an item from the Available evidence list below by adding a "> evidence: <id>" line to the slide that uses it, with the id copied exactly from the list. Never invent an outcome, a figure, a testimonial, or an evidence id: if no listed evidence supports a claim, do not make the claim. Items marked [cited in the approved strategy] were already chosen by a human for this funder -- prefer them.
+
+Approved strategy:
+- Outreach approach: ${strategy.outreach_approach}
+- Ask positioning: ${strategy.ask_positioning}
+- Rationale: ${strategy.rationale}
+- Key talking points: ${strategy.key_talking_points?.join("; ") || "(none)"}
+- Evidence to highlight: ${strategy.evidence_to_highlight?.join("; ") || "(none)"}
+
+Nonprofit context:
+${profile ? buildProfileSummary(profile) : "(no profile data)"}
+
+Available evidence (verified, approved for use -- cite by id in "> evidence:" lines):
+${
+  evidencePool.length > 0
+    ? evidencePool
+        .map(
+          (e) =>
+            `- ${e.id}: [${e.type}]${strategyEvidenceIds.has(e.id) ? " [cited in the approved strategy]" : ""} ${e.title} -- ${e.description}${e.program ? ` (program: ${e.program})` : ""}${e.geography ? ` (geography: ${e.geography})` : ""}`
+        )
+        .join("\n")
+    : "(no verified evidence available yet -- make no outcome claims beyond the strategy's own talking points, and cite nothing)"
+}`,
+          },
+        ],
+      },
+      { timeout: 100_000 }
+    );
+
+    addResponseUsage(usage, response);
+
+    const toolUse = response.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      throw new Error("AI did not return a structured deck outline. Try again.");
+    }
+
+    const result = toolUse.input as { content?: string };
+    const content = (result.content ?? "").trim();
+
+    // Cited ids come back INSIDE the outline text; parse them out with the
+    // same shared parser the deck view renders with (one definition, no
+    // drift) and validate against the pool the model was handed. Unknown
+    // ids are logged and stay in the text -- the human reviewing the
+    // outline sees exactly what the model wrote, and the renderer marks
+    // an unresolvable citation instead of hiding it.
+    const evidencePoolIds = new Set(evidencePool.map((e) => e.id));
+    const citedInOutline = parseDeckOutline(content).evidenceIds;
+    const cited = citedInOutline.filter((id) => evidencePoolIds.has(id));
+    const unknown = citedInOutline.filter((id) => !evidencePoolIds.has(id));
+    console.log(
+      `[deck] model cited ${cited.length} evidence item(s)${cited.length ? `: ${cited.join(", ")}` : ""}` +
+        (unknown.length ? `; ${unknown.length} id(s) not in the pool (kept in the outline for human review): ${unknown.join(", ")}` : "")
+    );
+
+    if (!content) {
+      // The model ran and produced nothing a human could review -- the
+      // strategy action's "empty" outcome, not a completed run.
+      await finalizeRun(supabase, aiRunId, {
+        outcome: "empty",
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+      return { error: "The AI returned an empty deck outline. Try again." };
+    }
+
+    const { error } = await supabase.from("drafts").insert({
+      prospect_id: prospectId,
+      strategy_run_id: strategyRunId,
+      kind: "deck",
+      subject: null,
+      // The format's self-documentation is prepended in code, so every
+      // stored outline explains itself in the editor -- never left to the
+      // model to remember.
+      content: ensureOutlineHeader(content),
+      status: "draft",
+      model: DRAFT_MODEL,
+      created_by: user.id,
+    });
+    if (error) throw new Error(error.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+  } catch (err) {
+    // Null token counts mean no response ever arrived -- a fact, not a
+    // zero. The error is RETURNED (not rethrown): production redacts
+    // thrown server-action messages, and the refusal is what the human
+    // needs to see.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      errorNote: err instanceof Error ? err.message : "Deck outline generation failed",
+    });
+    return { error: err instanceof Error ? err.message : "Deck outline generation failed." };
   }
 
   revalidatePath(`/prospects/${prospectId}`);

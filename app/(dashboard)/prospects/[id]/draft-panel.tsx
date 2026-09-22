@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { generateDraft, generateProposalDraft, composeDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
+import Link from "next/link";
+import { generateDraft, generateProposalDraft, generateDeckOutline, composeDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
 import { sendApprovedDraft } from "./send-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -43,6 +44,7 @@ export default function DraftPanel({
   // reports its own state independently.
   const [pendingKinds, setPendingKinds] = useState<Set<DraftKind>>(new Set());
   const [proposalError, setProposalError] = useState<string | null>(null);
+  const [deckError, setDeckError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   function handleDraft(kind: OutreachDraftKind) {
@@ -76,6 +78,28 @@ export default function DraftPanel({
         setPendingKinds((prev) => {
           const next = new Set(prev);
           next.delete("proposal");
+          return next;
+        });
+      }
+    });
+  }
+
+  // The deck outline (STATE item 66): same shape as handleProposal --
+  // same approved-strategy gate, its own action (a distinct ai_runs
+  // operation), refusals shown as data. The approved outline gets its
+  // deck view via the link on the draft's card below.
+  function handleDeck() {
+    if (!strategyRunId) return;
+    setDeckError(null);
+    setPendingKinds((prev) => new Set(prev).add("deck"));
+    startTransition(async () => {
+      try {
+        const result = await generateDeckOutline(prospectId, strategyRunId);
+        if ("error" in result) setDeckError(result.error);
+      } finally {
+        setPendingKinds((prev) => {
+          const next = new Set(prev);
+          next.delete("deck");
           return next;
         });
       }
@@ -120,10 +144,21 @@ export default function DraftPanel({
           >
             {pendingKinds.has("proposal") ? "Drafting…" : "Draft Grant Proposal"}
           </button>
+          <button
+            type="button"
+            disabled={pendingKinds.has("deck")}
+            onClick={handleDeck}
+            style={buttonSecondary}
+          >
+            {pendingKinds.has("deck") ? "Drafting…" : "Draft Deck Outline"}
+          </button>
         </div>
       )}
       {proposalError && (
         <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{proposalError}</p>
+      )}
+      {deckError && (
+        <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{deckError}</p>
       )}
       <LoadingStatus active={pendingKinds.size > 0} messages={DRAFT_MESSAGES} />
       <ComposeSection prospectId={prospectId} />
@@ -282,7 +317,9 @@ function DraftCard({
       )}
 
       <div style={{ marginTop: spacing.sm }}>
-        <div style={labelStyle}>{isEmail ? "Body" : draft.kind === "proposal" ? "Proposal" : "Notes"}</div>
+        <div style={labelStyle}>
+          {isEmail ? "Body" : draft.kind === "proposal" ? "Proposal" : draft.kind === "deck" ? "Outline" : "Notes"}
+        </div>
         <CollapsibleField
           label={kindLabel}
           value={content}
@@ -326,6 +363,16 @@ function DraftCard({
           </p>
           {isEmail && (
             <SendSection draft={draft} prospectId={prospectId} attempts={attempts} contactEmail={contactEmail} sender={sender} />
+          )}
+          {draft.kind === "deck" && (
+            // The deck view renders THIS approved outline deterministically
+            // (STATE item 66) -- the link exists only once the outline is
+            // approved, and the view itself refuses an unapproved draft too.
+            <div style={{ marginTop: spacing.sm }}>
+              <Link href={`/prospects/${prospectId}/deck/${draft.id}`} style={buttonSecondary}>
+                View deck (print to PDF to export)
+              </Link>
+            </div>
           )}
         </>
       )}

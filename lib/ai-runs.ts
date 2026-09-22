@@ -50,6 +50,10 @@ export const AI_RUN_OPERATIONS = [
   // "draft" (the outreach kinds): decision 0006 prices per operation, and
   // a proposal is not an intro email.
   "proposal_draft",
+  // The pitch-deck outline (STATE item 66) is likewise its own operation:
+  // decision 0006 prices per operation, and a deck outline is neither an
+  // intro email nor a proposal.
+  "deck_draft",
   "revisit_suggest",
 ] as const;
 export type AiRunOperation = (typeof AI_RUN_OPERATIONS)[number];

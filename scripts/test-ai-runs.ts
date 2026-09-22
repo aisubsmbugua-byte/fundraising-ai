@@ -350,6 +350,42 @@ ok(
   );
 }
 
+// STATE item 66: the deck outline is likewise its own metered operation,
+// born before its own model call -- not a second write under "draft" or
+// "proposal_draft".
+ok(
+  "deck drafting is a DISTINCT operation in AI_RUN_OPERATIONS (decision 0006 prices per operation; a deck is neither an email nor a proposal)",
+  AI_RUN_OPERATIONS.includes("deck_draft") && AI_RUN_OPERATIONS.includes("proposal_draft") && AI_RUN_OPERATIONS.includes("draft")
+);
+{
+  const text = readFileSync(join(root, "app/(dashboard)/prospects/[id]/draft-actions.ts"), "utf8");
+  const start = text.indexOf("export async function generateDeckOutline");
+  const end = text.indexOf("export async function", start + 1);
+  const slice = start >= 0 ? text.slice(start, end < 0 ? undefined : end) : "";
+  const birthAt = slice.indexOf('operation: "deck_draft"');
+  const callAt = slice.indexOf("await anthropic.messages.create");
+  ok(
+    "generateDeckOutline: its OWN birth row (operation deck_draft) precedes its own model call",
+    start >= 0 && birthAt >= 0 && callAt > birthAt,
+    `slice start ${start}, birth at ${birthAt}, call at ${callAt}`
+  );
+  ok(
+    "generateDeckOutline finalizes its run on every path (completed and empty in the try, failed in the catch)",
+    (slice.match(/finalizeRun\(/g) ?? []).length >= 3,
+    `finalizeRun occurrences: ${(slice.match(/finalizeRun\(/g) ?? []).length}`
+  );
+  // The item-63 probe pattern: pre-migration, the action refuses BEFORE
+  // beginRun and before any model call -- fails closed without spending
+  // tokens and without recording a run that never could have stored.
+  const probeAt = slice.indexOf('.eq("kind", "deck")');
+  const beginAt = slice.indexOf("await beginRun(");
+  ok(
+    "generateDeckOutline fails closed pre-migration: the 'deck' enum probe precedes beginRun (and therefore the model call), naming migration 0072",
+    probeAt >= 0 && beginAt > probeAt && /0072/.test(slice),
+    `probe at ${probeAt}, beginRun at ${beginAt}`
+  );
+}
+
 // Every operation name in the union is actually written by some call site,
 // and no call site writes a name outside the union (the union is the only
 // vocabulary, so a mismatch either way is a metering hole).
