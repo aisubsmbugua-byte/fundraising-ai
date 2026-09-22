@@ -8,9 +8,11 @@ Last touched by: **decision** · 2026-09-19
 
 ## Authorized now
 
-- ruling: none
-- basis: item 63 runs under standing rulings (0026 for its ledger row, 0029
-  untouched, 0020 for the enum value) and decision 0007's order.
+- ruling: 0026
+- basis: items 63 and 64 run under standing rulings — 0026 governs item
+  63's new ledger operation and the cron gate's no-birth-when-paused
+  clause, 0020 the enum-value migration, 0029 untouched by both — with
+  direction from decisions 0007 and 0008. No new invariant is in play.
 - work: item 63, proposal drafting. In parallel the decision space is
   producing the provisional credit schedule from measured runs (research:
   45 priced rows) with estimate-labelled figures where no measurement
