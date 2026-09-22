@@ -273,6 +273,12 @@ function DraftCard({
   const [content, setContent] = useState(draft.content);
   const [isPending, startTransition] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // STATE item 67: updateDraft and deleteDraft return their refusals
+  // (an approved draft is locked server-side); shown here, not swallowed.
+  // The buttons already hide once the card knows the draft is approved,
+  // so this only ever shows on a stale card -- but the guard is the
+  // server's, and its answer deserves display.
+  const [actionError, setActionError] = useState<string | null>(null);
   const isApproved = draft.status === "approved";
   const kindLabel = draftKindLabel(draft.kind);
   const isEmail = draft.kind === "intro_email";
@@ -335,7 +341,15 @@ function DraftCard({
             disabled={isPending}
             onClick={() =>
               startTransition(async () => {
-                await updateDraft(draft.id, prospectId, isEmail ? subject : null, content);
+                // If the save is refused (already approved server-side),
+                // stop: re-approving without the edit would silently
+                // re-stamp the approval instead.
+                const saved = await updateDraft(draft.id, prospectId, isEmail ? subject : null, content);
+                if ("error" in saved) {
+                  setActionError(saved.error);
+                  return;
+                }
+                setActionError(null);
                 await approveDraft(draft.id, prospectId);
               })
             }
@@ -346,7 +360,12 @@ function DraftCard({
           <button
             type="button"
             disabled={isPending}
-            onClick={() => startTransition(() => updateDraft(draft.id, prospectId, isEmail ? subject : null, content))}
+            onClick={() =>
+              startTransition(async () => {
+                const saved = await updateDraft(draft.id, prospectId, isEmail ? subject : null, content);
+                setActionError("error" in saved ? saved.error : null);
+              })
+            }
             style={buttonSecondary}
           >
             Save Edits
@@ -355,6 +374,9 @@ function DraftCard({
             Delete
           </button>
         </div>
+      )}
+      {actionError && (
+        <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{actionError}</p>
       )}
       {isApproved && (
         <>
@@ -386,7 +408,10 @@ function DraftCard({
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => {
           setConfirmDelete(false);
-          startTransition(() => deleteDraft(draft.id, prospectId));
+          startTransition(async () => {
+            const removed = await deleteDraft(draft.id, prospectId);
+            setActionError("error" in removed ? removed.error : null);
+          });
         }}
       />
     </div>

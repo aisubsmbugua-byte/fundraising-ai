@@ -594,20 +594,67 @@ export async function composeDraft(
   return { ok: true };
 }
 
-export async function updateDraft(draftId: string, prospectId: string, subject: string | null, content: string) {
+// STATE item 67: an approved draft is server-side immutable until it is
+// un-approved. The CURRENT status is re-read here, at write time -- the
+// client's belief about status is never trusted, because the UI hiding
+// its edit controls on approved drafts is a courtesy, not a guard (a
+// stale card, a second tab, or a hand-built request could all still
+// reach this action). Sent drafts are already pinned at the database by
+// migration 0069's trigger; these guards close the approved-but-unsent
+// gap so the deck view and the send confirmation always show text a
+// human actually approved. DB-level pinning of approved-but-unsent
+// drafts is deliberately NOT here -- that is item 55's fuller decision.
+//
+// The refusals are RETURNED plain messages (the composeDraft
+// convention: production redacts thrown server-action errors, and the
+// refusal is what the human needs to see). The pre-existing DB-error
+// throws below stay exactly as they were -- only the new refusals use
+// the returned transport.
+//
+// Note: the app has no un-approve control yet (checked across app/ --
+// nothing writes status back to 'draft'), so the messages cannot name
+// one. Escalated: with update and delete both refused, an approved,
+// unsent draft currently has no edit path at all until un-approve
+// exists or a new draft replaces it.
+
+export async function updateDraft(
+  draftId: string,
+  prospectId: string,
+  subject: string | null,
+  content: string
+): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // Re-read the draft's CURRENT status server-side (item 67).
+  const { data: existing, error: statusError } = await supabase
+    .from("drafts")
+    .select("status")
+    .eq("id", draftId)
+    .single();
+  if (statusError || !existing) return { error: "Draft not found." };
+  if (existing.status === "approved") {
+    return {
+      error:
+        "This draft has been approved, so its content is locked to exactly what was approved. Editing it requires un-approving it first — the app has no un-approve control yet, so for now create and approve a new draft instead.",
+    };
+  }
+
+  // The write is additionally predicated on status 'draft', narrowing
+  // the window between the read above and this update -- an approve
+  // landing in between makes this a no-op instead of an edit.
   const { error } = await supabase
     .from("drafts")
     .update({ subject, content, updated_at: new Date().toISOString() })
-    .eq("id", draftId);
+    .eq("id", draftId)
+    .eq("status", "draft");
   if (error) throw new Error(error.message);
 
   revalidatePath(`/prospects/${prospectId}`);
+  return { ok: true };
 }
 
 export async function approveDraft(draftId: string, prospectId: string) {
@@ -626,15 +673,35 @@ export async function approveDraft(draftId: string, prospectId: string) {
   revalidatePath(`/prospects/${prospectId}`);
 }
 
-export async function deleteDraft(draftId: string, prospectId: string) {
+export async function deleteDraft(draftId: string, prospectId: string): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { error } = await supabase.from("drafts").delete().eq("id", draftId);
+  // Re-read the draft's CURRENT status server-side (item 67) -- the
+  // same guard as updateDraft: an approved draft cannot be deleted any
+  // more than it can be edited. (A SENT draft is already undeletable at
+  // the database: its attempt rows hold a no-cascade FK.)
+  const { data: existing, error: statusError } = await supabase
+    .from("drafts")
+    .select("status")
+    .eq("id", draftId)
+    .single();
+  if (statusError || !existing) return { error: "Draft not found." };
+  if (existing.status === "approved") {
+    return {
+      error:
+        "This draft has been approved, so it can't be deleted. Deleting it requires un-approving it first — the app has no un-approve control yet.",
+    };
+  }
+
+  // Predicated on status 'draft' like updateDraft's write, so an approve
+  // landing between the read and this delete makes it a no-op.
+  const { error } = await supabase.from("drafts").delete().eq("id", draftId).eq("status", "draft");
   if (error) throw new Error(error.message);
 
   revalidatePath(`/prospects/${prospectId}`);
+  return { ok: true };
 }

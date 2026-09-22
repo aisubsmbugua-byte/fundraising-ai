@@ -717,6 +717,126 @@ ok(
   );
 }
 
+// --- 3e. updateDraft / deleteDraft: an approved draft is immutable ----------
+// STATE item 67, load-bearing for item 66's invariant (a deck renders
+// exactly what a human approved): the UI hiding edit controls on
+// approved drafts was the only lock, so a stale card or hand-built
+// request could rewrite or delete approved content. The guards live in
+// the actions: re-read the draft's CURRENT status server-side, refuse
+// approved with a RETURNED plain message (the composeDraft transport --
+// production redacts thrown messages), leave status-'draft' edits and
+// deletes exactly as they were. Sent drafts were already DB-pinned by
+// 0069's trigger; DB pinning of approved-but-unsent is item 55, not here.
+
+section("updateDraft / deleteDraft source: approved drafts are locked server-side");
+
+const updateStart = draftActionsText.indexOf("export async function updateDraft");
+const updateEnd = draftActionsText.indexOf("export async function", updateStart + 1);
+const updateRaw = updateStart >= 0 ? draftActionsText.slice(updateStart, updateEnd < 0 ? undefined : updateEnd) : "";
+const updateBody = updateRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+const delStart = draftActionsText.indexOf("export async function deleteDraft");
+const delEnd = draftActionsText.indexOf("export async function", delStart + 1);
+const delRaw = delStart >= 0 ? draftActionsText.slice(delStart, delEnd < 0 ? undefined : delEnd) : "";
+const delBody = delRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+ok("updateDraft and deleteDraft both exist in draft-actions.ts", updateStart >= 0 && delStart >= 0);
+ok(
+  "updateDraft re-reads the draft's CURRENT status server-side BEFORE any write -- the client's belief is never trusted",
+  updateBody.indexOf('.select("status")') >= 0 && updateBody.indexOf('.select("status")') < updateBody.indexOf(".update("),
+  `select at ${updateBody.indexOf('.select("status")')}, update at ${updateBody.indexOf(".update(")}`
+);
+ok(
+  "updateDraft refuses an APPROVED draft with a returned plain message, before the write",
+  /if\s*\(existing\.status === "approved"\)\s*\{\s*return\s*\{\s*error:/.test(updateBody) &&
+    updateBody.indexOf('existing.status === "approved"') < updateBody.indexOf(".update(")
+);
+ok(
+  "updateDraft's refusal says the content is locked to what was approved and names un-approving as the edit path",
+  /locked to exactly what was approved/.test(updateBody) && /un-approving/.test(updateBody)
+);
+ok(
+  "updateDraft's write is additionally predicated on status 'draft' -- an approve landing between read and write makes it a no-op",
+  /\.update\(\{[^}]*\}\)\s*[\s\S]{0,80}\.eq\("id", draftId\)\s*\.eq\("status", "draft"\)/.test(updateBody)
+);
+ok(
+  "a status-'draft' edit is unchanged: the same update of subject, content and updated_at, and the action still ends in revalidatePath",
+  /\.update\(\{ subject, content, updated_at: new Date\(\)\.toISOString\(\) \}\)/.test(updateBody) &&
+    /revalidatePath\(`\/prospects\/\$\{prospectId\}`\)/.test(updateBody)
+);
+ok(
+  "updateDraft's success path returns { ok: true } so callers can distinguish refusal from success",
+  /return\s*\{\s*ok:\s*true\s*\}/.test(updateBody)
+);
+ok(
+  "updateDraft's pre-existing DB-error transport is untouched: the update's own failure still throws",
+  /if\s*\(error\)\s*throw new Error\(error\.message\)/.test(updateBody)
+);
+
+ok(
+  "deleteDraft re-reads the draft's CURRENT status server-side BEFORE the delete",
+  delBody.indexOf('.select("status")') >= 0 && delBody.indexOf('.select("status")') < delBody.indexOf(".delete()"),
+  `select at ${delBody.indexOf('.select("status")')}, delete at ${delBody.indexOf(".delete()")}`
+);
+ok(
+  "deleteDraft refuses an APPROVED draft with a returned plain message, before the delete",
+  /if\s*\(existing\.status === "approved"\)\s*\{\s*return\s*\{\s*error:/.test(delBody) &&
+    delBody.indexOf('existing.status === "approved"') < delBody.indexOf(".delete()")
+);
+ok(
+  "deleteDraft's refusal says an approved draft can't be deleted and names un-approving as the path",
+  /can't be deleted/.test(delBody) && /un-approving/.test(delBody)
+);
+ok(
+  "deleteDraft's delete is additionally predicated on status 'draft' -- only an unapproved draft is deletable here",
+  /\.delete\(\)\.eq\("id", draftId\)\.eq\("status", "draft"\)/.test(delBody)
+);
+ok(
+  "deleteDraft's success path returns { ok: true }, and its pre-existing DB-error throw is untouched",
+  /return\s*\{\s*ok:\s*true\s*\}/.test(delBody) && /if\s*\(error\)\s*throw new Error\(error\.message\)/.test(delBody)
+);
+
+// approveDraft itself is deliberately untouched by item 67 -- approving
+// stays exactly as it was (the guard is on EDITING an approved draft,
+// not on approving a draft one).
+const approveStart = draftActionsText.indexOf("export async function approveDraft");
+const approveEnd = draftActionsText.indexOf("export async function", approveStart + 1);
+const approveBody = (approveStart >= 0 ? draftActionsText.slice(approveStart, approveEnd < 0 ? undefined : approveEnd) : "")
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+ok(
+  "approveDraft is untouched: no status re-read added, same single update writing status/approved_by/approved_at",
+  approveStart >= 0 &&
+    !/\.select\("status"\)/.test(approveBody) &&
+    /\.update\(\{ status: "approved", approved_by: user\.id, approved_at: new Date\(\)\.toISOString\(\) \}\)/.test(approveBody)
+);
+
+// The UI side: the returned refusals are displayed, not swallowed, and
+// the Approve chain stops when its save is refused (otherwise it would
+// re-stamp approved_by/approved_at on an already-approved draft).
+ok(
+  "the panel displays the returned refusal (actionError state fed by both actions' results)",
+  /const \[actionError, setActionError\] = useState<string \| null>\(null\)/.test(panelText) &&
+    /\{actionError && \(/.test(panelText)
+);
+ok(
+  "the panel's Approve click checks updateDraft's result and STOPS before approveDraft when the save was refused",
+  /const saved = await updateDraft\(draft\.id, prospectId, isEmail \? subject : null, content\);\s*if \("error" in saved\) \{\s*setActionError\(saved\.error\);\s*return;\s*\}/.test(
+    panelText
+  )
+);
+ok(
+  "the panel's delete confirmation surfaces deleteDraft's returned refusal",
+  /const removed = await deleteDraft\(draft\.id, prospectId\);\s*setActionError\("error" in removed \? removed\.error : null\)/.test(panelText)
+);
+
 // --- 4. Pure logic: every precondition combination --------------------------
 
 section("evaluateSendReadiness: the clause-2 preconditions, offline");
