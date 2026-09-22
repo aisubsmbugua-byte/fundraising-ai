@@ -8,8 +8,9 @@ Last touched by: **decision** · 2026-09-19
 
 ## Authorized now
 
-- ruling: none — item 63 runs under standing rulings (0026 for its ledger
-  row, 0029 untouched, 0020 for the enum value) and decision 0007's order.
+- ruling: none
+- basis: item 63 runs under standing rulings (0026 for its ledger row, 0029
+  untouched, 0020 for the enum value) and decision 0007's order.
 - work: item 63, proposal drafting. In parallel the decision space is
   producing the provisional credit schedule from measured runs (research:
   45 priced rows) with estimate-labelled figures where no measurement
