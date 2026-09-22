@@ -46,21 +46,32 @@ export function isSendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY) && Boolean(process.env.RESEND_FROM_EMAIL);
 }
 
+// The platform address, for the handler to feed into evaluateSendReadiness
+// as SenderIdentity.fromAddress. Address only, not a secret -- but reading
+// it here keeps the handler out of the env entirely. The email PRESENTS as
+// the organization ("{org name}" <this address>, built in
+// evaluateSendReadiness); no user identity is hardwired (STATE item 57).
+export function platformFromAddress(): string | null {
+  return process.env.RESEND_FROM_EMAIL?.trim() || null;
+}
+
 export async function sendFunderEmail(payload: SendPayload): Promise<SendOutcome> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
-  if (!apiKey || !from) {
+  if (!apiKey) {
     // No request was made, so "refused" is accurate: definitely not sent.
     return {
       status: "refused",
-      message: "Email sending is not configured (RESEND_API_KEY / RESEND_FROM_EMAIL). Nothing was sent.",
+      message: "Email sending is not configured (RESEND_API_KEY). Nothing was sent.",
     };
   }
 
   const resend = new Resend(apiKey);
   try {
+    // from and replyTo come from the SAME payload the confirmation
+    // displayed and the attempt row captured -- nothing is assembled here.
     const { data, error } = await resend.emails.send({
-      from,
+      from: payload.from,
+      replyTo: payload.replyTo,
       to: payload.to,
       subject: payload.subject,
       text: payload.body,

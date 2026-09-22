@@ -88,6 +88,10 @@ export default async function ProspectDetailPage({
     { data: drafts },
     { data: rulesData },
     { data: relatedContacts },
+    { data: orgProfileName },
+    {
+      data: { user },
+    },
   ] = await Promise.all([
     supabase
       .from("stage_changes")
@@ -111,6 +115,11 @@ export default async function ProspectDetailPage({
     supabase.from("drafts").select("*").eq("prospect_id", prospect.id).order("created_at", { ascending: false }).returns<Draft[]>(),
     supabase.from("screening_rules").select("*").eq("active", true),
     supabase.from("contacts").select("*").eq("source_prospect_id", prospect.id).returns<Contact[]>(),
+    // Sender identity for the send confirmation (STATE item 57): the org's
+    // own profile supplies the display name and the session supplies the
+    // reply-to. Same sources the send handler re-reads at send time.
+    supabase.from("org_profile").select("name").limit(1).maybeSingle<{ name: string | null }>(),
+    supabase.auth.getUser(),
   ]);
 
   // Send attempts for this prospect's drafts (Slice 8, ruling 0029) --
@@ -445,6 +454,15 @@ export default async function ProspectDetailPage({
                       drafts={drafts ?? []}
                       sendAttempts={sendAttempts ?? []}
                       contactEmail={prospect.contact_email}
+                      sender={{
+                        // RESEND_FROM_EMAIL is an address, not a secret (the
+                        // API key never leaves lib/send-draft.ts) -- read here
+                        // server-side so the confirmation can display the
+                        // exact from identity the send will carry.
+                        orgName: orgProfileName?.name ?? null,
+                        fromAddress: process.env.RESEND_FROM_EMAIL ?? null,
+                        userEmail: user?.email ?? null,
+                      }}
                     />
                   )}
                 </>

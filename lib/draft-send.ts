@@ -11,9 +11,31 @@
 import type { Draft } from "@/lib/drafts";
 
 export type SendPayload = {
+  // The full RFC-style from identity: `"{org display name}" <platform address>`.
+  // The email presents as the ORGANIZATION -- the display name is captured
+  // from the org's own profile record, never typed here, and the address is
+  // platform infrastructure (RESEND_FROM_EMAIL). No user identity is
+  // hardwired anywhere in the send path (STATE item 57).
+  from: string;
+  // The authenticated human who clicked send. A funder's reply goes to that
+  // person, never to the platform address.
+  replyTo: string;
   to: string;
   subject: string;
   body: string;
+};
+
+// The three identity facts evaluateSendReadiness needs to build `from` and
+// `replyTo`. Both call sites source them the same way, which is what keeps
+// confirmation payload = send payload true for the new fields (ruling 0029
+// clause 2): orgName from the caller's org_profile row (RLS-scoped),
+// fromAddress from RESEND_FROM_EMAIL (server-side only -- the page and the
+// send module are the only readers), userEmail from the authenticated
+// session's user.
+export type SenderIdentity = {
+  orgName: string | null | undefined;
+  fromAddress: string | null | undefined;
+  userEmail: string | null | undefined;
 };
 
 // Mirrors draft_send_attempts (migration 0069). outcome null is
@@ -46,7 +68,10 @@ export type SendBlockCode =
   | "attempt_unconfirmed"
   | "no_recipient"
   | "empty_subject"
-  | "empty_body";
+  | "empty_body"
+  | "no_org_name"
+  | "send_not_configured"
+  | "no_sender_email";
 
 // Deliberately loose: the point is catching "there is no address here at
 // all" (blank, a name, a note), not RFC validation -- Resend rejects a
@@ -64,12 +89,13 @@ type SendableDraftFields = Pick<Draft, "kind" | "subject" | "content" | "status"
 // whether Send is offered and what the confirmation displays; the handler
 // calls it again server-side, at send time, on rows it just re-read
 // (ruling 0029 clause 2). Order matters: facts about the draft first, then
-// the send history, then the recipient -- the reason shown is the first
-// thing the human must fix.
+// the send history, then the recipient, then the sender identity -- the
+// reason shown is the first thing the human must fix.
 export function evaluateSendReadiness(
   draft: SendableDraftFields,
   attempts: DraftSendAttempt[],
-  contactEmail: string | null | undefined
+  contactEmail: string | null | undefined,
+  sender: SenderIdentity
 ): SendReadiness {
   if (draft.kind !== "intro_email") {
     return { ok: false, code: "not_email", reason: "Only an email draft can be sent. Call prep notes are for a human-led call." };
@@ -108,7 +134,41 @@ export function evaluateSendReadiness(
   if (!body) {
     return { ok: false, code: "empty_body", reason: "The draft has no body. There is nothing to send." };
   }
-  return { ok: true, payload: { to, subject, body } };
+  // Sender identity (STATE item 57). Each missing fact refuses with what to
+  // fix -- never a silent fall back to a bare platform identity.
+  // The display name is the org's own record, normalized only as far as a
+  // mail header requires: quotes would end the quoted-string early and a
+  // newline would start a new header, so both are replaced, nothing else is.
+  const orgName = (sender.orgName ?? "").replace(/[\r\n]+/g, " ").replace(/"/g, "'").trim();
+  if (!orgName) {
+    return {
+      ok: false,
+      code: "no_org_name",
+      reason:
+        "Your organization profile has no name, so the email cannot say who it is from. " +
+        "Add your organization's name on the Organization page, then come back to send.",
+    };
+  }
+  const fromAddress = (sender.fromAddress ?? "").trim();
+  if (!fromAddress || !EMAIL_SHAPE.test(fromAddress)) {
+    return {
+      ok: false,
+      code: "send_not_configured",
+      reason: "Email sending is not configured on the server (RESEND_FROM_EMAIL). Nothing can be sent until it is.",
+    };
+  }
+  const replyTo = (sender.userEmail ?? "").trim();
+  if (!replyTo || !EMAIL_SHAPE.test(replyTo)) {
+    return {
+      ok: false,
+      code: "no_sender_email",
+      reason:
+        "Your signed-in account has no email address, so a funder's reply would have nowhere to go. " +
+        "Fix your account's email, then come back to send.",
+    };
+  }
+  const from = `"${orgName}" <${fromAddress}>`;
+  return { ok: true, payload: { from, replyTo, to, subject, body } };
 }
 
 // The interaction row is logged from the SAME payload that was sent

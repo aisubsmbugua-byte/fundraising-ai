@@ -249,11 +249,33 @@ ok(
 
 // The env READ (process.env.RESEND_*), not the mere mention -- the handler
 // legitimately NAMES the variables in its not-configured error message.
-const keyReaders = [...fileText.entries()].filter(([, t]) => /process\.env\.RESEND/.test(t)).map(([f]) => f).sort();
+// The SECRET (the API key) is read in exactly one place. The FROM address
+// is not a secret (STATE item 57: platform infrastructure, address only)
+// and is additionally read by the prospect page -- a server component --
+// so the confirmation UI can display the exact from identity the send
+// will carry. Both readers are a closed set; anything else fails.
+const PROSPECT_PAGE = "app/(dashboard)/prospects/[id]/page.tsx";
+const keyReaders = [...fileText.entries()].filter(([, t]) => /process\.env\.RESEND_API_KEY/.test(t)).map(([f]) => f).sort();
 ok(
-  `RESEND_API_KEY / RESEND_FROM_EMAIL are read only in ${SEND_MODULE} (hard rule 5: server-only secret, one place)`,
+  `RESEND_API_KEY (the secret) is read only in ${SEND_MODULE} (hard rule 5: server-only secret, one place)`,
   JSON.stringify(keyReaders) === JSON.stringify([SEND_MODULE]),
   `found: ${keyReaders.join(", ") || "(none)"}`
+);
+const fromReaders = [...fileText.entries()].filter(([, t]) => /process\.env\.RESEND_FROM_EMAIL/.test(t)).map(([f]) => f).sort();
+ok(
+  `RESEND_FROM_EMAIL (address only) is read in exactly two server files: ${SEND_MODULE} and the prospect page feeding the confirmation`,
+  JSON.stringify(fromReaders) === JSON.stringify([PROSPECT_PAGE, SEND_MODULE].sort()),
+  `found: ${fromReaders.join(", ") || "(none)"}`
+);
+const anyResendEnvReaders = [...fileText.entries()].filter(([, t]) => /process\.env\.RESEND/.test(t)).map(([f]) => f).sort();
+ok(
+  "no OTHER file touches any RESEND env var at all",
+  JSON.stringify(anyResendEnvReaders) === JSON.stringify([PROSPECT_PAGE, SEND_MODULE].sort()),
+  `found: ${anyResendEnvReaders.join(", ") || "(none)"}`
+);
+ok(
+  "the prospect page never touches the API key -- only the from address",
+  !/process\.env\.RESEND_API_KEY/.test(fileText.get(PROSPECT_PAGE) ?? "")
 );
 
 // No batch, no schedule, no trigger, no retry loop (clause 5): the send
@@ -295,6 +317,25 @@ ok(
   "the payload the provider gets IS the readiness payload (sendFunderEmail(payload)), not a re-assembled one",
   sendIdx >= 0 && handlerText.includes("const payload = readiness.payload")
 );
+// STATE item 57: the sender identity flows through the SAME payload. The
+// provider module consumes payload.from / payload.replyTo and assembles
+// neither; the handler sources them from the org's own profile row, the
+// platform address helper, and the authenticated user's email.
+ok(
+  "the send module's provider call uses payload.from and payload.replyTo -- no identity assembled at the provider",
+  /from:\s*payload\.from/.test(sendModuleText) && /replyTo:\s*payload\.replyTo/.test(sendModuleText)
+);
+ok(
+  "the send module no longer feeds the env address straight into the provider call (identity comes only via the payload)",
+  !/from:\s*(?:from|process\.env)/.test(sendModuleText)
+);
+ok(
+  "the handler sources sender identity from the org profile row, platformFromAddress() and the session user's email",
+  /\.from\("org_profile"\)/.test(handlerText) &&
+    /orgName:\s*orgProfile\?\.name/.test(handlerText) &&
+    /fromAddress:\s*platformFromAddress\(\)/.test(handlerText) &&
+    /userEmail:\s*user\.email/.test(handlerText)
+);
 ok(
   "the interaction row is built from the SAME payload object that was sent (buildInteractionSummary(payload))",
   handlerText.includes("buildInteractionSummary(payload)")
@@ -328,6 +369,10 @@ ok(
     panelText.includes("{payload.to}") && panelText.includes("{payload.subject}") && panelText.includes("{payload.body}")
 );
 ok(
+  "the confirmation also displays the exact from identity and reply-to from the same payload (clause 2 extended, STATE item 57)",
+  panelText.includes("{payload.from}") && panelText.includes("{payload.replyTo}")
+);
+ok(
   "the confirmation's confirm click calls sendApprovedDraft with the draft id -- the id, not client-supplied content, is what the server acts on",
   panelText.includes("sendApprovedDraft(draft.id, prospectId)")
 );
@@ -337,6 +382,9 @@ ok(
 section("evaluateSendReadiness: the clause-2 preconditions, offline");
 
 const baseDraft = { kind: "intro_email" as const, subject: "A real subject", content: "A real body", status: "approved" as const, sent_at: null };
+// STATE item 57: org name captured from the org's record, platform address
+// from env, reply-to from the authenticated clicker.
+const baseSender = { orgName: "Village Worship Initiative", fromAddress: "outreach@platform.example", userEmail: "officer@example.org" };
 const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   id: "a1",
   draft_id: "d1",
@@ -354,61 +402,116 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
 });
 
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org");
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", baseSender);
   ok("an approved, never-sent email draft with a contact email is ready", r.ok);
   ok(
     "the payload is EXACTLY the stored fields: to = contact email, subject = draft subject, body = draft content",
     r.ok && r.payload.to === "funder@example.org" && r.payload.subject === "A real subject" && r.payload.body === "A real body"
   );
+  ok(
+    'the email presents as the ORGANIZATION: from = "{org record name}" <platform address> (STATE item 57)',
+    r.ok && r.payload.from === '"Village Worship Initiative" <outreach@platform.example>'
+  );
+  ok(
+    "replies go to the human who clicked send: replyTo = the authenticated user's email, never the platform address",
+    r.ok && r.payload.replyTo === "officer@example.org"
+  );
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, kind: "call_prep" }, [], "funder@example.org");
+  const r = evaluateSendReadiness({ ...baseDraft, kind: "call_prep" }, [], "funder@example.org", baseSender);
   ok("call prep notes can never be sent", !r.ok && !r.ok && r.code === "not_email");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, status: "draft" }, [], "funder@example.org");
+  const r = evaluateSendReadiness({ ...baseDraft, status: "draft" }, [], "funder@example.org", baseSender);
   ok("an unapproved draft cannot be sent (clause 2)", !r.ok && r.code === "not_approved");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, sent_at: "2026-09-21T00:00:00Z" }, [], "funder@example.org");
+  const r = evaluateSendReadiness({ ...baseDraft, sent_at: "2026-09-21T00:00:00Z" }, [], "funder@example.org", baseSender);
   ok("a sent draft cannot be sent again -- re-sending requires a new draft (clause 3)", !r.ok && r.code === "already_sent");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "sent", completed_at: "x", resend_message_id: "m" })], "funder@example.org");
+  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "sent", completed_at: "x", resend_message_id: "m" })], "funder@example.org", baseSender);
   ok("a confirmed attempt blocks sending even if the draft row missed its sent fact", !r.ok && r.code === "already_sent");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [attempt({})], "funder@example.org");
+  const r = evaluateSendReadiness(baseDraft, [attempt({})], "funder@example.org", baseSender);
   ok(
     "an unconfirmed attempt permanently blocks sending, and the reason says the outcome is unknown (clauses 4-5)",
     !r.ok && r.code === "attempt_unconfirmed" && /may or may not/.test(r.ok ? "" : r.reason)
   );
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "failed", completed_at: "x", error_note: "bad domain" })], "funder@example.org");
+  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "failed", completed_at: "x", error_note: "bad domain" })], "funder@example.org", baseSender);
   ok("a FAILED attempt does not block a new human confirmation (clause 5: click again, never auto-retry)", r.ok);
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], null);
+  const r = evaluateSendReadiness(baseDraft, [], null, baseSender);
   ok(
     "no contact email refuses with guidance (add one on the Contacts tab), so the confirmation is unreachable",
     !r.ok && r.code === "no_recipient" && /[Cc]ontacts/.test(r.ok ? "" : r.reason)
   );
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "not-an-address");
+  const r = evaluateSendReadiness(baseDraft, [], "not-an-address", baseSender);
   ok("a non-address in contact_email refuses the same way", !r.ok && r.code === "no_recipient");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, subject: "  " }, [], "funder@example.org");
+  const r = evaluateSendReadiness({ ...baseDraft, subject: "  " }, [], "funder@example.org", baseSender);
   ok("a blank subject refuses", !r.ok && r.code === "empty_subject");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, content: "" }, [], "funder@example.org");
+  const r = evaluateSendReadiness({ ...baseDraft, content: "" }, [], "funder@example.org", baseSender);
   ok("a blank body refuses", !r.ok && r.code === "empty_body");
 }
+// Sender identity refusals (STATE item 57): each missing fact refuses with
+// what to fix -- never a silent fall back to a bare platform identity.
 {
-  const summary = buildInteractionSummary({ to: "funder@example.org", subject: "Hello", body: "..." });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: null });
+  ok(
+    "no org display name refuses with guidance (add it on the Organization page) -- never a bare platform from",
+    !r.ok && r.code === "no_org_name" && /[Oo]rganization/.test(r.ok ? "" : r.reason)
+  );
+}
+{
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: "   " });
+  ok("a whitespace-only org name refuses the same way", !r.ok && r.code === "no_org_name");
+}
+{
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, fromAddress: null });
+  ok(
+    "no platform from-address refuses as not configured (RESEND_FROM_EMAIL named in the reason)",
+    !r.ok && r.code === "send_not_configured" && /RESEND_FROM_EMAIL/.test(r.ok ? "" : r.reason)
+  );
+}
+{
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, fromAddress: "not-an-address" });
+  ok("a malformed platform from-address refuses the same way", !r.ok && r.code === "send_not_configured");
+}
+{
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, userEmail: null });
+  ok(
+    "a clicker with no email refuses -- a funder's reply must have somewhere to go",
+    !r.ok && r.code === "no_sender_email"
+  );
+}
+{
+  // The name is the org's record verbatim, normalized only as far as a mail
+  // header requires: quotes and newlines cannot survive into the header.
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: ' The "Village"\r\nInitiative ' });
+  ok(
+    "header-breaking characters in the org name are normalized, everything else kept",
+    r.ok && r.payload.from === `"The 'Village' Initiative" <outreach@platform.example>`,
+    r.ok ? r.payload.from : r.reason
+  );
+}
+{
+  const summary = buildInteractionSummary({
+    from: '"Village Worship Initiative" <outreach@platform.example>',
+    replyTo: "officer@example.org",
+    to: "funder@example.org",
+    subject: "Hello",
+    body: "...",
+  });
   ok("the interaction summary derives from the payload alone", summary.includes("funder@example.org") && summary.includes("Hello"));
 }
 

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { evaluateSendReadiness, buildInteractionSummary, type DraftSendAttempt } from "@/lib/draft-send";
-import { sendFunderEmail, isSendConfigured } from "@/lib/send-draft";
+import { sendFunderEmail, isSendConfigured, platformFromAddress } from "@/lib/send-draft";
 import type { Draft } from "@/lib/drafts";
 
 // Ruling 0029 clause 2: the ONE handler that sends funder-facing mail, and
@@ -70,7 +70,26 @@ export async function sendApprovedDraft(draftId: string, prospectId: string): Pr
       return { error: `The send ledger is unavailable (is migration 0069 applied?), so nothing was sent: ${attemptsError.message}` };
     }
 
-    const readiness = evaluateSendReadiness(draft, attempts ?? [], prospect.contact_email);
+    // Sender identity (STATE item 57): the org's own profile row supplies
+    // the display name (captured, never typed), the platform env supplies
+    // the address, and the authenticated clicker's email is the reply-to.
+    // Re-read server-side at send time like everything else here -- the
+    // same three sources the page fed the confirmation UI, so what the
+    // human confirmed is what goes out, by sourcing and by construction.
+    const { data: orgProfile, error: orgProfileError } = await supabase
+      .from("org_profile")
+      .select("name")
+      .limit(1)
+      .maybeSingle<{ name: string | null }>();
+    if (orgProfileError) {
+      return { error: `Could not load your organization profile, so nothing was sent: ${orgProfileError.message}` };
+    }
+
+    const readiness = evaluateSendReadiness(draft, attempts ?? [], prospect.contact_email, {
+      orgName: orgProfile?.name,
+      fromAddress: platformFromAddress(),
+      userEmail: user.email,
+    });
     if (!readiness.ok) return { error: readiness.reason };
     const payload = readiness.payload;
 

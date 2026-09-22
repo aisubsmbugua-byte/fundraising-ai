@@ -7,7 +7,7 @@ import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
 import { DRAFT_KINDS, draftKindLabel, type Draft, type DraftKind } from "@/lib/drafts";
-import { evaluateSendReadiness, type DraftSendAttempt, type SendPayload } from "@/lib/draft-send";
+import { evaluateSendReadiness, type DraftSendAttempt, type SendPayload, type SenderIdentity } from "@/lib/draft-send";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, cardStyle, chipStyle, radiusSm, shadow } from "@/lib/ui";
 
 const DRAFT_MESSAGES = [
@@ -23,12 +23,14 @@ export default function DraftPanel({
   drafts,
   sendAttempts,
   contactEmail,
+  sender,
 }: {
   prospectId: string;
   strategyRunId: string;
   drafts: Draft[];
   sendAttempts: DraftSendAttempt[];
   contactEmail: string | null;
+  sender: SenderIdentity;
 }) {
   // Tracked per-kind (not a single shared isPending) so clicking one
   // button doesn't show "Drafting..." on both -- each kind runs and
@@ -82,6 +84,7 @@ export default function DraftPanel({
             prospectId={prospectId}
             attempts={sendAttempts.filter((a) => a.draft_id === d.id)}
             contactEmail={contactEmail}
+            sender={sender}
           />
         ))}
         {drafts.length === 0 && <p style={{ color: colors.textFaint, fontSize: 13 }}>No drafts yet.</p>}
@@ -95,11 +98,13 @@ function DraftCard({
   prospectId,
   attempts,
   contactEmail,
+  sender,
 }: {
   draft: Draft;
   prospectId: string;
   attempts: DraftSendAttempt[];
   contactEmail: string | null;
+  sender: SenderIdentity;
 }) {
   const [subject, setSubject] = useState(draft.subject ?? "");
   const [content, setContent] = useState(draft.content);
@@ -192,7 +197,7 @@ function DraftCard({
             ✓ Approved {draft.approved_at ? new Date(draft.approved_at).toLocaleString() : ""}
           </p>
           {isEmail && (
-            <SendSection draft={draft} prospectId={prospectId} attempts={attempts} contactEmail={contactEmail} />
+            <SendSection draft={draft} prospectId={prospectId} attempts={attempts} contactEmail={contactEmail} sender={sender} />
           )}
         </>
       )}
@@ -224,11 +229,13 @@ function SendSection({
   prospectId,
   attempts,
   contactEmail,
+  sender,
 }: {
   draft: Draft;
   prospectId: string;
   attempts: DraftSendAttempt[];
   contactEmail: string | null;
+  sender: SenderIdentity;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -266,7 +273,7 @@ function SendSection({
     );
   }
 
-  const readiness = evaluateSendReadiness(draft, attempts, contactEmail);
+  const readiness = evaluateSendReadiness(draft, attempts, contactEmail, sender);
 
   return (
     <div style={{ marginTop: spacing.sm }}>
@@ -310,8 +317,9 @@ function SendSection({
 }
 
 // A final review of the exact message, not a generic "are you sure":
-// recipient, subject and body are the payload itself (ruling 0029 clause
-// 2 -- the confirmation displays what will be sent). Wider than
+// from identity, reply-to, recipient, subject and body are the payload
+// itself (ruling 0029 clause 2 -- the confirmation displays what will be
+// sent, extended to the sender identity by STATE item 57). Wider than
 // ConfirmDialog because the body must be readable, but the same
 // overlay-and-card shape.
 function SendConfirmDialog({
@@ -365,6 +373,14 @@ function SendConfirmDialog({
           unsent, and this draft can never be sent again.
         </p>
         <div style={{ display: "grid", gap: spacing.sm }}>
+          <div>
+            <div style={labelStyle}>From</div>
+            <div style={{ fontSize: 14 }}>{payload.from}</div>
+          </div>
+          <div>
+            <div style={labelStyle}>Replies go to</div>
+            <div style={{ fontSize: 14 }}>{payload.replyTo}</div>
+          </div>
           <div>
             <div style={labelStyle}>To</div>
             <div style={{ fontSize: 14 }}>{payload.to}</div>
