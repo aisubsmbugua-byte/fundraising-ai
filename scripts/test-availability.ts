@@ -430,5 +430,85 @@ check(
 check("and the settled ones are still on the list", filingRead.length, requiredClaimKeysFor("screening").length);
 check("each carrying a reason", filingRead.every((f) => f.reason.length > 0), true);
 
+// ---------------------------------------------------------------------------
+section("A screen serving two decisions carries two ledgers (ruling 0030)");
+// ---------------------------------------------------------------------------
+//
+// The Research tab serves screening AND planning the approach, so it derives
+// two ledgers -- one call per consumer (ruling 0011), neither keys set widened
+// to cover the other. These assertions are ruling 0030's test of compliance:
+// two distinct sets at the call sites, and the 8 strategy-only facts each
+// present with a reason.
+
+// The 8 keys ruling 0030 names, verbatim from the ruling text.
+const STRATEGY_ONLY_KEYS = [
+  "application.accepts_unsolicited",
+  "application.deadline",
+  "application.fiscal_sponsorship_rules",
+  "application.invitation_mechanism",
+  "funding.grant_size_range",
+  "funding.international_reach",
+  "funding.median_grant_size",
+  "funding.total_assets",
+];
+
+const screeningKeys = requiredClaimKeysFor("screening");
+const strategyKeys = requiredClaimKeysFor("strategy");
+
+// Two distinct sets, and the difference is exactly the 8 the ruling names --
+// derived from the policy maps, never restated by a display.
+check("the two consumers' required sets are distinct", JSON.stringify(screeningKeys) === JSON.stringify(strategyKeys), false);
+check(
+  "strategy requires exactly the 8 facts ruling 0030 names beyond screening",
+  strategyKeys.filter((k) => !screeningKeys.includes(k)),
+  STRATEGY_ONLY_KEYS
+);
+// Neither set was widened to serve the other: screening still requires facts
+// strategy does not, so neither is a superset of the other.
+check("screening's set carries none of the 8", screeningKeys.some((k) => STRATEGY_ONLY_KEYS.includes(k)), false);
+check("screening still requires facts strategy does not", screeningKeys.filter((k) => !strategyKeys.includes(k)).length > 0, true);
+
+// The strategy ledger through the live mapping, on a run that found nothing:
+// every one of the 8 is present, carries a reason, and is honestly open.
+const strategyNoFiling = availabilityForResearchRun({ keys: strategyKeys, filingFetched: null, evidencedClaimKeys: [] });
+check("the strategy ledger covers strategy's whole required set", strategyNoFiling.length, strategyKeys.length);
+check("each of the 8 strategy-only facts is on the ledger", STRATEGY_ONLY_KEYS.every((k) => strategyNoFiling.some((f) => f.key === k)), true);
+check("each of the 8 carries a reason", STRATEGY_ONLY_KEYS.every((k) => (strategyNoFiling.find((f) => f.key === k)?.reason.length ?? 0) > 0), true);
+check("with nothing read, each of the 8 is open, not settled", STRATEGY_ONLY_KEYS.every((k) => strategyNoFiling.find((f) => f.key === k)?.obtainable === true), true);
+check("and each renders as words, not an identifier", STRATEGY_ONLY_KEYS.every((k) => !factLabel(k).includes(".") && !factLabel(k).includes("_")), true);
+
+// Once the filing is read, the one registry fact among the 8 settles and the
+// site-sourced ones stay open -- the same partial close as screening's ledger.
+const strategyFilingRead = availabilityForResearchRun({ keys: strategyKeys, filingFetched: true, evidencedClaimKeys: [] });
+check("total assets settles once the filing is read", stateOf(strategyFilingRead, "funding.total_assets"), "checked_not_stated");
+check(
+  "the site-sourced strategy facts stay open",
+  STRATEGY_ONLY_KEYS.filter((k) => factSource(k) === "official_site").every((k) => strategyFilingRead.find((f) => f.key === k)?.obtainable === true),
+  true
+);
+
+// The call sites themselves: one call per consumer, sets passed by consumer
+// name rather than by list, so neither can silently grow to cover the other.
+const fs = require("node:fs") as typeof import("node:fs");
+const path = require("node:path") as typeof import("node:path");
+const intelSrc = fs.readFileSync(path.join(__dirname, "../lib/prospect-intelligence.ts"), "utf8");
+const tabSrc = fs.readFileSync(path.join(__dirname, "../app/(dashboard)/prospects/[id]/research-tab.tsx"), "utf8");
+check(
+  "the loader derives exactly one ledger per consumer, each named",
+  [intelSrc.split('requiredClaimKeysFor("screening")').length - 1, intelSrc.split('requiredClaimKeysFor("strategy")').length - 1],
+  [1, 1]
+);
+check("no call site in the loader passes an unnamed keys set", intelSrc.split("availabilityForResearchRun(").length - 1, 2);
+check(
+  "the tab renders both ledgers, each labelled with its decision",
+  ["What screening needs", "What strategy needs"].every((h) => tabSrc.includes(h)),
+  true
+);
+check(
+  "and reads them from two fields, never one merged list",
+  ["intelligence.availability", "intelligence.strategyAvailability"].every((f) => tabSrc.includes(f)),
+  true
+);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

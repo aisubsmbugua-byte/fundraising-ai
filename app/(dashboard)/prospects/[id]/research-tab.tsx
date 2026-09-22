@@ -160,6 +160,16 @@ export default function ResearchTab({
   const openFacts = obtainableGaps(ledger);
   const ledgerCounts = availabilitySummary(ledger);
   const settledFacts = ledgerCounts.checked_not_stated + ledgerCounts.not_applicable;
+  // The strategy ledger, ruling 0030: this tab serves two decisions --
+  // screening a funder, and planning the approach to it -- and carries one
+  // ledger for each. Derived by its own consumer-named call (ruling 0011);
+  // neither required set is widened to serve the other. Display only: the
+  // banner, the offer and the run button above all still read the screening
+  // ledger alone.
+  const strategyLedger = intelligence.strategyAvailability;
+  const strategyOpenFacts = obtainableGaps(strategyLedger);
+  const strategyCounts = availabilitySummary(strategyLedger);
+  const strategySettledFacts = strategyCounts.checked_not_stated + strategyCounts.not_applicable;
   const allClaims = intelligence.sections.flatMap((s) => s.claims);
   const claimsWithSections = intelligence.sections.filter((s) => s.claims.length > 0);
   // Only verified claims can be approved in bulk. Everything else is an
@@ -375,6 +385,39 @@ export default function ResearchTab({
                   <span style={chipStyle(wording.tone)}>{wording.label}</span>
                   {/* Exactly the obtainable facts carry an action. Everything
                       else is shown, plainly, and offers nothing. */}
+                  {f.obtainable && (
+                    <span style={{ fontSize: 11.5, color: "#b8860b" }}>another search could find this</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>{f.reason}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Ruling 0030: the dossier above is also what a person reads before
+            approving a strategy, so the tab carries a second ledger for that
+            decision beside the screening one -- same states, same wording,
+            strategy's own required set. The 8 facts strategy needs and
+            screening does not (unsolicited requests, deadline, invitation,
+            fiscal sponsorship, grant sizes, international reach, assets) each
+            appear here with their reason rather than as a blank. */}
+        <h3 style={{ fontSize: 14, margin: `${spacing.md}px 0 0` }}>What strategy needs</h3>
+        <p style={{ fontSize: 12.5, color: colors.textMuted, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+          The {strategyLedger.length} facts planning the approach rests on — read before approving a strategy.{" "}
+          {strategyCounts.found} found · {strategyOpenFacts.length} another search could still find ·{" "}
+          {strategySettledFacts} looked for and not stated.
+        </p>
+        <div style={{ display: "grid", gap: 6 }}>
+          {strategyLedger.map((f) => {
+            const wording = AVAILABILITY_WORDING[f.state];
+            return (
+              <div key={f.key} style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: spacing.xs, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: colors.text }}>{factLabel(f.key)}</span>
+                  <span style={chipStyle(wording.tone)}>{wording.label}</span>
+                  {/* Same rule as the screening ledger (ruling 0017): exactly
+                      the obtainable facts carry an action. */}
                   {f.obtainable && (
                     <span style={{ fontSize: 11.5, color: "#b8860b" }}>another search could find this</span>
                   )}

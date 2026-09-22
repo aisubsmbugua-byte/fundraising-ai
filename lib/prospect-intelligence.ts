@@ -192,6 +192,13 @@ export type ProspectIntelligence = {
   // five paid runs were chasing a 990 grant schedule, which is
   // funding.recent_grants.
   availability: FactAvailability[];
+  // The same run graded for the STRATEGY decision (ruling 0030): the Research
+  // tab serves screening AND planning the approach, so it carries one ledger
+  // per decision. A second, distinct derivation over strategy's own required
+  // set (ruling 0011) -- never a widening of screening's, which is how one
+  // number ends up serving two facts. Display only: the offer below reads the
+  // screening ledger alone.
+  strategyAvailability: FactAvailability[];
   // What may honestly be offered as more work, after the ledger has filtered
   // it. THE ONLY input the gap vocabulary is allowed to read (ruling 0009).
   offer: { sections: string[]; sourceClasses: string[] };
@@ -422,6 +429,18 @@ export async function loadProspectIntelligence(
     evidencedClaimKeys: (claims ?? []).filter((c) => !c.evidence_missing).map((c) => c.claim_key as string),
   });
 
+  // The strategy ledger, ruling 0030: a second consumer gets a second call
+  // with its own required set, never a widened first. Same run, same stored
+  // retrieval facts, different decision -- and therefore a different keys set
+  // (ruling 0011). Feeds display only (the "What strategy needs" list on the
+  // Research tab); the offer below still reads the screening ledger alone.
+  const strategyAvailability = availabilityForResearchRun({
+    keys: requiredClaimKeysFor("strategy"),
+    filingFetched: (run.filing_fetched as boolean | null) ?? null,
+    // Evidenced only, same rule as above.
+    evidencedClaimKeys: (claims ?? []).filter((c) => !c.evidence_missing).map((c) => c.claim_key as string),
+  });
+
   // Ruling 0009: there is no second way to compute what is missing. Everything
   // the interface offers as a reason to spend -- the gap list on the button,
   // the confirm dialog, the next run's search directives -- reads this.
@@ -512,6 +531,7 @@ export async function loadProspectIntelligence(
     sections,
     missingSections,
     availability,
+    strategyAvailability,
     offer,
     // Computed from the raw rows rather than the shaped claims: reporting
     // periods are rewritten for display ("unstated" becomes "no year
