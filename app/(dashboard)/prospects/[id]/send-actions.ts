@@ -98,6 +98,11 @@ export async function sendApprovedDraft(draftId: string, prospectId: string): Pr
     }
 
     // --- Birth before send: the attempt row carries the exact payload ---
+    // Including the identity it will send AS (STATE item 59): the org can
+    // rename itself later, so from/reply-to are captured here, at birth,
+    // like every other payload fact. If migration 0070 (or 0069) is not
+    // applied, this insert fails on the missing column (or table) and the
+    // refusal below stands -- fail closed, nothing sent.
     const { data: attempt, error: birthError } = await supabase
       .from("draft_send_attempts")
       .insert({
@@ -105,6 +110,8 @@ export async function sendApprovedDraft(draftId: string, prospectId: string): Pr
         recipient_email: payload.to,
         subject: payload.subject,
         body: payload.body,
+        from_identity: payload.from,
+        reply_to: payload.replyTo,
         attempted_by: user.id,
       })
       .select("id")

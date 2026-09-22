@@ -187,6 +187,63 @@ ok(
     /outcome\s*=\s*'sent'[\s\S]{0,120}resend_message_id\s*=\s*new\.resend_message_id/.test(stmts)
 );
 
+// --- 1b. Migration 0070: the attempt captures the identity it sent --------
+// STATE item 59, ruling 0029 clause 4 extended: from_identity and reply_to
+// join the birth payload, nullable (a row born before the columns existed
+// records that absence honestly), pinned by the terminal-once trigger.
+
+section("migration 0070 is additive and pins the captured sender identity");
+
+const sql70 = readFileSync(join(root, "supabase/migrations/0070_send_attempt_identity.sql"), "utf8");
+const stmts70 = sql70
+  .split("\n")
+  .map((l) => l.replace(/--.*$/, ""))
+  .join("\n")
+  .toLowerCase();
+
+const alterTargets70 = [...stmts70.matchAll(/alter\s+table\s+([a-z_]+)/g)].map((m) => m[1]);
+ok(
+  "every ALTER TABLE targets draft_send_attempts and nothing else (ruling 0020: additive)",
+  alterTargets70.length > 0 && alterTargets70.every((t) => t === "draft_send_attempts"),
+  `alter targets: ${alterTargets70.join(", ")}`
+);
+ok("no DROP of any kind, no new table -- two columns and one widened guard, nothing else", !/\bdrop\b/.test(stmts70) && !/create\s+table/.test(stmts70));
+const addColumns70 = [...stmts70.matchAll(/add\s+column\s+([a-z_]+)\s+([a-z]+)/g)].map((m) => [m[1], m[2]]).sort();
+ok(
+  "the only ADD COLUMNs are from_identity text and reply_to text",
+  JSON.stringify(addColumns70) === JSON.stringify([["from_identity", "text"], ["reply_to", "text"]]),
+  `added: ${addColumns70.map(([c, t]) => `${c} ${t}`).join(", ")}`
+);
+ok(
+  "neither new column is NOT NULL (nullable by spec -- a row born before the capture existed keeps the absence)",
+  ![...stmts70.matchAll(/add\s+column[^,;]*/g)].some((m) => /not\s+null/.test(m[0]))
+);
+// The widened guard: create OR REPLACE, because 0069's function is already
+// applied live -- additive in effect (widens a pin list, changes no data,
+// drops nothing), stated in the migration's own header.
+const replaced = stmts70.match(/create\s+or\s+replace\s+function\s+([a-z_]+)/g) ?? [];
+ok(
+  "exactly ONE create or replace function, and it is the terminal-once trigger function (birth and drafts triggers untouched)",
+  replaced.length === 1 && /create\s+or\s+replace\s+function\s+draft_send_attempts_enforce_terminal_once/.test(stmts70),
+  `replaced: ${replaced.join(", ")}`
+);
+ok(
+  "the replaced function pins BOTH new columns as birth facts (new is distinct from old raises)",
+  /new\.from_identity\s+is\s+distinct\s+from\s+old\.from_identity/.test(stmts70) &&
+    /new\.reply_to\s+is\s+distinct\s+from\s+old\.reply_to/.test(stmts70)
+);
+ok(
+  "the replaced function keeps EVERY 0069 pin -- widening only, no check removed",
+  ["id", "draft_id", "recipient_email", "subject", "body", "attempted_by", "attempted_at", "organization_id"].every((c) =>
+    new RegExp(`new\\.${c}\\s+is\\s+distinct\\s+from\\s+old\\.${c}`).test(stmts70)
+  )
+);
+ok(
+  "the replaced function keeps terminal-written-once whole: a terminal row is immutable, and unfinalized-to-terminal is the only legal transition",
+  /old\.outcome\s+is\s+not\s+null/.test(stmts70) && /new\.outcome\s+is\s+null/.test(stmts70) && (stmts70.match(/raise\s+exception/g) ?? []).length === 3
+);
+ok("migration 0069 itself is untouched (never rewrite an applied migration)", /add\s+column\s+sent_at/.test(sql) && !/from_identity/.test(sql));
+
 // --- 2. Closed-set scan: one send module, one importer (clause 1) ---------
 
 section("closed-set scan: exactly one funder-facing send module, exactly one importer");
@@ -343,6 +400,14 @@ ok(
 ok(
   "the birth insert carries the exact payload fields (recipient_email, subject, body) -- captured before the provider call",
   /recipient_email:\s*payload\.to/.test(handlerText) && /subject:\s*payload\.subject/.test(handlerText) && /body:\s*payload\.body/.test(handlerText)
+);
+ok(
+  "the birth insert also captures the identity it sends AS: from_identity = payload.from, reply_to = payload.replyTo (STATE item 59)",
+  /from_identity:\s*payload\.from\b/.test(handlerText) && /reply_to:\s*payload\.replyTo/.test(handlerText)
+);
+ok(
+  "the finalization updates never touch the identity columns -- birth facts are written at birth, full stop",
+  ![...handlerText.matchAll(/\.update\(\{[^}]*\}/g)].some((m) => /from_identity|reply_to/.test(m[0]))
 );
 
 // The unconfirmed branch finalizes nothing: between entering it and the
@@ -545,6 +610,19 @@ async function dbSection() {
   }
   if (probeError) throw new Error(`Could not probe draft_send_attempts: ${probeError.message}`);
 
+  // Migration 0070's columns, probed the same way: absent means item 59's
+  // schema is not applied yet. Its checks report NOT EVALUATED (not a
+  // pass), and the birth rows below are born without the identity columns
+  // -- which is exactly what a 0069-only database legally accepts.
+  const { error: identityProbeError } = await admin.from("draft_send_attempts").select("from_identity, reply_to").limit(1);
+  const hasIdentityColumns = !identityProbeError;
+  if (!hasIdentityColumns) {
+    console.log(
+      "NOT EVALUATED: from_identity / reply_to do not exist in this database -- migration 0070 is not applied. The identity-capture checks are not a pass."
+    );
+    notEvaluated.push("DB assertions for from_identity/reply_to -- migration 0070 not applied");
+  }
+
   // Equality-matched throwaway identity, purged before and after -- the
   // test-ai-runs / test-tenant-isolation discipline: no like/ilike, refuse
   // to touch an org holding any other profile, idempotent either way.
@@ -618,7 +696,18 @@ async function dbSection() {
       .single();
     if (draftError || !draft) throw new Error(`Could not create test draft: ${draftError?.message}`);
 
-    const birthRow = { draft_id: draft.id, recipient_email: "funder@example.org", subject: "Test subject", body: "Test body", attempted_by: userId, organization_id: orgId };
+    // The identity the payload would carry (item 59), captured at birth
+    // when the columns exist -- the same shape the handler writes.
+    const FROM_IDENTITY = `"${ORG_NAME}" <outreach@platform.example>`;
+    const birthRow = {
+      draft_id: draft.id,
+      recipient_email: "funder@example.org",
+      subject: "Test subject",
+      body: "Test body",
+      attempted_by: userId,
+      organization_id: orgId,
+      ...(hasIdentityColumns ? { from_identity: FROM_IDENTITY, reply_to: EMAIL } : {}),
+    };
 
     const { error: unapprovedError } = await admin.from("draft_send_attempts").insert(birthRow);
     ok("an attempt cannot be born against an UNAPPROVED draft (birth trigger, clause 2)", !!unapprovedError, unapprovedError?.message ?? "no error");
@@ -641,6 +730,14 @@ async function dbSection() {
     ok("a legal birth succeeds and the row is born unfinalized (outcome null = attempted-unconfirmed encoding exists)", !bornError && !!born && born.outcome === null && born.completed_at === null, bornError?.message ?? "");
     if (!born) throw new Error("cannot continue without a born attempt");
 
+    if (hasIdentityColumns) {
+      ok(
+        "the birth captures the sender identity verbatim: from_identity and reply_to stored exactly as handed over (item 59)",
+        born.from_identity === FROM_IDENTITY && born.reply_to === EMAIL,
+        `stored: ${born.from_identity} / ${born.reply_to}`
+      );
+    }
+
     const { error: secondLiveError } = await admin.from("draft_send_attempts").insert(birthRow);
     ok("a SECOND live attempt for the same draft is refused -- two concurrent clicks cannot both send (clause 3)", !!secondLiveError, secondLiveError?.message ?? "no error");
 
@@ -658,6 +755,22 @@ async function dbSection() {
       .update({ outcome: "sent", completed_at: new Date().toISOString() })
       .eq("id", born.id);
     ok("an attempt cannot finalize 'sent' without a captured provider message id (clause 4)", !!sentNoIdError, sentNoIdError?.message ?? "no error");
+
+    if (hasIdentityColumns) {
+      // The extended pin (item 59): an otherwise-legal finalization that
+      // also rewrites an identity column is refused -- the org renaming
+      // itself later cannot reach back into what was already sent.
+      const { error: fromPinError } = await admin
+        .from("draft_send_attempts")
+        .update({ outcome: "sent", completed_at: new Date().toISOString(), resend_message_id: "msg-123", from_identity: `"Renamed Org" <outreach@platform.example>` })
+        .eq("id", born.id);
+      ok("a finalization cannot rewrite from_identity -- the identity sent is pinned at birth (item 59)", !!fromPinError, fromPinError?.message ?? "no error");
+      const { error: replyPinError } = await admin
+        .from("draft_send_attempts")
+        .update({ outcome: "sent", completed_at: new Date().toISOString(), resend_message_id: "msg-123", reply_to: "someone-else@example.org" })
+        .eq("id", born.id);
+      ok("a finalization cannot rewrite reply_to either", !!replyPinError, replyPinError?.message ?? "no error");
+    }
 
     const { error: finalizeError } = await admin
       .from("draft_send_attempts")
