@@ -611,11 +611,10 @@ export async function composeDraft(
 // throws below stay exactly as they were -- only the new refusals use
 // the returned transport.
 //
-// Note: the app has no un-approve control yet (checked across app/ --
-// nothing writes status back to 'draft'), so the messages cannot name
-// one. Escalated: with update and delete both refused, an approved,
-// unsent draft currently has no edit path at all until un-approve
-// exists or a new draft replaces it.
+// The un-approve control the messages name is unapproveDraft below
+// (STATE item 68) -- the one legal way back for an approved, unsent
+// draft. Item 67's original escalation (no edit path at all once
+// approved) is closed by it.
 
 export async function updateDraft(
   draftId: string,
@@ -639,7 +638,7 @@ export async function updateDraft(
   if (existing.status === "approved") {
     return {
       error:
-        "This draft has been approved, so its content is locked to exactly what was approved. Editing it requires un-approving it first — the app has no un-approve control yet, so for now create and approve a new draft instead.",
+        "This draft has been approved, so its content is locked to exactly what was approved. Editing it requires un-approving it first — use the Un-approve button on the draft's card, which reopens editing.",
     };
   }
 
@@ -693,7 +692,7 @@ export async function deleteDraft(draftId: string, prospectId: string): Promise<
   if (existing.status === "approved") {
     return {
       error:
-        "This draft has been approved, so it can't be deleted. Deleting it requires un-approving it first — the app has no un-approve control yet.",
+        "This draft has been approved, so it can't be deleted. Deleting it requires un-approving it first — use the Un-approve button on the draft's card.",
     };
   }
 
@@ -701,6 +700,94 @@ export async function deleteDraft(draftId: string, prospectId: string): Promise<
   // landing between the read and this delete makes it a no-op.
   const { error } = await supabase.from("drafts").delete().eq("id", draftId).eq("status", "draft");
   if (error) throw new Error(error.message);
+
+  revalidatePath(`/prospects/${prospectId}`);
+  return { ok: true };
+}
+
+// STATE item 68: the way back. Item 67 made an approved draft server-side
+// immutable; this is the one legal reversal. Un-approving sets the draft
+// back to status 'draft' and clears who approved it and when -- and by
+// doing ONLY that, everything downstream follows from status alone: the
+// editor reopens, delete becomes possible again, and the deck view stops
+// rendering (it refuses any non-approved draft by construction). Nothing
+// here rewrites content, and nothing downstream is touched directly.
+//
+// It REFUSES -- returned plain messages, the composeDraft convention --
+// whenever the reversal would touch something that reached, or may have
+// reached, a funder:
+//   * a SENT draft (sent_at set): migration 0069's drafts trigger pins a
+//     sent draft's status at the database for every role regardless; the
+//     refusal here is the readable layer over the same fact.
+//   * a draft with a LIVE (outcome null) or CONFIRMED ('sent') send
+//     attempt in the ledger: the message may or may not have been
+//     delivered, so the draft stays exactly as sent/attempted. A FAILED
+//     attempt blocks nothing -- nothing was delivered.
+//
+// The write is race-proof in the item-67 style: predicated on status
+// 'approved' AND sent_at null, so a send confirmed between the reads
+// above and this write makes it a no-op instead of un-approving a sent
+// draft. The attempt check runs LAST, immediately before the write, to
+// keep the check-to-write window as narrow as the transport allows; a
+// send that still lands inside it is additionally walled off by 0069's
+// birth trigger, which refuses to birth an attempt for a draft that is
+// no longer 'approved'.
+export async function unapproveDraft(draftId: string, prospectId: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Re-read the draft's CURRENT state server-side (item 67's rule: the
+  // client's belief about status is never trusted).
+  const { data: existing, error: statusError } = await supabase
+    .from("drafts")
+    .select("status, sent_at")
+    .eq("id", draftId)
+    .single();
+  if (statusError || !existing) return { error: "Draft not found." };
+  if (existing.sent_at) {
+    return {
+      error:
+        "This draft has been sent, so it stays exactly as sent — approval included. Sent facts are never unwound; further work happens on a new draft.",
+    };
+  }
+  if (existing.status !== "approved") {
+    return { error: "This draft is not approved, so there is nothing to un-approve." };
+  }
+
+  // The send-attempt ledger, checked last: a live or confirmed attempt
+  // means the message reached, or may have reached, the funder, and the
+  // draft stays exactly as attempted. Only 'failed' does not block. If
+  // the ledger cannot be read, fail closed -- nothing is changed.
+  const { data: blockingAttempts, error: attemptsError } = await supabase
+    .from("draft_send_attempts")
+    .select("id, outcome")
+    .eq("draft_id", draftId)
+    .or("outcome.eq.sent,outcome.is.null")
+    .limit(1);
+  if (attemptsError) {
+    return { error: `Could not verify this draft's send history, so nothing was changed: ${attemptsError.message}` };
+  }
+  if ((blockingAttempts ?? []).length > 0) {
+    return blockingAttempts![0].outcome === "sent"
+      ? { error: "This draft has a confirmed send on record, so it stays exactly as sent — approval included." }
+      : {
+          error:
+            "A send of this draft was attempted and its outcome is unconfirmed — the message may have reached the funder, so the draft stays exactly as attempted, approval included.",
+        };
+  }
+
+  // Predicated on status 'approved' and no sent fact: anything that
+  // changed in the window since the reads above makes this a no-op.
+  const { error } = await supabase
+    .from("drafts")
+    .update({ status: "draft", approved_by: null, approved_at: null, updated_at: new Date().toISOString() })
+    .eq("id", draftId)
+    .eq("status", "approved")
+    .is("sent_at", null);
+  if (error) return { error: error.message };
 
   revalidatePath(`/prospects/${prospectId}`);
   return { ok: true };

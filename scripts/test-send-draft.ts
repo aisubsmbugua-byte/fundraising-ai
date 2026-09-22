@@ -762,6 +762,10 @@ ok(
   /locked to exactly what was approved/.test(updateBody) && /un-approving/.test(updateBody)
 );
 ok(
+  "updateDraft's refusal names the REAL control (item 68): the Un-approve button on the draft's card, no 'not yet' hedge left",
+  /Un-approve button on the draft's card/.test(updateBody) && !/no un-approve control/.test(updateBody)
+);
+ok(
   "updateDraft's write is additionally predicated on status 'draft' -- an approve landing between read and write makes it a no-op",
   /\.update\(\{[^}]*\}\)\s*[\s\S]{0,80}\.eq\("id", draftId\)\s*\.eq\("status", "draft"\)/.test(updateBody)
 );
@@ -792,6 +796,10 @@ ok(
 ok(
   "deleteDraft's refusal says an approved draft can't be deleted and names un-approving as the path",
   /can't be deleted/.test(delBody) && /un-approving/.test(delBody)
+);
+ok(
+  "deleteDraft's refusal names the REAL control (item 68): the Un-approve button on the draft's card, no 'not yet' hedge left",
+  /Un-approve button on the draft's card/.test(delBody) && !/no un-approve control/.test(delBody)
 );
 ok(
   "deleteDraft's delete is additionally predicated on status 'draft' -- only an unapproved draft is deletable here",
@@ -835,6 +843,132 @@ ok(
 ok(
   "the panel's delete confirmation surfaces deleteDraft's returned refusal",
   /const removed = await deleteDraft\(draft\.id, prospectId\);\s*setActionError\("error" in removed \? removed\.error : null\)/.test(panelText)
+);
+
+// --- 3f. unapproveDraft: the one legal reversal of an approval --------------
+// STATE item 68. Item 67 locked an approved draft server-side and left no
+// edit path; unapproveDraft is the way back. Same discipline as the other
+// action checks: current state re-read server-side, refusals RETURNED,
+// race-proof write predicates -- and the two hard walls: a sent draft and
+// a draft with a live or confirmed send attempt are never un-approved
+// (the message reached, or may have reached, a funder). The deck view
+// needs no change: it renders approved drafts only, by construction, so
+// un-approving makes its link stop working with zero code touched there.
+
+section("unapproveDraft source: sent and attempted drafts stay put, approval facts cleared");
+
+const unapproveStart = draftActionsText.indexOf("export async function unapproveDraft");
+const unapproveEnd = draftActionsText.indexOf("export async function", unapproveStart + 1);
+const unapproveRaw = unapproveStart >= 0 ? draftActionsText.slice(unapproveStart, unapproveEnd < 0 ? undefined : unapproveEnd) : "";
+// Statements only -- comments legitimately DISCUSS what must not exist.
+const unapproveBody = unapproveRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+ok("unapproveDraft exists in draft-actions.ts, beside the item-67 guards it reverses", unapproveStart >= 0);
+ok(
+  "it re-reads the draft's CURRENT status AND sent fact server-side BEFORE any write -- the client's belief is never trusted",
+  unapproveBody.indexOf('.select("status, sent_at")') >= 0 &&
+    unapproveBody.indexOf('.select("status, sent_at")') < unapproveBody.indexOf(".update("),
+  `select at ${unapproveBody.indexOf('.select("status, sent_at")')}, update at ${unapproveBody.indexOf(".update(")}`
+);
+ok(
+  "it refuses a SENT draft (sent_at set) with a returned plain message, before any write",
+  /if\s*\(existing\.sent_at\)\s*\{\s*return\s*\{\s*error:/.test(unapproveBody) &&
+    unapproveBody.indexOf("existing.sent_at") < unapproveBody.indexOf(".update(")
+);
+ok(
+  "the sent refusal is layered over the DATABASE's own pin: 0069's drafts trigger refuses ANY status change on a sent draft, for every role",
+  /new\.status\s+is\s+distinct\s+from\s+old\.status/.test(stmts) && /immutable/.test(stmts)
+);
+ok(
+  "it refuses a draft that is not approved -- nothing to un-approve -- with a returned plain message",
+  /if\s*\(existing\.status !== "approved"\)\s*\{\s*return\s*\{\s*error:/.test(unapproveBody)
+);
+ok(
+  "it checks the send-attempt ledger for LIVE or CONFIRMED attempts only (outcome sent OR null) -- a FAILED attempt, which delivered nothing, does not block",
+  /\.from\("draft_send_attempts"\)/.test(unapproveBody) &&
+    /\.or\("outcome\.eq\.sent,outcome\.is\.null"\)/.test(unapproveBody) &&
+    !/outcome\.eq\.failed/.test(unapproveBody)
+);
+ok(
+  "an unreadable attempt ledger fails CLOSED: the error is returned and nothing is written",
+  /if\s*\(attemptsError\)\s*\{\s*return\s*\{\s*error:/.test(unapproveBody)
+);
+ok(
+  "a live or confirmed attempt refuses with a returned message, before the write, and the two cases are told apart (confirmed send vs unconfirmed outcome)",
+  unapproveBody.indexOf("blockingAttempts") >= 0 &&
+    unapproveBody.indexOf("blockingAttempts") < unapproveBody.indexOf(".update(") &&
+    /confirmed send on record/.test(unapproveBody) &&
+    /may have reached the funder/.test(unapproveBody)
+);
+ok(
+  "the attempt check runs LAST, after the status and sent_at refusals -- the narrowest possible check-to-write window",
+  unapproveBody.indexOf('existing.status !== "approved"') < unapproveBody.indexOf('.from("draft_send_attempts")')
+);
+ok(
+  "success sets status back to 'draft' and clears BOTH approval facts (approved_by, approved_at) to null in the same write",
+  /\.update\(\{ status: "draft", approved_by: null, approved_at: null/.test(unapproveBody)
+);
+ok(
+  "the write is race-proof in the item-67 style: predicated on status 'approved' AND sent_at null, so an intervening send makes it a no-op",
+  /\.eq\("id", draftId\)\s*\.eq\("status", "approved"\)\s*\.is\("sent_at", null\)/.test(unapproveBody)
+);
+ok(
+  "unapproveDraft throws nothing -- every failure is a returned message (production redacts thrown server-action errors) -- and success returns { ok: true } after revalidatePath",
+  unapproveBody.length > 0 &&
+    !/\bthrow\b/.test(unapproveBody) &&
+    /return\s*\{\s*ok:\s*true\s*\}/.test(unapproveBody) &&
+    /revalidatePath\(`\/prospects\/\$\{prospectId\}`\)/.test(unapproveBody)
+);
+
+// The UI side: the affordance exists only on approved UNSENT cards, with
+// a confirm step that names the consequences before anything happens.
+ok(
+  "the panel imports unapproveDraft from the actions module",
+  /import \{[^}]*unapproveDraft[^}]*\} from "\.\/draft-actions"/.test(panelText)
+);
+{
+  const approvedBranchAt = panelText.indexOf("{isApproved && (");
+  const affordanceAt = panelText.indexOf("!isSent && !hasUnconfirmed && (");
+  const confirmDialogAt = panelText.indexOf("<ConfirmDialog");
+  ok(
+    "the Un-approve affordance renders inside the isApproved branch AND behind !isSent && !hasUnconfirmed -- a sent or attempted draft never offers it",
+    approvedBranchAt >= 0 && affordanceAt > approvedBranchAt && (confirmDialogAt < 0 || affordanceAt < confirmDialogAt),
+    `isApproved branch at ${approvedBranchAt}, affordance at ${affordanceAt}, ConfirmDialog at ${confirmDialogAt}`
+  );
+}
+ok(
+  "the affordance is a confirm STEP: the first click only opens it (setUnapproveOpen(true)), and unapproveDraft is called only from the expanded confirm",
+  /onClick=\{\(\) => setUnapproveOpen\(true\)\}/.test(panelText) &&
+    panelText.indexOf("setUnapproveOpen(true)") < panelText.indexOf("await unapproveDraft(draft.id, prospectId)")
+);
+ok(
+  "the confirm step names the consequences: editing and deleting reopen, the approval record is cleared, and a deck's page stops rendering",
+  /editing and deleting\s+reopen/.test(panelText) &&
+    /approval record is cleared/.test(panelText) &&
+    /deck page stops rendering/.test(panelText)
+);
+ok(
+  "the confirming click calls unapproveDraft with the draft id, and the returned refusal is displayed via actionError, not swallowed",
+  /const result = await unapproveDraft\(draft\.id, prospectId\);\s*setActionError\("error" in result \? result\.error : null\)/.test(panelText)
+);
+
+// The deck view is UNCHANGED by item 68 -- and that is the point: it
+// renders approved drafts only, by construction, so an un-approved deck's
+// link stops rendering slides with zero code touched there.
+const deckViewText = fileText.get("app/prospects/[id]/deck/[draftId]/page.tsx") ?? "";
+// Statements only: the view's comments legitimately DISCUSS unapproved
+// drafts (that refusal is its whole design); what must not exist is any
+// code-level tie to the un-approve action.
+const deckViewCode = deckViewText
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+ok(
+  "the deck view still refuses any non-approved draft (renders approved only, by construction) and its code never touches unapproveDraft",
+  deckViewText.length > 0 && /if \(draft\.status !== "approved"\)/.test(deckViewCode) && !/unapproveDraft/.test(deckViewCode)
 );
 
 // --- 4. Pure logic: every precondition combination --------------------------

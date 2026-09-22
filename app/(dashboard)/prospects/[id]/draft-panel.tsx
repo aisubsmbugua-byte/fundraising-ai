@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { generateDraft, generateProposalDraft, generateDeckOutline, composeDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
+import { generateDraft, generateProposalDraft, generateDeckOutline, composeDraft, updateDraft, approveDraft, deleteDraft, unapproveDraft } from "./draft-actions";
 import { sendApprovedDraft } from "./send-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -273,6 +273,10 @@ function DraftCard({
   const [content, setContent] = useState(draft.content);
   const [isPending, startTransition] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // STATE item 68: the un-approve confirm step. Nothing happens on the
+  // first click (the ProspectOutcomePanel retraction's expand-then-confirm
+  // shape); the consequences are named before the confirming click.
+  const [unapproveOpen, setUnapproveOpen] = useState(false);
   // STATE item 67: updateDraft and deleteDraft return their refusals
   // (an approved draft is locked server-side); shown here, not swallowed.
   // The buttons already hide once the card knows the draft is approved,
@@ -394,6 +398,52 @@ function DraftCard({
               <Link href={`/prospects/${prospectId}/deck/${draft.id}`} style={buttonSecondary}>
                 View deck (print to PDF to export)
               </Link>
+            </div>
+          )}
+          {/* STATE item 68: the way back, for approved UNSENT drafts only.
+              A sent or attempted draft never offers it -- the server
+              refuses those anyway; this is the honest surface of the same
+              rule. Expand-then-confirm: the first click only opens the
+              step, and the confirming click names its consequences. */}
+          {!isSent && !hasUnconfirmed && (
+            <div style={{ marginTop: spacing.sm }}>
+              {!unapproveOpen ? (
+                <button type="button" disabled={isPending} onClick={() => setUnapproveOpen(true)} style={buttonSecondary}>
+                  Un-approve…
+                </button>
+              ) : (
+                <div style={{ ...cardStyle, background: colors.bgSubtle }}>
+                  <p style={{ fontSize: 12.5, color: colors.text, margin: 0 }}>
+                    Un-approving returns this {kindLabel.toLowerCase()} to a draft: editing and deleting
+                    reopen, and the approval record is cleared
+                    {draft.kind === "deck"
+                      ? " — its deck page stops rendering until it is approved again"
+                      : isEmail
+                        ? " — it cannot be sent until it is approved again"
+                        : ""}
+                    . The content itself is not changed or lost.
+                  </p>
+                  <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.sm }}>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() =>
+                        startTransition(async () => {
+                          const result = await unapproveDraft(draft.id, prospectId);
+                          setActionError("error" in result ? result.error : null);
+                          if (!("error" in result)) setUnapproveOpen(false);
+                        })
+                      }
+                      style={buttonDanger}
+                    >
+                      {isPending ? "Un-approving…" : "Un-approve this draft"}
+                    </button>
+                    <button type="button" disabled={isPending} onClick={() => setUnapproveOpen(false)} style={buttonSecondary}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>
