@@ -22,7 +22,11 @@ Last touched by: **decision** · 2026-09-19
   Saturday excludes is named in the decision.
 - boundaries: hard rule 1 is now ruled construction (0029) — no batch, no
   schedule, no trigger, no retry, one module, one importer. Testers are
-  live: everything stays additive and main stays deployable.
+  PAUSED by the owner (2026-09-21) until the Saturday build-out completes —
+  no live-user risk mid-week, main still stays deployable. Consequence: the
+  provisional credit schedule cannot come from tester usage; it comes from
+  our own measured runs, labelled as such (ruling 0021), and gets re-set
+  from real usage after testers resume.
 
 ## Next authorized
 
