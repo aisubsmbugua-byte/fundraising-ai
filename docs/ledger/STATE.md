@@ -8,7 +8,8 @@ Last touched by: **decision** · 2026-09-19
 
 ## Authorized now
 
-- ruling: 0029 (with 0030)
+- ruling: 0029
+- also-in-force: ruling 0030 (item 53's authorization)
 - work: item 52 — Slice 8 email send under ruling 0029's five clauses; item
   53 — the Research tab's second ledger under ruling 0030. Both Phase 1 of
   decision 0007, the owner's pathway to the live product, deadline Saturday
