@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { generateDraft, composeDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
+import { generateDraft, generateProposalDraft, composeDraft, updateDraft, approveDraft, deleteDraft } from "./draft-actions";
 import { sendApprovedDraft } from "./send-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingStatus from "@/components/LoadingStatus";
-import { DRAFT_KINDS, draftKindLabel, type Draft, type DraftKind } from "@/lib/drafts";
+import { DRAFT_KINDS, draftKindLabel, type Draft, type DraftKind, type OutreachDraftKind } from "@/lib/drafts";
 import { evaluateSendReadiness, type DraftSendAttempt, type SendPayload, type SenderIdentity } from "@/lib/draft-send";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, cardStyle, chipStyle, radiusSm, shadow } from "@/lib/ui";
 
@@ -42,9 +42,10 @@ export default function DraftPanel({
   // button doesn't show "Drafting..." on both -- each kind runs and
   // reports its own state independently.
   const [pendingKinds, setPendingKinds] = useState<Set<DraftKind>>(new Set());
+  const [proposalError, setProposalError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  function handleDraft(kind: DraftKind) {
+  function handleDraft(kind: OutreachDraftKind) {
     if (!strategyRunId) return; // AI drafting requires an approved strategy; the buttons don't render without one.
     setPendingKinds((prev) => new Set(prev).add(kind));
     startTransition(async () => {
@@ -54,6 +55,27 @@ export default function DraftPanel({
         setPendingKinds((prev) => {
           const next = new Set(prev);
           next.delete(kind);
+          return next;
+        });
+      }
+    });
+  }
+
+  // The proposal (STATE item 63): same approved-strategy gate as the
+  // outreach buttons, its own action (a distinct ai_runs operation), and
+  // its refusals come back as data -- shown, not swallowed.
+  function handleProposal() {
+    if (!strategyRunId) return;
+    setProposalError(null);
+    setPendingKinds((prev) => new Set(prev).add("proposal"));
+    startTransition(async () => {
+      try {
+        const result = await generateProposalDraft(prospectId, strategyRunId);
+        if ("error" in result) setProposalError(result.error);
+      } finally {
+        setPendingKinds((prev) => {
+          const next = new Set(prev);
+          next.delete("proposal");
           return next;
         });
       }
@@ -90,7 +112,18 @@ export default function DraftPanel({
               {pendingKinds.has(k.value) ? "Drafting…" : `Draft ${k.label}`}
             </button>
           ))}
+          <button
+            type="button"
+            disabled={pendingKinds.has("proposal")}
+            onClick={handleProposal}
+            style={buttonSecondary}
+          >
+            {pendingKinds.has("proposal") ? "Drafting…" : "Draft Grant Proposal"}
+          </button>
         </div>
+      )}
+      {proposalError && (
+        <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{proposalError}</p>
       )}
       <LoadingStatus active={pendingKinds.size > 0} messages={DRAFT_MESSAGES} />
       <ComposeSection prospectId={prospectId} />
@@ -249,7 +282,7 @@ function DraftCard({
       )}
 
       <div style={{ marginTop: spacing.sm }}>
-        <div style={labelStyle}>{isEmail ? "Body" : "Notes"}</div>
+        <div style={labelStyle}>{isEmail ? "Body" : draft.kind === "proposal" ? "Proposal" : "Notes"}</div>
         <CollapsibleField
           label={kindLabel}
           value={content}

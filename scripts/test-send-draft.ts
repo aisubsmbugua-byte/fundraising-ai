@@ -537,6 +537,90 @@ ok(
   /writing this email yourself/.test(panelText) && /no AI involved/.test(panelText) && /needs explicit\s+approval/.test(panelText)
 );
 
+// --- 3c. generateProposalDraft: approved strategy in, evidence by id, ------
+// never sendable (STATE item 63). The proposal is a reviewable draft
+// produced by its own action; nothing about it may reach the send
+// machinery -- the closed-set scan above already proves no new send call
+// and no new importer exist, and the assertions here pin the action's own
+// construction plus the UI gate that keeps a proposal away from Send.
+
+section("generateProposalDraft source: approved strategy in, evidence by id, never sendable");
+
+const proposalStart = draftActionsText.indexOf("export async function generateProposalDraft");
+const proposalEnd = draftActionsText.indexOf("export async function", proposalStart + 1);
+const proposalRaw = proposalStart >= 0 ? draftActionsText.slice(proposalStart, proposalEnd < 0 ? undefined : proposalEnd) : "";
+// Statements only -- comments legitimately DISCUSS what must not exist.
+const proposalBody = proposalRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+ok("generateProposalDraft exists in draft-actions.ts, beside generateDraft", proposalStart >= 0);
+ok(
+  "it refuses without an APPROVED strategy, with a returned plain message (the gate is in the action, not only the UI)",
+  /if\s*\(!run\s*\|\|\s*!run\.approved_strategy\)\s*\{\s*return\s*\{\s*error:/.test(proposalBody)
+);
+ok(
+  "it fails closed BEFORE any model call when migration 0071 is missing: the enum-literal probe precedes the anthropic call and its refusal names the migration",
+  proposalBody.indexOf('.eq("kind", "proposal")') >= 0 &&
+    proposalBody.indexOf('.eq("kind", "proposal")') < proposalBody.indexOf("await anthropic.messages.create") &&
+    /0071/.test(proposalRaw)
+);
+ok(
+  "the evidence pool query IS the permission gate: verified_at not null AND permission = 'approved', nothing else reaches the prompt",
+  /\.not\("verified_at", "is", null\)/.test(proposalBody) && /\.eq\("permission", "approved"\)/.test(proposalBody)
+);
+ok(
+  "evidence is handed to the model WITH ids and cited back by id (evidence_cited), validated against the pool it was given (capture, don't retype)",
+  /evidence_cited/.test(proposalBody) && /evidencePoolIds\.has\(/.test(proposalBody)
+);
+ok(
+  "the strategy's own selections (strategy_runs.evidence_item_ids) are flagged in the list the model sees",
+  /evidence_item_ids/.test(proposalBody) && /cited in the approved strategy/.test(proposalRaw)
+);
+ok(
+  "the insert is a reviewable proposal draft: kind 'proposal', status 'draft', tied to the approved strategy run, model recorded, author recorded",
+  /kind:\s*"proposal"/.test(proposalBody) &&
+    /status:\s*"draft"/.test(proposalBody) &&
+    /strategy_run_id:\s*strategyRunId/.test(proposalBody) &&
+    /model:\s*DRAFT_MODEL/.test(proposalBody) &&
+    /created_by:\s*user\.id/.test(proposalBody)
+);
+ok(
+  "org scoping is generateDraft's exactly: no organization_id in the insert (the column defaults to my_organization_id(), hard rule 6)",
+  /\.from\("drafts"\)\.insert\(/.test(proposalBody) && !/organization_id/.test(proposalBody)
+);
+ok(
+  "generateProposalDraft never touches the send path: no sendFunderEmail, no send-draft import, no draft_send_attempts",
+  proposalBody.length > 0 && !/sendFunderEmail|send-draft|draft_send_attempts/.test(proposalBody)
+);
+ok(
+  "its failures finalize the run and RETURN the error -- never a rethrow production would redact",
+  /catch\s*\(err\)\s*\{[\s\S]*finalizeRun\([\s\S]*return\s*\{\s*error:/.test(proposalBody) && !/throw err/.test(proposalBody)
+);
+
+// The UI side: the proposal control sits behind the SAME approved-strategy
+// gate as the outreach buttons, and no proposal draft can reach Send.
+ok(
+  "the panel's proposal handler carries the same approved-strategy gate as handleDraft (guard in the handler, button inside the strategyRunId block)",
+  /function handleProposal\(\) \{\s*if \(!strategyRunId\) return;/.test(panelText) &&
+    /strategyRunId && \([\s\S]{0,900}Draft Grant Proposal/.test(panelText)
+);
+ok(
+  "SendSection renders ONLY for an intro_email draft -- a proposal card has no send control at all",
+  /const isEmail = draft\.kind === "intro_email"/.test(panelText) && /\{isEmail && \(\s*<SendSection/.test(panelText)
+);
+{
+  const dialogUses = [...panelText.matchAll(/<SendConfirmDialog/g)].map((m) => m.index ?? -1);
+  const sendSectionAt = panelText.indexOf("function SendSection");
+  const dialogDefAt = panelText.indexOf("function SendConfirmDialog");
+  ok(
+    "the send confirmation is rendered in exactly one place, inside SendSection -- a proposal draft cannot reach the confirmation",
+    dialogUses.length === 1 && dialogUses[0] > sendSectionAt && dialogUses[0] < dialogDefAt,
+    `renders at ${dialogUses.join(", ")}, SendSection at ${sendSectionAt}, definition at ${dialogDefAt}`
+  );
+}
+
 // --- 4. Pure logic: every precondition combination --------------------------
 
 section("evaluateSendReadiness: the clause-2 preconditions, offline");
@@ -580,6 +664,14 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
 {
   const r = evaluateSendReadiness({ ...baseDraft, kind: "call_prep" }, [], "funder@example.org", baseSender);
   ok("call prep notes can never be sent", !r.ok && !r.ok && r.code === "not_email");
+}
+{
+  // STATE item 63: even approved, with a valid recipient, subject and
+  // body, a proposal draft is refused by the FIRST check -- the send
+  // path is intro_email only, and every downstream precondition is
+  // unreachable for it.
+  const r = evaluateSendReadiness({ ...baseDraft, kind: "proposal" }, [], "funder@example.org", baseSender);
+  ok("a proposal draft can NEVER be sent -- refused as not_email before any other precondition", !r.ok && r.code === "not_email");
 }
 {
   const r = evaluateSendReadiness({ ...baseDraft, status: "draft" }, [], "funder@example.org", baseSender);

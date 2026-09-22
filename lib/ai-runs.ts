@@ -46,6 +46,10 @@ export const AI_RUN_OPERATIONS = [
   "research_verify",
   "strategy",
   "draft",
+  // The grant-proposal draft (STATE item 63) is a DISTINCT operation from
+  // "draft" (the outreach kinds): decision 0006 prices per operation, and
+  // a proposal is not an intro email.
+  "proposal_draft",
   "revisit_suggest",
 ] as const;
 export type AiRunOperation = (typeof AI_RUN_OPERATIONS)[number];

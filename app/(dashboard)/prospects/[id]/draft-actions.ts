@@ -8,10 +8,13 @@ import { buildProfileSummary } from "@/lib/channel-match";
 import { channelLabel } from "@/lib/prospects";
 import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
-import type { DraftKind } from "@/lib/drafts";
+import type { OutreachDraftKind } from "@/lib/drafts";
 import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
-export async function generateDraft(prospectId: string, strategyRunId: string, kind: DraftKind) {
+// kind is the OUTREACH vocabulary only (intro_email | call_prep): the
+// proposal kind has its own action below with its own inputs and its own
+// ai_runs operation, so it cannot route through this one.
+export async function generateDraft(prospectId: string, strategyRunId: string, kind: OutreachDraftKind) {
   const supabase = createClient();
   const {
     data: { user },
@@ -129,6 +132,213 @@ Contact: ${prospect.contact_name || "(no named contact)"}${prospect.contact_emai
   }
 
   revalidatePath(`/prospects/${prospectId}`);
+}
+
+// The full grant-proposal draft (STATE item 63, workflow step 6). Same
+// machinery as generateDraft -- approved strategy required, birth before
+// the model call, the draft lands in review state -- with two additions:
+//
+//   Evidence by id (the capture pattern): the model is handed the
+//   verified + approved-permission evidence pool WITH each item's id,
+//   told to ground outcome claims only in listed items, and required to
+//   report which ids it used (evidence_cited) -- selecting from what the
+//   system holds, never inventing evidence. The items the approved
+//   strategy already selected (strategy_runs.evidence_item_ids) are
+//   flagged in the list as the human-endorsed ones to feature. An item
+//   the strategy cited but that has since lost verified/approved status
+//   is NOT re-included: the pool query is the permission gate.
+//
+//   A distinct operation ('proposal_draft'): decision 0006 prices per
+//   operation, and a proposal is not an intro email.
+//
+// A proposal is NEVER sendable: evaluateSendReadiness refuses any kind
+// but intro_email, and the panel renders no send control for it.
+//
+// Errors are returned, not thrown -- production redacts thrown
+// server-action messages (the composeDraft convention; generateDraft
+// predates it and is untouched here).
+export async function generateProposalDraft(
+  prospectId: string,
+  strategyRunId: string
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Fail closed BEFORE any model call when migration 0071 is not applied:
+  // filtering the enum column by 'proposal' errors (invalid enum input)
+  // while the value does not exist, and then no tokens are spent on a
+  // draft that could never be stored.
+  const { error: kindProbeError } = await supabase.from("drafts").select("id").eq("kind", "proposal").limit(1);
+  if (kindProbeError) {
+    return { error: `Proposal drafting is not available on this database yet (is migration 0071 applied?): ${kindProbeError.message}` };
+  }
+
+  const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  const { data: run } = await supabase.from("strategy_runs").select("*").eq("id", strategyRunId).single();
+  if (!run || !run.approved_strategy) {
+    return { error: "Strategy must be approved before drafting a proposal." };
+  }
+  const strategy = run.approved_strategy as Strategy;
+  const strategyEvidenceIds = new Set<string>(Array.isArray(run.evidence_item_ids) ? run.evidence_item_ids : []);
+
+  const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
+
+  // The same permission gate the strategy prompt uses: only evidence a
+  // human has verified AND marked approved is eligible to be cited to a
+  // funder (see verifyEvidenceItem in app/(dashboard)/evidence/actions.ts).
+  const { data: evidenceRows } = await supabase
+    .from("evidence_items")
+    .select("id, title, description, type, program, geography")
+    .not("verified_at", "is", null)
+    .eq("permission", "approved");
+  const evidencePool = evidenceRows ?? [];
+
+  // Run ledger (ruling 0026): birth before the model call, as a DISTINCT
+  // operation. The drafts row does not exist yet, so the reference points
+  // at the prospect being drafted for (generateDraft's reasoning).
+  const aiRunId = await beginRun(supabase, { operation: "proposal_draft", sourceTable: "prospects", sourceId: prospectId });
+  const usage = newUsage();
+  try {
+    const response = await anthropic.messages.create(
+      {
+        model: DRAFT_MODEL,
+        max_tokens: 4000,
+        tools: [
+          {
+            name: "submit_proposal",
+            description: "Submit the drafted grant proposal.",
+            input_schema: {
+              type: "object",
+              properties: {
+                content: {
+                  type: "string",
+                  description:
+                    "The full grant proposal, ready for human review: title, need statement, program description, outcomes, ask, and closing. Plain text with clear section headings.",
+                },
+                evidence_cited: {
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "IDs (from the Available evidence list) of every evidence item the proposal's outcome claims are grounded in. Only ids from that list -- never invent one. Empty if the list is empty or nothing fit.",
+                },
+              },
+              required: ["content", "evidence_cited"],
+            },
+          },
+        ],
+        tool_choice: { type: "tool", name: "submit_proposal" },
+        messages: [
+          {
+            role: "user",
+            content: `Draft a full grant proposal for "${prospect.name}" (${channelLabel(prospect.channel)} channel), based on the approved strategy below.
+
+Write it as a complete, submission-ready proposal document a human will review and edit: a title, a statement of need, a program description, expected outcomes, the ask, and a closing. Warm, concrete, professional. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state.
+
+Ground every outcome, metric, or story you assert in an item from the Available evidence list below, and report the ids you used in evidence_cited. Never invent an outcome, a figure, or a testimonial: if no listed evidence supports a claim, do not make the claim. Items marked [cited in the approved strategy] were already chosen by a human for this funder -- prefer them.
+
+Approved strategy:
+- Outreach approach: ${strategy.outreach_approach}
+- Ask positioning: ${strategy.ask_positioning}
+- Rationale: ${strategy.rationale}
+- Key talking points: ${strategy.key_talking_points?.join("; ") || "(none)"}
+- Evidence to highlight: ${strategy.evidence_to_highlight?.join("; ") || "(none)"}
+
+Nonprofit context:
+${profile ? buildProfileSummary(profile) : "(no profile data)"}
+
+Available evidence (verified, approved for use -- cite by id in evidence_cited):
+${
+  evidencePool.length > 0
+    ? evidencePool
+        .map(
+          (e) =>
+            `- ${e.id}: [${e.type}]${strategyEvidenceIds.has(e.id) ? " [cited in the approved strategy]" : ""} ${e.title} -- ${e.description}${e.program ? ` (program: ${e.program})` : ""}${e.geography ? ` (geography: ${e.geography})` : ""}`
+        )
+        .join("\n")
+    : "(no verified evidence available yet -- make no outcome claims beyond the strategy's own talking points)"
+}`,
+          },
+        ],
+      },
+      { timeout: 100_000 }
+    );
+
+    addResponseUsage(usage, response);
+
+    const toolUse = response.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      throw new Error("AI did not return a structured proposal. Try again.");
+    }
+
+    const result = toolUse.input as { content?: string; evidence_cited?: unknown };
+    const content = (result.content ?? "").trim();
+
+    // Defensive against the AI citing an id outside the pool it was given
+    // (the strategy action's guard, same spirit). A dropped id is logged,
+    // not silently discarded -- and note the validated set is currently
+    // logged only: drafts has no evidence_item_ids column, and adding one
+    // was not authorized by item 63 (escalated in the build report).
+    const evidencePoolIds = new Set(evidencePool.map((e) => e.id));
+    const citedRaw = Array.isArray(result.evidence_cited) ? result.evidence_cited : [];
+    const cited = citedRaw.filter((id): id is string => typeof id === "string" && evidencePoolIds.has(id));
+    const dropped = citedRaw.filter((id) => typeof id !== "string" || !evidencePoolIds.has(id));
+    console.log(
+      `[proposal] model cited ${cited.length} evidence item(s)${cited.length ? `: ${cited.join(", ")}` : ""}` +
+        (dropped.length ? `; dropped ${dropped.length} id(s) not in the pool: ${dropped.join(", ")}` : "")
+    );
+
+    if (!content) {
+      // The model ran and produced nothing a human could review -- the
+      // strategy action's "empty" outcome, not a completed run.
+      await finalizeRun(supabase, aiRunId, {
+        outcome: "empty",
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+      return { error: "The AI returned an empty proposal. Try again." };
+    }
+
+    const { error } = await supabase.from("drafts").insert({
+      prospect_id: prospectId,
+      strategy_run_id: strategyRunId,
+      kind: "proposal",
+      subject: null,
+      content,
+      status: "draft",
+      model: DRAFT_MODEL,
+      created_by: user.id,
+    });
+    if (error) throw new Error(error.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+  } catch (err) {
+    // Null token counts mean no response ever arrived -- a fact, not a
+    // zero. The error is RETURNED (not rethrown): production redacts
+    // thrown server-action messages, and the refusal is what the human
+    // needs to see.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      errorNote: err instanceof Error ? err.message : "Proposal generation failed",
+    });
+    return { error: err instanceof Error ? err.message : "Proposal generation failed." };
+  }
+
+  revalidatePath(`/prospects/${prospectId}`);
+  return { ok: true };
 }
 
 // A human-composed email draft (STATE item 60): no strategy required, no

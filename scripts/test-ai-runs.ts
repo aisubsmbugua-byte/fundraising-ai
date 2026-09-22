@@ -325,6 +325,31 @@ for (const file of OPERATION_FILES) {
   ok(`${file}: finalizeRun is present to write the terminal fact`, text.includes("finalizeRun("));
 }
 
+// STATE item 63: proposal drafting is its own metered operation, born
+// before its own model call -- not a second write under "draft".
+ok(
+  "proposal drafting is a DISTINCT operation from draft in AI_RUN_OPERATIONS (decision 0006 prices per operation)",
+  AI_RUN_OPERATIONS.includes("draft") && AI_RUN_OPERATIONS.includes("proposal_draft")
+);
+{
+  const text = readFileSync(join(root, "app/(dashboard)/prospects/[id]/draft-actions.ts"), "utf8");
+  const start = text.indexOf("export async function generateProposalDraft");
+  const end = text.indexOf("export async function", start + 1);
+  const slice = start >= 0 ? text.slice(start, end < 0 ? undefined : end) : "";
+  const birthAt = slice.indexOf('operation: "proposal_draft"');
+  const callAt = slice.indexOf("await anthropic.messages.create");
+  ok(
+    "generateProposalDraft: its OWN birth row (operation proposal_draft) precedes its own model call",
+    start >= 0 && birthAt >= 0 && callAt > birthAt,
+    `slice start ${start}, birth at ${birthAt}, call at ${callAt}`
+  );
+  ok(
+    "generateProposalDraft finalizes its run on every path (completed and empty in the try, failed in the catch)",
+    (slice.match(/finalizeRun\(/g) ?? []).length >= 3,
+    `finalizeRun occurrences: ${(slice.match(/finalizeRun\(/g) ?? []).length}`
+  );
+}
+
 // Every operation name in the union is actually written by some call site,
 // and no call site writes a name outside the union (the union is the only
 // vocabulary, so a mismatch either way is a metering hole).

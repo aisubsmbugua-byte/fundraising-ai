@@ -1,0 +1,21 @@
+-- Advancement workflow step 6 (STATE item 63, decision 0007 phase 3's
+-- first half): drafts gains a 'proposal' kind for the full grant-proposal
+-- draft generateProposalDraft produces. One enum value, nothing else --
+-- additive under ruling 0020.
+--
+-- Deploy order: apply this BEFORE deploying the code that writes
+-- 'proposal'. An enum value addition is safe ahead of the code -- no
+-- existing statement writes or reads 'proposal', so nothing changes until
+-- the new action ships. In the other order the app still fails closed:
+-- generateProposalDraft probes for the value with a cheap enum-literal
+-- filter BEFORE any model call, and refuses (naming this migration) when
+-- the probe errors -- no tokens spent, nothing stored.
+--
+-- Postgres transactional caveat for the SQL editor: since Postgres 12,
+-- ALTER TYPE ... ADD VALUE may run inside a transaction (the SQL editor
+-- wraps a run in one), but the new value cannot be USED by a later
+-- statement in the same transaction. This migration only adds the value,
+-- so it is safe as-is -- do not append a statement that writes
+-- kind = 'proposal' to this same run.
+
+alter type draft_kind add value if not exists 'proposal';
