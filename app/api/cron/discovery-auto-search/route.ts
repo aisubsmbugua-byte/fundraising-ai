@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runAutoDiscoverySearchForChannel } from "@/app/(dashboard)/discovery/search/actions";
 import { countStrategiesReadyForReview } from "@/lib/strategy";
 import { CHANNELS } from "@/lib/prospects";
+import { envFlagTruthy } from "@/lib/discovery-search";
 
 // Up to 7 sequential channel searches (each search call alone can
 // take up to 240s), so this needs real headroom -- Vercel Pro's cap
@@ -22,6 +23,22 @@ export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response("Unauthorized", { status: 401 });
+  }
+
+  // Pause switch (STATE.md item 64): the owner sets DISCOVERY_CRON_PAUSED
+  // in the Vercel dashboard to halt the nightly search without a deploy,
+  // and deletes it (or sets "0"/"false") to resume. Deliberately placed
+  // AFTER the auth check -- an unauthenticated caller still gets the same
+  // 401, so the pause state leaks nothing -- and BEFORE any other work:
+  // no database read, no model call, and no ai_runs birth. Ruling 0026
+  // meters runs that happen; a paused invocation is a run that does not
+  // happen, so it births nothing. 200 rather than an error, so Vercel
+  // cron records a success and does not retry.
+  if (envFlagTruthy(process.env.DISCOVERY_CRON_PAUSED)) {
+    console.log(
+      `[auto-discovery-search] skipped: ${JSON.stringify({ reason: "DISCOVERY_CRON_PAUSED", value: process.env.DISCOVERY_CRON_PAUSED })}`
+    );
+    return Response.json({ skipped: "DISCOVERY_CRON_PAUSED" });
   }
 
   const supabase = createAdminClient();
