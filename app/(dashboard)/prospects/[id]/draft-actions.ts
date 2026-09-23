@@ -10,6 +10,7 @@ import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { OutreachDraftKind } from "@/lib/drafts";
 import { parseDeckOutline, ensureOutlineHeader } from "@/lib/deck-outline";
+import { todaysDateLabel, fillDatePlaceholders } from "@/lib/draft-dates";
 import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
 // kind is the OUTREACH vocabulary only (intro_email | call_prep): the
@@ -199,6 +200,11 @@ export async function generateProposalDraft(
     .eq("permission", "approved");
   const evidencePool = evidenceRows ?? [];
 
+  // STATE item 69, layer 1: today's real date, computed server-side and
+  // handed to the model -- never asked for from the model's own notion of
+  // "today".
+  const todayLabel = todaysDateLabel();
+
   // Run ledger (ruling 0026): birth before the model call, as a DISTINCT
   // operation. The drafts row does not exist yet, so the reference points
   // at the prospect being drafted for (generateDraft's reasoning).
@@ -240,6 +246,8 @@ export async function generateProposalDraft(
 
 Write it as a complete, submission-ready proposal document a human will review and edit: a title, a statement of need, a program description, expected outcomes, the ask, and a closing. Warm, concrete, professional. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state.
 
+Today's date is ${todayLabel}. If the document includes a date (for example, in a letterhead-style opening), write exactly that date -- never a bracketed placeholder like "[Insert Date]" or "[Date]". A human is going to review this before it goes anywhere, and a placeholder left in reviewable output is a defect.
+
 Ground every outcome, metric, or story you assert in an item from the Available evidence list below, and report the ids you used in evidence_cited. Never invent an outcome, a figure, or a testimonial: if no listed evidence supports a claim, do not make the claim. Items marked [cited in the approved strategy] were already chosen by a human for this funder -- prefer them.
 
 Approved strategy:
@@ -277,7 +285,10 @@ ${
     }
 
     const result = toolUse.input as { content?: string; evidence_cited?: unknown };
-    const content = (result.content ?? "").trim();
+    // STATE item 69, layer 2: even with the instruction above, replace any
+    // bracketed date placeholder the model wrote anyway with today's real
+    // date -- the safety net that does not depend on the model complying.
+    const content = fillDatePlaceholders((result.content ?? "").trim(), todayLabel);
 
     // Defensive against the AI citing an id outside the pool it was given
     // (the strategy action's guard, same spirit). A dropped id is logged,
@@ -408,6 +419,11 @@ export async function generateDeckOutline(
     .eq("permission", "approved");
   const evidencePool = evidenceRows ?? [];
 
+  // STATE item 69, layer 1: same as generateProposalDraft -- a title
+  // slide is the plausible place a date placeholder would show up here,
+  // so the outline gets the same real date handed to the model.
+  const todayLabel = todaysDateLabel();
+
   // Run ledger (ruling 0026): birth before the model call, as a DISTINCT
   // operation. The drafts row does not exist yet, so the reference points
   // at the prospect being drafted for (generateDraft's reasoning).
@@ -442,6 +458,8 @@ export async function generateDeckOutline(
             content: `Draft a pitch-deck outline for "${prospect.name}" (${channelLabel(prospect.channel)} channel), based on the approved strategy below.
 
 Write it in the plain-text outline format: a "# " line per slide title, short bullet lines under each, and "> evidence: <id>" lines citing evidence. A human will edit and approve this outline before any deck is shown, so keep bullets short and concrete -- talking points, not paragraphs. Aim for roughly 6 to 10 slides covering: a title slide, the need, the program, outcomes, the ask, and next steps. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state.
+
+Today's date is ${todayLabel}. If any slide includes a date (for example, the title slide), write exactly that date -- never a bracketed placeholder like "[Insert Date]" or "[Date]". A human is going to review this before it goes anywhere, and a placeholder left in reviewable output is a defect.
 
 Ground every outcome, metric, or story you assert in an item from the Available evidence list below by adding a "> evidence: <id>" line to the slide that uses it, with the id copied exactly from the list. Never invent an outcome, a figure, a testimonial, or an evidence id: if no listed evidence supports a claim, do not make the claim. Items marked [cited in the approved strategy] were already chosen by a human for this funder -- prefer them.
 
@@ -480,7 +498,13 @@ ${
     }
 
     const result = toolUse.input as { content?: string };
-    const content = (result.content ?? "").trim();
+    // STATE item 69, layer 2: the safety net, same as generateProposalDraft
+    // -- replace any bracketed date placeholder the model wrote anyway with
+    // today's real date, before the outline is parsed or stored. Applied
+    // before parsing: the placeholder pattern (a bracketed span) never
+    // collides with "> evidence: <id>" or "# " lines, so citation parsing
+    // is unaffected.
+    const content = fillDatePlaceholders((result.content ?? "").trim(), todayLabel);
 
     // Cited ids come back INSIDE the outline text; parse them out with the
     // same shared parser the deck view renders with (one definition, no

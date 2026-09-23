@@ -46,6 +46,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { evaluateSendReadiness, buildInteractionSummary, type DraftSendAttempt } from "../lib/draft-send";
+import { fillDatePlaceholders, todaysDateLabel } from "../lib/draft-dates";
 
 const root = join(__dirname, "..");
 
@@ -599,6 +600,20 @@ ok(
   /catch\s*\(err\)\s*\{[\s\S]*finalizeRun\([\s\S]*return\s*\{\s*error:/.test(proposalBody) && !/throw err/.test(proposalBody)
 );
 
+// STATE item 69: "[Insert Date]" reached a human as a live placeholder in
+// a real proposal. Both layers checked -- the prompt is handed today's
+// real date and told never to write a placeholder, AND the model's own
+// output is deterministically re-scanned and fixed afterward, so a model
+// ignoring the instruction is still caught server-side.
+ok(
+  "the prompt is handed today's real date (todaysDateLabel()) and told never to write a bracketed date placeholder",
+  /todaysDateLabel\(\)/.test(proposalBody) && /Today's date is \$\{todayLabel\}/.test(proposalRaw) && /never a bracketed placeholder/.test(proposalRaw)
+);
+ok(
+  "the model's own output is deterministically re-scanned afterward: content is built with fillDatePlaceholders, not a bare trim of the model's text",
+  /const content = fillDatePlaceholders\(\(result\.content \?\? ""\)\.trim\(\), todayLabel\)/.test(proposalBody)
+);
+
 // The UI side: the proposal control sits behind the SAME approved-strategy
 // gate as the outreach buttons, and no proposal draft can reach Send.
 ok(
@@ -691,6 +706,19 @@ ok(
 ok(
   "its failures finalize the run and RETURN the error -- never a rethrow production would redact",
   /catch\s*\(err\)\s*\{[\s\S]*finalizeRun\([\s\S]*return\s*\{\s*error:/.test(deckBody) && !/throw err/.test(deckBody)
+);
+
+// STATE item 69: same audit as the proposal -- a title slide is the
+// plausible place a date placeholder would show up in a deck outline, so
+// it gets the same two layers (prompt instruction + deterministic fix).
+ok(
+  "the deck prompt is ALSO handed today's real date and told never to write a bracketed date placeholder (the same audit as the proposal)",
+  /todaysDateLabel\(\)/.test(deckBody) && /Today's date is \$\{todayLabel\}/.test(deckRaw) && /never a bracketed placeholder/.test(deckRaw)
+);
+ok(
+  "the deck outline's own output is deterministically re-scanned afterward too: content is built with fillDatePlaceholders before it is parsed or stored",
+  /const content = fillDatePlaceholders\(\(result\.content \?\? ""\)\.trim\(\), todayLabel\)/.test(deckBody) &&
+    deckBody.indexOf("fillDatePlaceholders(") < deckBody.indexOf("parseDeckOutline(content)")
 );
 
 // The UI side: the deck control sits behind the SAME approved-strategy
@@ -1124,6 +1152,54 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   });
   ok("the interaction summary derives from the payload alone", summary.includes("funder@example.org") && summary.includes("Hello"));
 }
+
+// --- 4b. Pure logic: fillDatePlaceholders, the item-69 safety net ----------
+// The deterministic layer both generateProposalDraft and generateDeckOutline
+// run their model's raw output through. Exercised directly, offline, the
+// same way section 4 exercises evaluateSendReadiness -- real correctness
+// of the substitution, not just "the action calls a function with this
+// name" (which the source-scan assertions above already establish).
+
+section("fillDatePlaceholders: the deterministic safety net, exercised directly");
+
+{
+  const today = "September 23, 2026";
+  ok(
+    "the literal placeholder actually seen in production is replaced",
+    fillDatePlaceholders("Dated: [Insert Date]", today) === "Dated: September 23, 2026"
+  );
+  ok("a bare '[Date]' is replaced too", fillDatePlaceholders("[Date]", today) === today);
+  ok(
+    "case and phrasing variants are all caught -- the regex is broad on purpose, not a literal match on one example",
+    fillDatePlaceholders("[DATE]", today) === today &&
+      fillDatePlaceholders("[Today's date]", today) === today &&
+      fillDatePlaceholders("[insert the date here]", today) === today
+  );
+  ok(
+    "every occurrence in a multi-placeholder document is replaced, not just the first",
+    fillDatePlaceholders("[Insert Date]\n\nSincerely,\n[Insert Date]", today) === `${today}\n\nSincerely,\n${today}`
+  );
+  ok(
+    "a bracketed placeholder with NO 'date' in it is left untouched -- this is not a generic bracket-stripper",
+    fillDatePlaceholders("Evidence: [Evidence ID] and [Phone Number]", today) === "Evidence: [Evidence ID] and [Phone Number]"
+  );
+  ok(
+    "the word 'date' appearing outside brackets is left untouched",
+    fillDatePlaceholders("Please update the date on the cover letter.", today) === "Please update the date on the cover letter."
+  );
+  ok(
+    "a document with no placeholder at all is returned unchanged",
+    fillDatePlaceholders("September 23, 2026\n\nDear Program Officer,", today) === "September 23, 2026\n\nDear Program Officer,"
+  );
+  ok(
+    "a real written-out date is never mistaken for a placeholder (no brackets, so nothing to replace)",
+    fillDatePlaceholders(`Date: ${today}`, today) === `Date: ${today}`
+  );
+}
+ok(
+  "todaysDateLabel() returns today's actual date in long form (month day, year) -- computed server-side, never asked of the model",
+  todaysDateLabel() === new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+);
 
 // --- 5. DB-dependent: the live schema's own behavior -----------------------
 
