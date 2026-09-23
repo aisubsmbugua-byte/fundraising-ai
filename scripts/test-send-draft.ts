@@ -999,6 +999,208 @@ ok(
   deckViewText.length > 0 && /if \(draft\.status !== "approved"\)/.test(deckViewCode) && !/unapproveDraft/.test(deckViewCode)
 );
 
+// --- 3g. reviseDraftWithFeedback: feedback that gets incorporated ----------
+// STATE item 70. A human reviewing an unapproved proposal or deck outline
+// can ask the AI to revise it with notes, re-grounded EXACTLY like the
+// original generation (approved strategy, org profile, the same
+// permission-gated evidence pool with ids) plus the draft's current
+// content and the feedback text. Refuses (in order): draft not found;
+// status 'approved' (item 67's guard, extended -- un-approve first);
+// kind outside ('proposal', 'deck'); empty/whitespace feedback. Content
+// is overwritten in place with a race-proof status='draft' predicate;
+// status itself is never touched -- a revision is not an approval.
+
+section("reviseDraftWithFeedback source: re-grounded revision, guard order, race-proof write");
+
+const aiRunsText = fileText.get("lib/ai-runs.ts") ?? "";
+
+const reviseStart = draftActionsText.indexOf("export async function reviseDraftWithFeedback");
+const reviseEnd = draftActionsText.indexOf("export async function", reviseStart + 1);
+const reviseRaw = reviseStart >= 0 ? draftActionsText.slice(reviseStart, reviseEnd < 0 ? undefined : reviseEnd) : "";
+// Statements only -- comments legitimately DISCUSS what must not exist.
+const reviseBody = reviseRaw
+  .split("\n")
+  .map((l) => l.replace(/\/\/.*$/, ""))
+  .join("\n");
+
+ok("reviseDraftWithFeedback exists in draft-actions.ts, beside the two generation actions it revises", reviseStart >= 0);
+
+ok(
+  "it re-reads the draft's CURRENT row server-side in one select -- id, kind, status, content, strategy_run_id, prospect_id -- before any guard runs",
+  /\.select\("id, kind, status, content, strategy_run_id, prospect_id"\)/.test(reviseBody)
+);
+
+// Guard order (STATE item 70's own list): draft not found, then approved
+// status, then kind, then empty feedback -- each guard is checked by
+// finding ITS OWN return/if text, so a reordering (or a guard silently
+// dropped) fails the specific assertion that names it, not just the
+// aggregate.
+{
+  const notFoundAt = reviseBody.indexOf('return { error: "Draft not found." }');
+  const approvedGuardAt = reviseBody.indexOf('draft.status === "approved"');
+  const kindGuardAt = reviseBody.indexOf('draft.kind !== "proposal" && draft.kind !== "deck"');
+  const feedbackGuardAt = reviseBody.indexOf("const trimmedFeedback = feedback.trim();");
+  ok(
+    "guard order is exactly: not-found, then approved-status, then kind, then empty-feedback",
+    notFoundAt >= 0 &&
+      approvedGuardAt > notFoundAt &&
+      kindGuardAt > approvedGuardAt &&
+      feedbackGuardAt > kindGuardAt,
+    `not-found at ${notFoundAt}, approved guard at ${approvedGuardAt}, kind guard at ${kindGuardAt}, feedback guard at ${feedbackGuardAt}`
+  );
+}
+ok(
+  "it refuses an APPROVED draft with a returned plain message that names the REAL un-approve control (item 67/68's pattern, extended to revision)",
+  /if\s*\(draft\.status === "approved"\)\s*\{\s*return\s*\{\s*error:/.test(reviseBody) &&
+    /locked to exactly what was approved/.test(reviseBody) &&
+    /Un-approve button on the draft's card/.test(reviseBody)
+);
+ok(
+  "it refuses any kind other than 'proposal' or 'deck' -- intro_email/call_prep have no grounded re-generation path to re-run",
+  /if\s*\(draft\.kind !== "proposal" && draft\.kind !== "deck"\)\s*\{\s*return\s*\{\s*error:/.test(reviseBody)
+);
+ok(
+  "it refuses empty OR whitespace-only feedback, trimmed before the check",
+  /const trimmedFeedback = feedback\.trim\(\);\s*if \(!trimmedFeedback\)\s*\{\s*return\s*\{\s*error:/.test(reviseBody)
+);
+
+// Re-grounding shape: the same four ingredients generateProposalDraft /
+// generateDeckOutline use, re-derived from the draft row rather than
+// trusted from its mere existence.
+ok(
+  "approved strategy is RE-VERIFIED (not merely assumed from strategy_run_id being present) -- a strategy could have been un-approved since the draft was generated",
+  /\.from\("strategy_runs"\)/.test(reviseBody) &&
+    /\.eq\("id", draft\.strategy_run_id \?\? ""\)/.test(reviseBody) &&
+    /if\s*\(!run \|\| !run\.approved_strategy\)/.test(reviseBody)
+);
+ok(
+  "org profile is re-fetched the same way as the original generation actions",
+  /\.from\("org_profile"\)\.select\("\*"\)\.limit\(1\)\.maybeSingle<OrgProfile>\(\)/.test(reviseBody)
+);
+ok(
+  "the evidence pool query is the SAME permission gate: verified_at not null AND permission = 'approved'",
+  /\.not\("verified_at", "is", null\)/.test(reviseBody) && /\.eq\("permission", "approved"\)/.test(reviseBody)
+);
+ok(
+  "the strategy's own selections (strategy_runs.evidence_item_ids) are flagged in the list the model sees, same as generation",
+  /evidence_item_ids/.test(reviseBody) && /cited in the approved strategy/.test(reviseRaw)
+);
+ok(
+  "cited ids are validated against the SAME pool the model was handed, same mechanism per kind: evidencePoolIds.has for the proposal path, parseDeckOutline(...).evidenceIds for the deck path",
+  /evidencePoolIds\.has\(/.test(reviseBody) && /parseDeckOutline\(content\)\.evidenceIds/.test(reviseBody)
+);
+
+// The draft's current content and the human's feedback are the ADDITION
+// over plain re-generation -- both must reach the prompt verbatim.
+ok(
+  "the prompt hands the model the draft's CURRENT content and the human's feedback, labelled so the model knows which is which",
+  /Current \$\{isDeck \? "outline" : "proposal"\} \(this is what a human reviewed and asked to change\):\s*\$\{draft\.content\}/.test(reviseRaw) &&
+    /Human feedback to address:\s*\$\{trimmedFeedback\}/.test(reviseRaw)
+);
+ok(
+  "the grounding instruction is REUSED, not weakened: the revision prompt explicitly says feedback about tone/structure/emphasis is never license to loosen it",
+  /Never invent an outcome, a figure, a testimonial/.test(reviseRaw) &&
+    /feedback about tone, structure, or emphasis is never\s+license to loosen it/.test(reviseRaw)
+);
+ok(
+  "the date-placeholder discipline (item 69) is carried into the revision prompt too, and the model's own output is re-scanned with fillDatePlaceholders same as generation",
+  /never a bracketed placeholder/.test(reviseRaw) && /fillDatePlaceholders\(\(result\.content \?\? ""\)\.trim\(\), todayLabel\)/.test(reviseBody)
+);
+
+// Two distinct ai_runs operations, one per kind -- generateProposalDraft
+// /generateDeckOutline's own precedent (decision 0006 prices per
+// operation), birth BEFORE the model call. Two LITERAL call sites, not a
+// ternary: the closed-set scan in scripts/test-ai-runs.ts proves
+// instrumentation by finding the literal string `operation: "..."` at
+// each model-calling site -- a ternary is correct at runtime but
+// invisible to that literal-string proof.
+ok(
+  "birth happens BEFORE the model call, as two distinct literal operations depending on kind",
+  reviseBody.indexOf('operation: "deck_revise"') >= 0 &&
+    reviseBody.indexOf('operation: "proposal_revise"') >= 0 &&
+    reviseBody.indexOf('operation: "deck_revise"') < reviseBody.indexOf("await anthropic.messages.create") &&
+    reviseBody.indexOf('operation: "proposal_revise"') < reviseBody.indexOf("await anthropic.messages.create")
+);
+ok(
+  "'proposal_revise' and 'deck_revise' are registered in the closed-set AI_RUN_OPERATIONS union (lib/ai-runs.ts) -- the only place a typo in an operation name would be caught",
+  /"proposal_revise"/.test(aiRunsText) && /"deck_revise"/.test(aiRunsText)
+);
+
+// The write: content overwritten in place, STATUS NEVER TOUCHED (a
+// revision is not an approval), predicated on status 'draft' so a
+// concurrent approve wins -- item 67's exact race-proof style.
+ok(
+  "the write updates ONLY content and updated_at -- no status field in the update payload, so a revision can never re-stamp or change approval state",
+  /\.update\(\{ content: finalContent, updated_at: new Date\(\)\.toISOString\(\) \}\)/.test(reviseBody)
+);
+ok(
+  "the write is race-proof, item 67's style: predicated on .eq(\"id\", draftId).eq(\"status\", \"draft\") -- an approve landing between the re-read and this write makes the revision a no-op",
+  /\.update\(\{ content: finalContent, updated_at: new Date\(\)\.toISOString\(\) \}\)\s*\.eq\("id", draftId\)\s*\.eq\("status", "draft"\)/.test(reviseBody)
+);
+ok(
+  "success returns the revised content itself (not just { ok: true }) -- the client needs the server-computed value, since its local content state was seeded once from the original draft and won't otherwise notice a server-side rewrite",
+  /return\s*\{\s*ok:\s*true,\s*content:\s*finalContent\s*\}/.test(reviseBody)
+);
+ok(
+  "every failure path RETURNS an error (never a rethrow production would redact), and finalizeRun is called on every path -- empty, format-broken, and caught error alike",
+  !/\bthrow err\b/.test(reviseBody) &&
+    (reviseBody.match(/finalizeRun\(/g) ?? []).length >= 4
+);
+
+// Deck-specific (item 70 clause 5): the outline contract must survive
+// revision. parseDeckOutline is pure and never throws, so "the format
+// broke" is checked structurally -- at least one "# " title line
+// survived -- and refused BEFORE the write if it did not.
+ok(
+  "the revised deck content is parsed with the SAME shared parser the deck view renders with, after the header is (re-)prepended in code",
+  /const candidate = ensureOutlineHeader\(content\);/.test(reviseBody) && /const parsed = parseDeckOutline\(candidate\);/.test(reviseBody)
+);
+ok(
+  "a revision that drops all '# ' slide-title lines (prose instead of an outline) is refused BEFORE the write, with a plain message, and never silently saved",
+  /const hasTitledSlide = parsed\.slides\.some\(\(s\) => s\.title !== null\);/.test(reviseBody) &&
+    /if\s*\(!hasTitledSlide\)\s*\{/.test(reviseBody) &&
+    reviseBody.indexOf("if (!hasTitledSlide)") < reviseBody.indexOf('.update({ content: finalContent') &&
+    /did not use any "# " slide-title lines/.test(reviseRaw)
+);
+ok(
+  "the proposal path carries no such format gate -- a proposal is free-form prose by construction, so only the deck path parses and refuses",
+  reviseBody.indexOf("hasTitledSlide") < reviseBody.indexOf("} else {") // the deck branch (with the gate) precedes the proposal else-branch (without it)
+);
+
+// The UI: a feedback textarea + Revise button, visible only on an
+// unapproved proposal/deck card -- an approved card has no revise
+// affordance any more than it has edit controls (item 67).
+ok(
+  "the panel imports reviseDraftWithFeedback from the actions module",
+  /import \{[\s\S]*?reviseDraftWithFeedback[\s\S]*?\} from "\.\/draft-actions"/.test(panelText)
+);
+ok(
+  "the card computes isRevisable for exactly the two grounded kinds (proposal, deck)",
+  /const isRevisable = draft\.kind === "proposal" \|\| draft\.kind === "deck";/.test(panelText)
+);
+{
+  const gateAt = panelText.indexOf("{!isApproved && isRevisable && (");
+  const approvedBranchAt = panelText.indexOf("{isApproved && (");
+  ok(
+    "the Revise affordance renders ONLY when NOT approved AND the kind is revisable -- gated the same way the Approve/Save Edits/Delete buttons are, so an approved card never offers it",
+    gateAt >= 0 && (approvedBranchAt < 0 || gateAt < approvedBranchAt),
+    `gate at ${gateAt}, isApproved branch at ${approvedBranchAt}`
+  );
+}
+ok(
+  "the confirming click calls reviseDraftWithFeedback with the draft id and the trimmed feedback, and on success replaces the card's local content with the server-returned revision (not a blind re-render)",
+  /const result = await reviseDraftWithFeedback\(draft\.id, trimmed\);/.test(panelText) &&
+    /setContent\(result\.content\);/.test(panelText)
+);
+ok(
+  "a returned refusal is displayed via its own reviseError state, not swallowed and not conflated with actionError (Approve/Save/Delete's channel)",
+  /const \[reviseError, setReviseError\] = useState<string \| null>\(null\)/.test(panelText) && /\{reviseError && \(/.test(panelText)
+);
+ok(
+  "the panel copy tells the human a revision does NOT approve the draft -- it still needs review and approval like any other draft",
+  /does not approve it/.test(panelText)
+);
+
 // --- 4. Pure logic: every precondition combination --------------------------
 
 section("evaluateSendReadiness: the clause-2 preconditions, offline");

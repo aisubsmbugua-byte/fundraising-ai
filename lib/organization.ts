@@ -83,9 +83,28 @@ export type OrgProfile = {
   org_values: string[] | null;
   outcomes: string[] | null;
   notable_funders: Funder[] | null;
+  // Brand capture (STATE item 71, migration 0073): all three nullable --
+  // logo_path is a storage path into the public org-logos bucket (not a
+  // URL; the proposal view resolves it to a public URL), and the two
+  // colors are checked at the database as 6-digit hex or null. A missing
+  // value means "not set", never a stand-in default -- the proposal view
+  // supplies its own default when these are null, rather than a default
+  // being written here.
+  logo_path: string | null;
+  primary_color: string | null;
+  accent_color: string | null;
   updated_by: string | null;
   updated_at: string;
 };
+
+// The same shape migration 0073's check constraints enforce at the
+// database, re-checked here before a value is ever interpolated into a
+// CSS custom property (the proposal view) or written from a form (Org
+// Settings) -- belt-and-suspenders, not a substitute for the DB
+// constraint, which is what actually guarantees it.
+export function isValidHexColor(value: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(value);
+}
 
 export type ProfileHealthSection = { key: string; label: string; complete: boolean };
 

@@ -2,7 +2,17 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { generateDraft, generateProposalDraft, generateDeckOutline, composeDraft, updateDraft, approveDraft, deleteDraft, unapproveDraft } from "./draft-actions";
+import {
+  generateDraft,
+  generateProposalDraft,
+  generateDeckOutline,
+  composeDraft,
+  updateDraft,
+  approveDraft,
+  deleteDraft,
+  unapproveDraft,
+  reviseDraftWithFeedback,
+} from "./draft-actions";
 import { sendApprovedDraft } from "./send-actions";
 import CollapsibleField from "@/components/CollapsibleField";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -283,9 +293,44 @@ function DraftCard({
   // so this only ever shows on a stale card -- but the guard is the
   // server's, and its answer deserves display.
   const [actionError, setActionError] = useState<string | null>(null);
+  // STATE item 70: feedback that gets incorporated. Its own pending state
+  // (not the shared isPending above) so a revise in flight never shows
+  // "Saving..." on the Approve button, and vice versa.
+  const [reviseOpen, setReviseOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [reviseError, setReviseError] = useState<string | null>(null);
+  const [isRevising, startRevising] = useTransition();
   const isApproved = draft.status === "approved";
   const kindLabel = draftKindLabel(draft.kind);
   const isEmail = draft.kind === "intro_email";
+  // Only the two grounded, evidence-cited artifact kinds are revisable
+  // with feedback -- intro_email/call_prep have no strategy-grounded
+  // re-generation path to re-run (reviseDraftWithFeedback refuses them
+  // server-side too; this is the honest surface of the same rule).
+  const isRevisable = draft.kind === "proposal" || draft.kind === "deck";
+
+  function handleRevise() {
+    const trimmed = feedback.trim();
+    if (!trimmed) {
+      setReviseError("Write feedback for the AI to address before revising.");
+      return;
+    }
+    setReviseError(null);
+    startRevising(async () => {
+      const result = await reviseDraftWithFeedback(draft.id, trimmed);
+      if ("error" in result) {
+        setReviseError(result.error);
+        return;
+      }
+      // The server computed the revised content -- capture it directly
+      // rather than waiting on a re-fetch, since this card's local
+      // `content` state was seeded once from the original draft prop and
+      // does not otherwise notice a server-side rewrite.
+      setContent(result.content);
+      setFeedback("");
+      setReviseOpen(false);
+    });
+  }
 
   const sentAttempt = attempts.find((a) => a.outcome === "sent") ?? null;
   const isSent = Boolean(draft.sent_at) || sentAttempt !== null;
@@ -379,6 +424,56 @@ function DraftCard({
           </button>
         </div>
       )}
+      {/* STATE item 70: feedback that gets incorporated. Only on an
+          unapproved proposal or deck card -- an approved one is locked
+          (item 67) and must be un-approved first, same as the edit
+          controls above. */}
+      {!isApproved && isRevisable && (
+        <div style={{ marginTop: spacing.sm }}>
+          {!reviseOpen ? (
+            <button type="button" disabled={isPending || isRevising} onClick={() => setReviseOpen(true)} style={buttonSecondary}>
+              Revise with feedback…
+            </button>
+          ) : (
+            <div style={{ ...cardStyle, background: colors.bgSubtle }}>
+              <label style={{ ...labelStyle, display: "block" }}>
+                Feedback for the AI
+                <textarea
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  rows={3}
+                  style={fieldStyle}
+                  placeholder={`What should change about this ${kindLabel.toLowerCase()}?`}
+                />
+              </label>
+              <p style={{ fontSize: 12, color: colors.textMuted, marginTop: spacing.xs }}>
+                The AI rewrites the {kindLabel.toLowerCase()} to address this feedback, grounded in the same
+                approved strategy and evidence as the original draft. This does not approve it -- review and
+                approve the revised version like any other draft.
+              </p>
+              {reviseError && (
+                <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{reviseError}</p>
+              )}
+              <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.sm }}>
+                <button type="button" disabled={isRevising} onClick={handleRevise} style={buttonPrimary}>
+                  {isRevising ? "Revising…" : "Revise"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isRevising}
+                  onClick={() => {
+                    setReviseOpen(false);
+                    setReviseError(null);
+                  }}
+                  style={buttonSecondary}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {actionError && (
         <p style={{ fontSize: 12, color: colors.danger, marginTop: spacing.xs }}>{actionError}</p>
       )}
@@ -400,6 +495,17 @@ function DraftCard({
               </Link>
             </div>
           )}
+          {draft.kind === "proposal" && (
+            // The proposal view (STATE item 71) renders THIS approved
+            // proposal deterministically, mirroring the deck link above --
+            // the link exists only once approved, and the view itself
+            // refuses an unapproved draft too.
+            <div style={{ marginTop: spacing.sm }}>
+              <Link href={`/prospects/${prospectId}/proposal/${draft.id}`} style={buttonSecondary}>
+                View proposal (print to PDF to export)
+              </Link>
+            </div>
+          )}
           {/* STATE item 68: the way back, for approved UNSENT drafts only.
               A sent or attempted draft never offers it -- the server
               refuses those anyway; this is the honest surface of the same
@@ -418,9 +524,11 @@ function DraftCard({
                     reopen, and the approval record is cleared
                     {draft.kind === "deck"
                       ? " — its deck page stops rendering until it is approved again"
-                      : isEmail
-                        ? " — it cannot be sent until it is approved again"
-                        : ""}
+                      : draft.kind === "proposal"
+                        ? " — its proposal page stops rendering until it is approved again"
+                        : isEmail
+                          ? " — it cannot be sent until it is approved again"
+                          : ""}
                     . The content itself is not changed or lost.
                   </p>
                   <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.sm }}>

@@ -54,6 +54,14 @@ export const AI_RUN_OPERATIONS = [
   // decision 0006 prices per operation, and a deck outline is neither an
   // intro email nor a proposal.
   "deck_draft",
+  // Revising a proposal or deck outline with human feedback (STATE item
+  // 70) is a distinct operation from generating one -- same reasoning as
+  // proposal_draft/deck_draft above (decision 0006 prices per operation),
+  // one entry per kind rather than a single 'draft_revise' tagged by
+  // kind: the set already has two entries per artifact type, and it
+  // stays short enough that two more don't change that.
+  "proposal_revise",
+  "deck_revise",
   "revisit_suggest",
 ] as const;
 export type AiRunOperation = (typeof AI_RUN_OPERATIONS)[number];

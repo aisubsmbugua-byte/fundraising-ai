@@ -9,7 +9,7 @@ import { channelLabel } from "@/lib/prospects";
 import type { Strategy } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import type { OutreachDraftKind } from "@/lib/drafts";
-import { parseDeckOutline, ensureOutlineHeader } from "@/lib/deck-outline";
+import { parseDeckOutline, ensureOutlineHeader, ensureProposalOutlineHeader } from "@/lib/deck-outline";
 import { todaysDateLabel, fillDatePlaceholders } from "@/lib/draft-dates";
 import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs";
 
@@ -153,6 +153,22 @@ Contact: ${prospect.contact_name || "(no named contact)"}${prospect.contact_emai
 //   A distinct operation ('proposal_draft'): decision 0006 prices per
 //   operation, and a proposal is not an intro email.
 //
+// STATE item 71: the proposal's CONTENT is now the same lightweight
+// structured markup lib/deck-outline.ts defines for decks ("# " section
+// headings, plain paragraph/bullet lines, "> evidence: <id>" citations,
+// with letterhead lines like "Submitted to:"/"Date:" as plain body text
+// before the first "#") instead of free-form prose with ALL-CAPS
+// headers -- one shared parser (parseDeckOutline) serves both kinds, and
+// the proposal render view (app/prospects/[id]/proposal/[draftId]/page.tsx)
+// parses it exactly as deterministically as the deck view parses an
+// outline. ensureProposalOutlineHeader prepends the format's own
+// self-documentation in CODE, same guarantee as the deck's
+// ensureOutlineHeader. The evidence_cited tool field and its validation
+// below are UNCHANGED from item 63 -- this only changes what the model
+// writes into `content`, not how evidence_cited is captured or checked.
+// Existing proposal drafts already stored in the old prose format are not
+// migrated: they simply won't parse into sections, which is expected.
+//
 // A proposal is NEVER sendable: evaluateSendReadiness refuses any kind
 // but intro_email, and the panel renders no send control for it.
 //
@@ -225,7 +241,7 @@ export async function generateProposalDraft(
                 content: {
                   type: "string",
                   description:
-                    "The full grant proposal, ready for human review: title, need statement, program description, outcomes, ask, and closing. Plain text with clear section headings.",
+                    'The full grant proposal in exactly this line format (the same format decks use): optional plain letterhead lines BEFORE the first "# " line (e.g. "Submitted to: ...", "Contact: ...", "Date: ..."); then a "# " line opens each section with its title (statement of need, program description, outcomes, the ask, closing); each plain line under a section is one paragraph or bullet; a line "> evidence: <id>" cites an evidence item in that section. No ALL-CAPS headers, no other markup. Do not write any explanatory header -- it is added automatically.',
                 },
                 evidence_cited: {
                   type: "array",
@@ -244,11 +260,11 @@ export async function generateProposalDraft(
             role: "user",
             content: `Draft a full grant proposal for "${prospect.name}" (${channelLabel(prospect.channel)} channel), based on the approved strategy below.
 
-Write it as a complete, submission-ready proposal document a human will review and edit: a title, a statement of need, a program description, expected outcomes, the ask, and a closing. Warm, concrete, professional. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state.
+Write it as a complete, submission-ready proposal document a human will review and edit, in the plain-text structured format: a few plain letterhead lines before the first "# " line (who it's submitted to, a contact, the date), then a "# " line per section covering a title, a statement of need, a program description, expected outcomes, the ask, and a closing, with short paragraph or bullet lines under each. Warm, concrete, professional. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state.
 
-Today's date is ${todayLabel}. If the document includes a date (for example, in a letterhead-style opening), write exactly that date -- never a bracketed placeholder like "[Insert Date]" or "[Date]". A human is going to review this before it goes anywhere, and a placeholder left in reviewable output is a defect.
+Today's date is ${todayLabel}. If the letterhead or any section includes a date, write exactly that date -- never a bracketed placeholder like "[Insert Date]" or "[Date]". A human is going to review this before it goes anywhere, and a placeholder left in reviewable output is a defect.
 
-Ground every outcome, metric, or story you assert in an item from the Available evidence list below, and report the ids you used in evidence_cited. Never invent an outcome, a figure, or a testimonial: if no listed evidence supports a claim, do not make the claim. Items marked [cited in the approved strategy] were already chosen by a human for this funder -- prefer them.
+Ground every outcome, metric, or story you assert in an item from the Available evidence list below by adding a "> evidence: <id>" line to the section that uses it, with the id copied exactly from the list, AND report the same ids in evidence_cited. Never invent an outcome, a figure, a testimonial, or an evidence id: if no listed evidence supports a claim, do not make the claim. Items marked [cited in the approved strategy] were already chosen by a human for this funder -- prefer them.
 
 Approved strategy:
 - Outreach approach: ${strategy.outreach_approach}
@@ -321,7 +337,11 @@ ${
       strategy_run_id: strategyRunId,
       kind: "proposal",
       subject: null,
-      content,
+      // The format's self-documentation is prepended in code, so every
+      // stored proposal explains itself in the editor -- never left to
+      // the model to remember (same guarantee as the deck outline's
+      // ensureOutlineHeader, worded for a document instead of a deck).
+      content: ensureProposalOutlineHeader(content),
       status: "draft",
       model: DRAFT_MODEL,
       created_by: user.id,
@@ -571,6 +591,389 @@ ${
 
   revalidatePath(`/prospects/${prospectId}`);
   return { ok: true };
+}
+
+// Feedback that gets incorporated (STATE item 70): a human reviewing an
+// unapproved proposal or deck outline can ask the AI to revise it with
+// notes, instead of hand-editing or starting over. Re-grounds EXACTLY
+// like the original generation for that kind (generateProposalDraft /
+// generateDeckOutline above) -- approved strategy re-verified, org
+// profile, the SAME permission-gated evidence pool handed over with ids,
+// cited ids validated the same way -- PLUS the draft's current content
+// and the human's feedback, so the model revises in place rather than
+// starting from nothing. The grounding instruction is reused, not
+// weakened: "feedback about tone, structure, or emphasis is never
+// license to loosen it" is said explicitly in the prompt below.
+//
+// Refuses, in this order: draft not found; status 'approved' (item 67's
+// guard, extended here -- an approved draft's content is locked, so a
+// revision needs the same un-approve-first path as a hand edit); kind
+// outside ('proposal', 'deck') -- intro_email/call_prep are not
+// evidence-cited, strategy-grounded artifacts, so there is nothing here
+// to re-ground; empty/whitespace-only feedback.
+//
+// Two distinct ai_runs operations, 'proposal_revise' and 'deck_revise'
+// (lib/ai-runs.ts) -- following generateProposalDraft/generateDeckOutline's
+// own precedent of one operation per kind (decision 0006 prices per
+// operation), rather than a single 'draft_revise' tagged by kind: the
+// existing set already has two entries per artifact type (X_draft,
+// X_revise mirrors that shape) and AI_RUN_OPERATIONS is a short, flat
+// list, not something two more entries meaningfully burden.
+//
+// No new enum probe: 'proposal' and 'deck' are only reachable in this
+// action at all because a drafts ROW with that kind already exists (the
+// re-read below selects it) -- and drafts.kind is a REAL Postgres enum
+// (migration 0017, widened by 0071/0072), so a stored row with that
+// value is already proof the enum literal exists; an unapplied migration
+// would have made the ORIGINAL insert impossible, not this one. The
+// ai_runs.operation column, unlike drafts.kind, is unconstrained text
+// (lib/ai-runs.ts's own comment) -- there is no database enum for
+// 'proposal_revise'/'deck_revise' to be probed against in the first
+// place.
+//
+// On success, `content` is overwritten in place and status is NEVER
+// touched -- a revision is not an approval. The write is predicated on
+// status 'draft' (item 67's race-proof style), so an approve landing
+// between the re-read above and this write makes the revision a no-op,
+// exactly like updateDraft's own edit-vs-approve race. Errors are
+// RETURNED, not thrown (the composeDraft/generateProposalDraft
+// convention: production redacts thrown server-action messages).
+//
+// Deck-specific (STATE item 70 clause 5): the revised text is parsed with
+// the SAME shared parser the deck view renders with (lib/deck-outline.ts)
+// before it is stored. A revision that stops using "# " title lines
+// entirely -- prose instead of an outline -- breaks the format contract
+// the deck view depends on, and is refused before it overwrites a
+// reviewable draft with something that no longer behaves like an
+// outline.
+export async function reviseDraftWithFeedback(
+  draftId: string,
+  feedback: string
+): Promise<{ ok: true; content: string } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Re-read the draft's CURRENT row server-side (item 67's rule: the
+  // client's belief about status is never trusted). Every fact this
+  // action needs -- prospect, strategy run, kind, current content -- is
+  // re-derived from this one row, never passed in from the client.
+  const { data: draft, error: draftError } = await supabase
+    .from("drafts")
+    .select("id, kind, status, content, strategy_run_id, prospect_id")
+    .eq("id", draftId)
+    .single();
+  if (draftError || !draft) return { error: "Draft not found." };
+
+  if (draft.status === "approved") {
+    return {
+      error:
+        "This draft has been approved, so its content is locked to exactly what was approved. Revising it requires un-approving it first — use the Un-approve button on the draft's card, which reopens editing.",
+    };
+  }
+
+  if (draft.kind !== "proposal" && draft.kind !== "deck") {
+    return { error: "Only a grant proposal or a deck outline can be revised with feedback here." };
+  }
+
+  const trimmedFeedback = feedback.trim();
+  if (!trimmedFeedback) {
+    return { error: "Write feedback for the AI to address before revising." };
+  }
+
+  const prospectId = draft.prospect_id as string;
+  const isDeck = draft.kind === "deck";
+
+  // Approved strategy, re-verified here rather than trusted from the
+  // draft's mere existence -- an approval can in principle be reversed
+  // between the original generation and this revision.
+  const { data: run } = await supabase
+    .from("strategy_runs")
+    .select("*")
+    .eq("id", draft.strategy_run_id ?? "")
+    .maybeSingle();
+  if (!run || !run.approved_strategy) {
+    return { error: "Strategy must be approved before revising this draft." };
+  }
+  const strategy = run.approved_strategy as Strategy;
+  const strategyEvidenceIds = new Set<string>(Array.isArray(run.evidence_item_ids) ? run.evidence_item_ids : []);
+
+  const { data: prospect } = await supabase.from("prospects").select("*").eq("id", prospectId).single();
+  if (!prospect) return { error: "Prospect not found." };
+
+  const { data: profile } = await supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>();
+
+  // The same permission gate generateProposalDraft/generateDeckOutline
+  // use: only evidence a human has verified AND marked approved is
+  // eligible to be cited to a funder.
+  const { data: evidenceRows } = await supabase
+    .from("evidence_items")
+    .select("id, title, description, type, program, geography")
+    .not("verified_at", "is", null)
+    .eq("permission", "approved");
+  const evidencePool = evidenceRows ?? [];
+  const evidencePoolIds = new Set(evidencePool.map((e) => e.id));
+
+  const evidenceListText =
+    evidencePool.length > 0
+      ? evidencePool
+          .map(
+            (e) =>
+              `- ${e.id}: [${e.type}]${strategyEvidenceIds.has(e.id) ? " [cited in the approved strategy]" : ""} ${e.title} -- ${e.description}${e.program ? ` (program: ${e.program})` : ""}${e.geography ? ` (geography: ${e.geography})` : ""}`
+          )
+          .join("\n")
+      : `(no verified evidence available yet -- make no outcome claims beyond the strategy's own talking points${isDeck ? ", and cite nothing" : ""})`;
+
+  // STATE item 69's discipline carried into the revision prompt too: a
+  // revision is exactly the kind of pass where a stray "[Insert Date]"
+  // could get reintroduced or left untouched.
+  const todayLabel = todaysDateLabel();
+
+  // Two literal call sites, not a ternary: ruling 0026's closed-set scan
+  // proves instrumentation by finding the literal string `operation:
+  // "..."` at each model-calling site (scripts/test-ai-runs.ts). A
+  // ternary is correct at runtime but invisible to that literal-string
+  // proof -- the scan is the guarantee, not the reader's trust that the
+  // ternary was written correctly.
+  const aiRunId = isDeck
+    ? await beginRun(supabase, { operation: "deck_revise", sourceTable: "prospects", sourceId: prospectId })
+    : await beginRun(supabase, { operation: "proposal_revise", sourceTable: "prospects", sourceId: prospectId });
+  const usage = newUsage();
+  try {
+    const response = await anthropic.messages.create(
+      {
+        model: DRAFT_MODEL,
+        max_tokens: isDeck ? 3000 : 4000,
+        tools: [
+          isDeck
+            ? {
+                name: "submit_deck_outline",
+                description: "Submit the revised pitch-deck outline.",
+                input_schema: {
+                  type: "object",
+                  properties: {
+                    content: {
+                      type: "string",
+                      description:
+                        'The revised deck outline as plain text in exactly this line format: a line starting "# " opens a new slide with that title; each plain line under it is one bullet point on that slide; a line "> evidence: <id>" cites an evidence item on that slide. No other markup. Do not write any explanatory header -- it is added automatically.',
+                    },
+                  },
+                  required: ["content"],
+                },
+              }
+            : {
+                name: "submit_proposal",
+                description: "Submit the revised grant proposal.",
+                input_schema: {
+                  type: "object",
+                  properties: {
+                    content: {
+                      type: "string",
+                      description:
+                        'The full revised grant proposal in exactly this line format (the same format decks use, and the same format the original was drafted in): optional plain letterhead lines BEFORE the first "# " line (e.g. "Submitted to: ...", "Contact: ...", "Date: ..."); then a "# " line opens each section with its title; each plain line under a section is one paragraph or bullet; a line "> evidence: <id>" cites an evidence item in that section. No ALL-CAPS headers, no other markup. Do not write any explanatory header -- it is added automatically.',
+                    },
+                    evidence_cited: {
+                      type: "array",
+                      items: { type: "string" },
+                      description:
+                        "IDs (from the Available evidence list) of every evidence item the revised proposal's outcome claims are grounded in. Only ids from that list -- never invent one. Empty if the list is empty or nothing fit.",
+                    },
+                  },
+                  required: ["content", "evidence_cited"],
+                },
+              },
+        ],
+        tool_choice: { type: "tool", name: isDeck ? "submit_deck_outline" : "submit_proposal" },
+        messages: [
+          {
+            role: "user",
+            content: `Revise the ${isDeck ? "pitch-deck outline" : "grant proposal"} below for "${prospect.name}" (${channelLabel(prospect.channel)} channel) to address the human's feedback. It was originally drafted from the same approved strategy given below -- keep following that strategy unless the feedback says otherwise.
+
+${
+  isDeck
+    ? 'Keep the plain-text outline format exactly: a "# " line per slide title, short bullet lines under each, and "> evidence: <id>" lines citing evidence. Do not write any explanatory header -- it is added automatically.'
+    : 'Keep the plain-text structured format exactly: optional plain letterhead lines before the first "# " line, then a "# " line per section (statement of need, program description, outcomes, the ask, closing) with short paragraph or bullet lines under each, and "> evidence: <id>" lines citing evidence in the section that uses it. No ALL-CAPS headers, no other markup. Warm, concrete, professional. Do not write any explanatory header -- it is added automatically.'
+}
+
+Today's date is ${todayLabel}. If the document includes a date, write exactly that date -- never a bracketed placeholder like "[Insert Date]" or "[Date]".
+
+Ground every outcome, metric, or story you assert in an item from the Available evidence list below${isDeck ? ' by adding a "> evidence: <id>" line to the slide that uses it' : ", and report the ids you used in evidence_cited"}. Never invent an outcome, a figure, a testimonial${isDeck ? ", or an evidence id" : ""}: if no listed evidence supports a claim, do not make the claim. Position the ask exactly as the approved strategy does -- do not invent an ask amount the strategy does not state. This grounding rule applies to the revision exactly as it did to the original draft -- feedback about tone, structure, or emphasis is never license to loosen it.
+
+Approved strategy:
+- Outreach approach: ${strategy.outreach_approach}
+- Ask positioning: ${strategy.ask_positioning}
+- Rationale: ${strategy.rationale}
+- Key talking points: ${strategy.key_talking_points?.join("; ") || "(none)"}
+- Evidence to highlight: ${strategy.evidence_to_highlight?.join("; ") || "(none)"}
+
+Nonprofit context:
+${profile ? buildProfileSummary(profile) : "(no profile data)"}
+
+Available evidence (verified, approved for use -- cite by id${isDeck ? ' in "> evidence:" lines' : " in evidence_cited"}):
+${evidenceListText}
+
+Current ${isDeck ? "outline" : "proposal"} (this is what a human reviewed and asked to change):
+${draft.content}
+
+Human feedback to address:
+${trimmedFeedback}`,
+          },
+        ],
+      },
+      { timeout: 100_000 }
+    );
+
+    addResponseUsage(usage, response);
+
+    const toolUse = response.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") {
+      throw new Error(`AI did not return a structured revised ${isDeck ? "deck outline" : "proposal"}. Try again.`);
+    }
+
+    let finalContent: string;
+
+    if (isDeck) {
+      const result = toolUse.input as { content?: string };
+      const content = fillDatePlaceholders((result.content ?? "").trim(), todayLabel);
+
+      if (!content) {
+        await finalizeRun(supabase, aiRunId, {
+          outcome: "empty",
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        });
+        return { error: "The AI returned an empty revised outline. Try again." };
+      }
+
+      // Cited ids come back INSIDE the outline text -- parsed with the
+      // same shared parser the deck view renders with and validated
+      // against the pool the model was handed, same as generateDeckOutline.
+      const citedInOutline = parseDeckOutline(content).evidenceIds;
+      const cited = citedInOutline.filter((id) => evidencePoolIds.has(id));
+      const unknown = citedInOutline.filter((id) => !evidencePoolIds.has(id));
+      console.log(
+        `[deck revise] model cited ${cited.length} evidence item(s)${cited.length ? `: ${cited.join(", ")}` : ""}` +
+          (unknown.length
+            ? `; ${unknown.length} id(s) not in the pool (kept in the outline for human review): ${unknown.join(", ")}`
+            : "")
+      );
+
+      // STATE item 70 clause 5: the outline contract must survive
+      // revision. parseDeckOutline never throws -- any text parses into
+      // SOME structure -- so "breaks the format" means the model stopped
+      // using "# " title lines at all and wrote prose instead. That is
+      // refused here, before it overwrites a reviewable draft with
+      // something the deck view would render as one undifferentiated
+      // slide rather than an outline.
+      const candidate = ensureOutlineHeader(content);
+      const parsed = parseDeckOutline(candidate);
+      const hasTitledSlide = parsed.slides.some((s) => s.title !== null);
+      if (!hasTitledSlide) {
+        await finalizeRun(supabase, aiRunId, {
+          outcome: "empty",
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        });
+        return {
+          error:
+            'The revised outline did not use any "# " slide-title lines, so the deck format was not preserved. It was not saved -- try again, or adjust the feedback.',
+        };
+      }
+
+      finalContent = candidate;
+    } else {
+      const result = toolUse.input as { content?: string; evidence_cited?: unknown };
+      const content = fillDatePlaceholders((result.content ?? "").trim(), todayLabel);
+
+      if (!content) {
+        await finalizeRun(supabase, aiRunId, {
+          outcome: "empty",
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        });
+        return { error: "The AI returned an empty revised proposal. Try again." };
+      }
+
+      // Defensive against the AI citing an id outside the pool it was
+      // given, same as generateProposalDraft -- checked both ways the
+      // structured format can carry a citation: the evidence_cited array
+      // and the inline "> evidence: <id>" lines the shared parser reads.
+      const citedRaw = Array.isArray(result.evidence_cited) ? result.evidence_cited : [];
+      const citedInline = parseDeckOutline(content).evidenceIds;
+      const citedAll = new Set([...citedRaw.filter((id): id is string => typeof id === "string"), ...citedInline]);
+      const cited = [...citedAll].filter((id) => evidencePoolIds.has(id));
+      const dropped = [...citedAll].filter((id) => !evidencePoolIds.has(id));
+      console.log(
+        `[proposal revise] model cited ${cited.length} evidence item(s)${cited.length ? `: ${cited.join(", ")}` : ""}` +
+          (dropped.length ? `; dropped ${dropped.length} id(s) not in the pool: ${dropped.join(", ")}` : "")
+      );
+
+      // STATE item 70 clause 5, extended to proposals per item 71's
+      // format change: the structured contract must survive revision.
+      // parseDeckOutline never throws, so "broke the format" means the
+      // model stopped using "# " section-title lines and reverted to the
+      // old free-form prose this action used to ask for -- refused before
+      // it overwrites a reviewable proposal with something the proposal
+      // view (item 71c) would render as one undifferentiated block.
+      const candidate = ensureProposalOutlineHeader(content);
+      const parsed = parseDeckOutline(candidate);
+      const hasTitledSection = parsed.slides.some((s) => s.title !== null);
+      if (!hasTitledSection) {
+        await finalizeRun(supabase, aiRunId, {
+          outcome: "empty",
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        });
+        return {
+          error:
+            'The revised proposal did not use any "# " section-title lines, so the structured format was not preserved. It was not saved -- try again, or adjust the feedback.',
+        };
+      }
+
+      finalContent = candidate;
+    }
+
+    // Race-proof write, item 67's style: predicated on status 'draft', so
+    // an approve landing between the re-read above and this write makes
+    // the revision a no-op instead of overwriting approved content --
+    // exactly updateDraft's own edit-vs-approve race, extended here.
+    // Status is never touched: a revision is not an approval.
+    const { error } = await supabase
+      .from("drafts")
+      .update({ content: finalContent, updated_at: new Date().toISOString() })
+      .eq("id", draftId)
+      .eq("status", "draft");
+    if (error) throw new Error(error.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+
+    revalidatePath(`/prospects/${prospectId}`);
+    return { ok: true, content: finalContent };
+  } catch (err) {
+    // Null token counts mean no response ever arrived -- a fact, not a
+    // zero. The error is RETURNED (not rethrown): production redacts
+    // thrown server-action messages, and the refusal is what the human
+    // needs to see.
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "failed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      errorNote: err instanceof Error ? err.message : "Draft revision failed",
+    });
+    return { error: err instanceof Error ? err.message : "Draft revision failed." };
+  }
 }
 
 // A human-composed email draft (STATE item 60): no strategy required, no

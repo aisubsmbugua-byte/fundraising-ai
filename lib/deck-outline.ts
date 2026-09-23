@@ -8,6 +8,22 @@
 // the deck renders. Rendering is this parse and nothing else: no model
 // call, no external deck/PDF library.
 //
+// STATE item 71 reuses this SAME parser for the grant-proposal draft: a
+// proposal's "slides" are its sections, rendered as a flowing letterhead
+// document instead of one-per-page, but parsed by the identical
+// parseDeckOutline below -- no second parser, no proposal-specific field
+// on DeckOutline/DeckSlide. The only addition is PROPOSAL_OUTLINE_HEADER, a
+// second self-documenting header whose WORDING matches a document
+// ("section" rather than "slide") -- the vocabulary underneath is
+// unchanged. The letterhead fields a proposal opens with (submitted-to,
+// contact, date) get no new line convention: they are exactly the body
+// lines a human or model writes before the first "#" line, which this
+// parser already collects onto a leading, title-null slide rather than
+// dropping them. That existing construct already means "content before
+// the first section heading" -- which is precisely what a letterhead is --
+// so inventing a second syntax for it would just be two ways to say the
+// same thing.
+//
 // The format is deliberately minimal and self-documenting -- a human must
 // be able to read and edit it in the plain-text draft editor with no
 // instructions from anywhere else, which is why every stored outline
@@ -48,7 +64,7 @@ export type DeckOutline = {
 // The self-documentation every stored outline starts with. Exported so
 // the generation action can prepend it (ensureOutlineHeader) and tests
 // can assert it is code-enforced, not model-remembered.
-export const DECK_OUTLINE_HEADER = `// How to edit this deck outline ("//" lines are notes and never appear on a slide):
+export const DECK_OUTLINE_HEADER: string = `// How to edit this deck outline ("//" lines are notes and never appear on a slide):
 //   # Title          starts a new slide with that title
 //   plain text       a bullet point on the current slide
 //   > evidence: ID   cites an evidence-library item; it renders on the
@@ -61,6 +77,33 @@ export function ensureOutlineHeader(content: string): string {
   const headerFirstLine = DECK_OUTLINE_HEADER.split("\n")[0];
   if (content.trimStart().startsWith(headerFirstLine)) return content;
   return `${DECK_OUTLINE_HEADER}\n\n${content}`;
+}
+
+// The proposal's own self-documentation (STATE item 71) -- same construct
+// list as DECK_OUTLINE_HEADER, worded for a flowing document rather than a
+// slide deck, and naming explicitly what a "#"-less opening is for. Parsed
+// by the exact same parseDeckOutline; only the wording differs, because a
+// human editing a proposal in the plain-text draft editor should read
+// "section", not "slide".
+export const PROPOSAL_OUTLINE_HEADER: string = `// How to edit this proposal ("//" lines are notes and never appear in the document):
+//   (text before the first "#")   the opening/letterhead lines -- e.g.
+//                                  "Submitted to: ...", "Contact: ...",
+//                                  "Date: ..." -- rendered once, above the
+//                                  first section
+//   # Section Title                starts a new section with that title
+//   plain text                     a paragraph or bullet line in the
+//                                   current section
+//   > evidence: ID                 cites an evidence-library item; it
+//                                   renders as a footnote attribution
+//                                   (keep the ID exact)
+// Blank lines are ignored. The approved proposal renders exactly this text.`;
+
+// Prepends the proposal header unless the content already carries it.
+// Idempotent, same guarantee as ensureOutlineHeader.
+export function ensureProposalOutlineHeader(content: string): string {
+  const headerFirstLine = PROPOSAL_OUTLINE_HEADER.split("\n")[0];
+  if (content.trimStart().startsWith(headerFirstLine)) return content;
+  return `${PROPOSAL_OUTLINE_HEADER}\n\n${content}`;
 }
 
 const COMMENT_LINE = /^\/\//;

@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeUrl } from "@/lib/organization";
+import { normalizeUrl, isValidHexColor } from "@/lib/organization";
 
 export async function saveOrgProfile(formData: FormData) {
   const supabase = createClient();
@@ -24,6 +24,21 @@ export async function saveOrgProfile(formData: FormData) {
   const socialLinks: { platform: string; url: string }[] = socialLinksRaw ? JSON.parse(socialLinksRaw) : [];
   const normalizedSocialLinks = socialLinks.map((link) => ({ ...link, url: normalizeUrl(link.url) }));
   const rawWebsite = (formData.get("website") as string) || "";
+
+  // Brand colors (STATE item 71): an empty field means "not set" (null),
+  // never a written-out default -- the proposal view supplies its own
+  // fallback. A non-empty value that isn't a valid 6-digit hex is
+  // rejected here, before it ever reaches the database's own check
+  // constraint (migration 0073), so the human sees why the save failed
+  // instead of a raw constraint-violation error.
+  const rawPrimaryColor = ((formData.get("primary_color") as string) || "").trim();
+  const rawAccentColor = ((formData.get("accent_color") as string) || "").trim();
+  if (rawPrimaryColor && !isValidHexColor(rawPrimaryColor)) {
+    throw new Error(`Primary color must be a 6-digit hex code like #0b1f3a (got "${rawPrimaryColor}").`);
+  }
+  if (rawAccentColor && !isValidHexColor(rawAccentColor)) {
+    throw new Error(`Accent color must be a 6-digit hex code like #087a67 (got "${rawAccentColor}").`);
+  }
 
   const fields = {
     name: (formData.get("name") as string) || null,
@@ -47,6 +62,8 @@ export async function saveOrgProfile(formData: FormData) {
     org_values: orgValues.length > 0 ? orgValues : null,
     outcomes: outcomes.length > 0 ? outcomes : null,
     notable_funders: notableFunders.length > 0 ? notableFunders : null,
+    primary_color: rawPrimaryColor || null,
+    accent_color: rawAccentColor || null,
     updated_by: user.id,
     updated_at: new Date().toISOString(),
   };

@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   Sparkles,
   Share2,
+  Image as ImageIcon,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -37,6 +38,7 @@ import CurrencyInput from "@/components/CurrencyInput";
 import EnterAdvancesFocus from "@/components/EnterAdvancesFocus";
 import SubmitButton from "@/components/SubmitButton";
 import DocumentsModal from "./documents-modal";
+import LogoUpload from "./logo-upload";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import { spacing, colors, type as typeScale, radiusSm, fieldStyle, labelStyle, sectionStyle, cardStyle, chipStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
@@ -133,6 +135,31 @@ function ViewPeople({ label, people }: { label: string; people?: Person[] | null
   );
 }
 
+// Read-only preview of a brand color (STATE item 71). A null value shows
+// the app's own default swatch with an explicit "(app default)" label --
+// never rendering the fallback color AS the org's own chosen value, since
+// "not set" and "set to this" must not collapse into one display.
+function ColorSwatch({ label, value, fallback }: { label: string; value?: string | null; fallback: string }) {
+  return (
+    <div>
+      <div style={viewLabelStyle}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: spacing.xs, marginTop: 2 }}>
+        <span
+          style={{
+            display: "inline-block",
+            width: 16,
+            height: 16,
+            borderRadius: 4,
+            border: `1px solid ${colors.border}`,
+            background: value ?? fallback,
+          }}
+        />
+        <span style={{ fontSize: 13 }}>{value ?? `${fallback} (app default)`}</span>
+      </div>
+    </div>
+  );
+}
+
 function ViewSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={sectionStyle}>
@@ -206,6 +233,11 @@ export default async function OrganizationProfilePage({
   const completeness = computeProfileCompleteness(profile ?? null);
   const health = computeProfileHealth(profile ?? null);
   const recentDocuments = documentsWithUrls.slice(0, 3);
+  // getPublicUrl builds a URL string from the bucket's own public flag --
+  // no network call, and null when no logo is on file (never a broken
+  // <img>). See migration 0073 for why org-logos is public unlike
+  // org-documents.
+  const logoUrl = profile?.logo_path ? supabase.storage.from("org-logos").getPublicUrl(profile.logo_path).data.publicUrl : null;
 
   return (
     <div style={{ maxWidth: isEditing ? 640 : undefined }}>
@@ -236,7 +268,11 @@ export default async function OrganizationProfilePage({
       )}
 
       {isEditing ? (
-        <form action={saveOrgProfile} style={{ display: "grid", gap: spacing.lg, marginTop: spacing.lg }}>
+        <>
+          <div style={{ marginTop: spacing.lg }}>
+            <LogoUpload logoUrl={logoUrl} logoPath={profile?.logo_path ?? null} />
+          </div>
+          <form action={saveOrgProfile} style={{ display: "grid", gap: spacing.lg, marginTop: spacing.lg }}>
           <EnterAdvancesFocus />
           <fieldset style={sectionStyle}>
             <legend style={legendStyle}>Identity</legend>
@@ -445,6 +481,38 @@ export default async function OrganizationProfilePage({
             </div>
           </fieldset>
 
+          <fieldset style={sectionStyle}>
+            <legend style={legendStyle}>Brand colors</legend>
+            <p style={{ fontSize: 12.5, color: colors.textMuted, margin: 0 }}>
+              Used on the letterhead of proposal documents. Leave blank to use the app&apos;s own default
+              colors — a blank field is never replaced with an invented color.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.md }}>
+              <label style={labelStyle}>
+                Primary color (hex)
+                <input
+                  name="primary_color"
+                  defaultValue={profile?.primary_color ?? ""}
+                  placeholder="#0b1f3a"
+                  pattern="^#[0-9a-fA-F]{6}$"
+                  maxLength={7}
+                  style={fieldStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                Accent color (hex)
+                <input
+                  name="accent_color"
+                  defaultValue={profile?.accent_color ?? ""}
+                  placeholder="#087a67"
+                  pattern="^#[0-9a-fA-F]{6}$"
+                  maxLength={7}
+                  style={fieldStyle}
+                />
+              </label>
+            </div>
+          </fieldset>
+
           <div style={{ display: "flex", gap: spacing.sm }}>
             <SubmitButton>Save Profile</SubmitButton>
             {profile && (
@@ -454,6 +522,7 @@ export default async function OrganizationProfilePage({
             )}
           </div>
         </form>
+        </>
       ) : (
         <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
           <div style={{ display: "grid", gap: spacing.lg, minWidth: 0 }}>
@@ -623,6 +692,27 @@ export default async function OrganizationProfilePage({
               ) : (
                 <p style={{ fontSize: 13, color: colors.textFaint, margin: 0 }}>No documents uploaded yet.</p>
               )}
+            </div>
+
+            <div style={sectionStyle}>
+              <IconTitle icon={ImageIcon} title="Brand assets" />
+              <p style={{ fontSize: 12.5, color: colors.textMuted, margin: 0 }}>
+                Used on the letterhead of proposal documents. Edit Profile to change these.
+              </p>
+              {logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- a Supabase Storage public URL
+                <img
+                  src={logoUrl}
+                  alt="Organization logo"
+                  style={{ maxHeight: 48, maxWidth: 140, border: `1px solid ${colors.border}`, borderRadius: 4, padding: spacing.xs, boxSizing: "border-box" }}
+                />
+              ) : (
+                <p style={{ fontSize: 13, color: colors.textFaint, margin: 0 }}>No logo uploaded yet.</p>
+              )}
+              <div style={{ display: "flex", gap: spacing.md }}>
+                <ColorSwatch label="Primary" value={profile?.primary_color} fallback={colors.navy900} />
+                <ColorSwatch label="Accent" value={profile?.accent_color} fallback={colors.teal700} />
+              </div>
             </div>
           </div>
         </div>
