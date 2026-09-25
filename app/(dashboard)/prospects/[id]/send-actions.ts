@@ -85,11 +85,28 @@ export async function sendApprovedDraft(draftId: string, prospectId: string): Pr
       return { error: `Could not load your organization profile, so nothing was sent: ${orgProfileError.message}` };
     }
 
-    const readiness = evaluateSendReadiness(draft, attempts ?? [], prospect.contact_email, {
-      orgName: orgProfile?.name,
-      fromAddress: platformFromAddress(),
-      userEmail: user.email,
-    });
+    // Ruling 0032: is sending switched on for this org? Re-read here, at
+    // send time, through the caller's own session (RLS scopes it to their
+    // org). FAIL CLOSED: an error (e.g. 42P01, migration 0076 not applied),
+    // no row, or enabled != true all mean "not enabled".
+    const { data: enablement, error: enablementError } = await supabase
+      .from("org_sending_enablement")
+      .select("enabled")
+      .limit(1)
+      .maybeSingle<{ enabled: boolean }>();
+    const sendingEnabled = !enablementError && enablement?.enabled === true;
+
+    const readiness = evaluateSendReadiness(
+      draft,
+      attempts ?? [],
+      prospect.contact_email,
+      {
+        orgName: orgProfile?.name,
+        fromAddress: platformFromAddress(),
+        userEmail: user.email,
+      },
+      sendingEnabled
+    );
     if (!readiness.ok) return { error: readiness.reason };
     const payload = readiness.payload;
 

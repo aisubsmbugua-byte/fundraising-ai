@@ -35,6 +35,7 @@ export default function DraftPanel({
   sendAttempts,
   contactEmail,
   sender,
+  sendingEnabled,
 }: {
   prospectId: string;
   // Null when no approved strategy exists (STATE item 60). AI drafting
@@ -48,6 +49,8 @@ export default function DraftPanel({
   sendAttempts: DraftSendAttempt[];
   contactEmail: string | null;
   sender: SenderIdentity;
+  // Ruling 0032: false until the platform owner enables sending for this org.
+  sendingEnabled: boolean;
 }) {
   // Tracked per-kind (not a single shared isPending) so clicking one
   // button doesn't show "Drafting..." on both -- each kind runs and
@@ -182,6 +185,7 @@ export default function DraftPanel({
             attempts={sendAttempts.filter((a) => a.draft_id === d.id)}
             contactEmail={contactEmail}
             sender={sender}
+            sendingEnabled={sendingEnabled}
           />
         ))}
         {drafts.length === 0 && <p style={{ color: colors.textFaint, fontSize: 13 }}>No drafts yet.</p>}
@@ -272,12 +276,15 @@ function DraftCard({
   attempts,
   contactEmail,
   sender,
+  sendingEnabled,
 }: {
   draft: Draft;
   prospectId: string;
   attempts: DraftSendAttempt[];
   contactEmail: string | null;
   sender: SenderIdentity;
+  // Ruling 0032: false until the platform owner enables sending for this org.
+  sendingEnabled: boolean;
 }) {
   const [subject, setSubject] = useState(draft.subject ?? "");
   const [content, setContent] = useState(draft.content);
@@ -483,7 +490,7 @@ function DraftCard({
             ✓ Approved {draft.approved_at ? new Date(draft.approved_at).toLocaleString() : ""}
           </p>
           {isEmail && (
-            <SendSection draft={draft} prospectId={prospectId} attempts={attempts} contactEmail={contactEmail} sender={sender} />
+            <SendSection draft={draft} prospectId={prospectId} attempts={attempts} contactEmail={contactEmail} sender={sender} sendingEnabled={sendingEnabled} />
           )}
           {draft.kind === "deck" && (
             // The deck view renders THIS approved outline deterministically
@@ -588,12 +595,15 @@ function SendSection({
   attempts,
   contactEmail,
   sender,
+  sendingEnabled,
 }: {
   draft: Draft;
   prospectId: string;
   attempts: DraftSendAttempt[];
   contactEmail: string | null;
   sender: SenderIdentity;
+  // Ruling 0032: false until the platform owner enables sending for this org.
+  sendingEnabled: boolean;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -631,7 +641,7 @@ function SendSection({
     );
   }
 
-  const readiness = evaluateSendReadiness(draft, attempts, contactEmail, sender);
+  const readiness = evaluateSendReadiness(draft, attempts, contactEmail, sender, sendingEnabled);
 
   return (
     <div style={{ marginTop: spacing.sm }}>

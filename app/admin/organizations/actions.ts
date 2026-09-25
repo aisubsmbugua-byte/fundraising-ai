@@ -132,3 +132,36 @@ export async function deleteOrganization(
   revalidatePath("/admin/organizations");
   return { success: true };
 }
+
+// Ruling 0032 / STATE item 74: the platform owner switches funder-facing
+// sending on or off per organization. The write goes through the service-role
+// client (the admin area's pattern -- organizations has no member policies)
+// but ONLY after requireSuperadmin() re-verifies the caller server-side; the
+// page's own gate is not trusted. org_sending_enablement's RLS also refuses
+// any non-superadmin session write, so an ordinary member cannot do this by
+// any other route. Disabling is an update to enabled = false, never a
+// delete (the table has no delete policy).
+//
+// Returns a result object rather than throwing, for the same redaction
+// reason as deleteOrganization; requireSuperadmin() still throws.
+export async function setOrganizationSendingEnabled(
+  organizationId: string,
+  enabled: boolean
+): Promise<{ error: string } | { success: true }> {
+  const user = await requireSuperadmin();
+  if (typeof organizationId !== "string" || !organizationId || typeof enabled !== "boolean") {
+    return { error: "An organization and an explicit on/off value are required." };
+  }
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("org_sending_enablement")
+    .upsert(
+      { organization_id: organizationId, enabled, set_by: user.id, set_at: new Date().toISOString() },
+      { onConflict: "organization_id" }
+    );
+  if (error) {
+    return { error: `Could not change sending for this organization (is migration 0076 applied?): ${error.message}` };
+  }
+  revalidatePath("/admin/organizations");
+  return { success: true };
+}

@@ -45,7 +45,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { evaluateSendReadiness, buildInteractionSummary, type DraftSendAttempt } from "../lib/draft-send";
+import { evaluateSendReadiness, buildInteractionSummary, SENDING_NOT_ENABLED_MESSAGE, type DraftSendAttempt } from "../lib/draft-send";
 import { fillDatePlaceholders, todaysDateLabel } from "../lib/draft-dates";
 
 const root = join(__dirname, "..");
@@ -419,6 +419,103 @@ ok(
     }
     return hits.length === 0;
   })()
+);
+
+// --- 1e. Migration 0076: per-org sending enablement (STATE item 74) ---------
+// Ruling 0032. Read as text; live behaviour is asserted in the DB section.
+
+section("migration 0076 is additive in effect: enablement table, superadmin-only writes, one added birth refusal");
+
+const sql76 = readFileSync(join(root, "supabase/migrations/0076_org_sending_enablement.sql"), "utf8");
+const stmts76 = sql76
+  .split("\n")
+  .map((l) => l.replace(/--.*$/, ""))
+  .join("\n")
+  .toLowerCase();
+
+ok(
+  "additive: no DROP, no ALTER, no trigger, no data write; one new table; exactly ONE function, a create or replace of the birth function",
+  !/\bdrop\b/.test(stmts76) &&
+    !/\balter\s+(?!table\s+org_sending_enablement\s+enable\s+row\s+level\s+security)/.test(stmts76) &&
+    !/create\s+trigger/.test(stmts76) &&
+    !/\b(insert\s+into|delete\s+from)\b/.test(stmts76) &&
+    !/\bupdate\s+[a-z_]+\s+set\b/.test(stmts76) &&
+    (stmts76.match(/create\s+table/g) ?? []).length === 1 &&
+    (stmts76.match(/create\s+(or\s+replace\s+)?function/g) ?? []).length === 1 &&
+    /create\s+or\s+replace\s+function\s+draft_send_attempts_enforce_birth/.test(stmts76)
+);
+ok(
+  "the table: organization_id primary key referencing organizations, enabled boolean not null, set_by references auth.users, set_at",
+  /create\s+table\s+org_sending_enablement\s*\(\s*organization_id\s+uuid\s+primary\s+key\s+references\s+organizations\s*\(id\)/.test(stmts76) &&
+    /enabled\s+boolean\s+not\s+null\s*,/.test(stmts76) &&
+    /set_by\s+uuid\s+references\s+auth\.users\s*\(id\)/.test(stmts76) &&
+    /set_at\s+timestamptz/.test(stmts76)
+);
+ok(
+  "enabled has NO default (a missing value fails loudly) and organization_id has NO default my_organization_id() (a superadmin acts on another org)",
+  !/enabled\s+boolean\s+not\s+null\s+default/.test(stmts76) && !/my_organization_id\(\)\s*,?\s*\n?\s*enabled/.test(stmts76) && !/organization_id\s+uuid[^,]*default/.test(stmts76)
+);
+ok("row level security is enabled on the new table", /alter\s+table\s+org_sending_enablement\s+enable\s+row\s+level\s+security/.test(stmts76));
+const policies76 = [...stmts76.matchAll(/create\s+policy\s+"[^"]+"\s+on\s+([a-z_]+)\s+for\s+([a-z]+)\s+to\s+authenticated\s+([\s\S]*?);/g)];
+ok("exactly three policies, all on org_sending_enablement: select, insert, update", policies76.length === 3 && policies76.every((m) => m[1] === "org_sending_enablement") && ["select", "insert", "update"].every((v) => policies76.some((m) => m[2] === v)), policies76.map((m) => m[2]).join(","));
+const pol = (verb: string) => policies76.find((m) => m[2] === verb)?.[3] ?? "";
+ok("select is org-scoped via my_organization_id()", /organization_id\s*=\s*my_organization_id\(\)/.test(pol("select")) && !/is_superadmin/.test(pol("select")));
+ok(
+  "insert is superadmin-only (is_superadmin(), the 0032 helper that reads profiles.is_superadmin) -- no org-membership path",
+  /with\s+check\s*\(\s*is_superadmin\(\)\s*\)/.test(pol("insert")) && !/my_organization_id/.test(pol("insert"))
+);
+ok(
+  "update is superadmin-only in BOTH using and with check -- no org-membership path",
+  /using\s*\(\s*is_superadmin\(\)\s*\)/.test(pol("update")) && /with\s+check\s*\(\s*is_superadmin\(\)\s*\)/.test(pol("update")) && !/my_organization_id/.test(pol("update"))
+);
+ok("NO delete policy, and no policy grants a member any write (no 'for all', no 'for delete')", !policies76.some((m) => m[2] === "delete" || m[2] === "all") && !/for\s+(all|delete)/.test(stmts76));
+ok(
+  "the profiles.is_superadmin flag is what is_superadmin() reads (0032) -- the same flag the admin layout and requireSuperadmin() read",
+  /create\s+function\s+is_superadmin\(\)[\s\S]*?select\s+is_superadmin\s+from\s+profiles\s+where\s+id\s*=\s*auth\.uid\(\)/.test(
+    readFileSync(join(root, "supabase/migrations/0032_multi_tenant_foundation.sql"), "utf8").toLowerCase()
+  ) && /from\("profiles"\)\.select\("is_superadmin"\)/.test(readFileSync(join(root, "lib/auth.ts"), "utf8"))
+);
+
+// The replaced function is 0075's plus ONLY the added check: remove the
+// exact added block from the normalised 0076 body and it must equal 0075's.
+// Comments are stripped whole-line only here (the shared `--.*$` strip used
+// above truncates a string literal that itself contains "--", which the new
+// refusal message does), so the raise messages compare in full.
+const wholeLineStrip = (t: string) => t.split("\n").filter((l) => !/^\s*--/.test(l)).join("\n").toLowerCase();
+const birth75Full = fnBody(wholeLineStrip(sql75), "draft_send_attempts_enforce_birth");
+const birth76 = fnBody(wholeLineStrip(sql76), "draft_send_attempts_enforce_birth");
+const ADDED_CHECK =
+  "if not exists ( select 1 from org_sending_enablement where organization_id = new.organization_id and enabled = true ) then raise exception 'draft_send_attempts: sending is not switched on for this organization -- the platform owner enables it per organization (ruling 0032)'; end if; ";
+ok("both the 0075 and 0076 birth functions were found", birth75Full.length > 200 && birth76.length > 200);
+ok(
+  "MECHANICAL DIFF: the 0076 function, with the one added enablement check removed, is identical to 0075's (comments and whitespace normalised) -- the only difference is the added check",
+  birth76.includes(ADDED_CHECK) && birth76.replace(ADDED_CHECK, "") === birth75Full && birth76 !== birth75Full,
+  `\n0075: ${birth75Full}\n0076: ${birth76}`
+);
+ok(
+  "the added check is a refusal on ABSENCE: no row with enabled = true for new.organization_id (a missing row and enabled = false both refuse), with the ruling's message",
+  /if\s+not\s+exists\s*\(\s*select\s+1\s+from\s+org_sending_enablement\s+where\s+organization_id\s*=\s*new\.organization_id\s+and\s+enabled\s*=\s*true\s*\)\s+then\s+raise\s+exception\s+'draft_send_attempts: sending is not switched on for this organization -- the platform owner enables it per organization \(ruling 0032\)'/.test(birth76)
+);
+ok(
+  "every existing check and the lock survive: six raises (five from 0075 plus the new one), for update, security definer",
+  (birth76.match(/raise exception/g) ?? []).length === 6 && /for update;/.test(birth76) && /security\s+definer\s+set\s+search_path\s*=\s*public/.test(birth76)
+);
+ok(
+  "no organization name, id or email is hardcoded in the migration, the admin action, or the readiness code",
+  !/@[a-z0-9-]+\.(com|org|net|local)/i.test(sql76) &&
+    !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sql76 + readFileSync(join(root, "app/admin/organizations/actions.ts"), "utf8") + readFileSync(join(root, "lib/draft-send.ts"), "utf8"))
+);
+const header76 = sql76
+  .split("\n")
+  .filter((l) => l.startsWith("--"))
+  .map((l) => l.replace(/^--\s?/, ""))
+  .join(" ")
+  .replace(/\s+/g, " ");
+ok(
+  "the header states additive-in-effect (0070/0075 precedent), that NO org can send after applying until enabled including the owner's own, both deploy orders, fail-closed code-ahead, and the SQL-editor caveat",
+  /additive in effect/i.test(header76) && /0070/.test(header76) && /0075/.test(header76) &&
+    /NO ORGANIZATION CAN SEND/.test(header76) && /INCLUDING THE OWNER'S OWN/.test(header76) &&
+    /CODE AHEAD OF THE MIGRATION fails CLOSED/.test(header76) && /MIGRATION AHEAD OF THE CODE/.test(header76) && /sql-editor caveat/i.test(header76)
 );
 
 // --- 2. Closed-set scan: one send module, one importer (clause 1) ---------
@@ -1402,7 +1499,7 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
 });
 
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", baseSender, true);
   ok("an approved, never-sent email draft with a contact email is ready", r.ok);
   ok(
     "the payload is EXACTLY the stored fields: to = contact email, subject = draft subject, body = draft content",
@@ -1418,7 +1515,7 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   );
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, kind: "call_prep" }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, kind: "call_prep" }, [], "funder@example.org", baseSender, true);
   ok("call prep notes can never be sent", !r.ok && !r.ok && r.code === "not_email");
 }
 {
@@ -1426,7 +1523,7 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   // body, a proposal draft is refused by the FIRST check -- the send
   // path is intro_email only, and every downstream precondition is
   // unreachable for it.
-  const r = evaluateSendReadiness({ ...baseDraft, kind: "proposal" }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, kind: "proposal" }, [], "funder@example.org", baseSender, true);
   ok("a proposal draft can NEVER be sent -- refused as not_email before any other precondition", !r.ok && r.code === "not_email");
 }
 {
@@ -1434,77 +1531,77 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   // Even approved, with a valid recipient, subject and body, kind 'deck'
   // never reaches any downstream precondition -- the send path is
   // intro_email only.
-  const r = evaluateSendReadiness({ ...baseDraft, kind: "deck" }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, kind: "deck" }, [], "funder@example.org", baseSender, true);
   ok("a deck draft can NEVER be sent -- refused as not_email before any other precondition", !r.ok && r.code === "not_email");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, status: "draft" }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, status: "draft" }, [], "funder@example.org", baseSender, true);
   ok("an unapproved draft cannot be sent (clause 2)", !r.ok && r.code === "not_approved");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, sent_at: "2026-09-21T00:00:00Z" }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, sent_at: "2026-09-21T00:00:00Z" }, [], "funder@example.org", baseSender, true);
   ok("a sent draft cannot be sent again -- re-sending requires a new draft (clause 3)", !r.ok && r.code === "already_sent");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "sent", completed_at: "x", resend_message_id: "m" })], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "sent", completed_at: "x", resend_message_id: "m" })], "funder@example.org", baseSender, true);
   ok("a confirmed attempt blocks sending even if the draft row missed its sent fact", !r.ok && r.code === "already_sent");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [attempt({})], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness(baseDraft, [attempt({})], "funder@example.org", baseSender, true);
   ok(
     "an unconfirmed attempt permanently blocks sending, and the reason says the outcome is unknown (clauses 4-5)",
     !r.ok && r.code === "attempt_unconfirmed" && /may or may not/.test(r.ok ? "" : r.reason)
   );
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "failed", completed_at: "x", error_note: "bad domain" })], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness(baseDraft, [attempt({ outcome: "failed", completed_at: "x", error_note: "bad domain" })], "funder@example.org", baseSender, true);
   ok("a FAILED attempt does not block a new human confirmation (clause 5: click again, never auto-retry)", r.ok);
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], null, baseSender);
+  const r = evaluateSendReadiness(baseDraft, [], null, baseSender, true);
   ok(
     "no contact email refuses with guidance (add one on the Contacts tab), so the confirmation is unreachable",
     !r.ok && r.code === "no_recipient" && /[Cc]ontacts/.test(r.ok ? "" : r.reason)
   );
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "not-an-address", baseSender);
+  const r = evaluateSendReadiness(baseDraft, [], "not-an-address", baseSender, true);
   ok("a non-address in contact_email refuses the same way", !r.ok && r.code === "no_recipient");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, subject: "  " }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, subject: "  " }, [], "funder@example.org", baseSender, true);
   ok("a blank subject refuses", !r.ok && r.code === "empty_subject");
 }
 {
-  const r = evaluateSendReadiness({ ...baseDraft, content: "" }, [], "funder@example.org", baseSender);
+  const r = evaluateSendReadiness({ ...baseDraft, content: "" }, [], "funder@example.org", baseSender, true);
   ok("a blank body refuses", !r.ok && r.code === "empty_body");
 }
 // Sender identity refusals (STATE item 57): each missing fact refuses with
 // what to fix -- never a silent fall back to a bare platform identity.
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: null });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: null }, true);
   ok(
     "no org display name refuses with guidance (add it on the Organization page) -- never a bare platform from",
     !r.ok && r.code === "no_org_name" && /[Oo]rganization/.test(r.ok ? "" : r.reason)
   );
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: "   " });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: "   " }, true);
   ok("a whitespace-only org name refuses the same way", !r.ok && r.code === "no_org_name");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, fromAddress: null });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, fromAddress: null }, true);
   ok(
     "no platform from-address refuses as not configured (RESEND_FROM_EMAIL named in the reason)",
     !r.ok && r.code === "send_not_configured" && /RESEND_FROM_EMAIL/.test(r.ok ? "" : r.reason)
   );
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, fromAddress: "not-an-address" });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, fromAddress: "not-an-address" }, true);
   ok("a malformed platform from-address refuses the same way", !r.ok && r.code === "send_not_configured");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, userEmail: null });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, userEmail: null }, true);
   ok(
     "a clicker with no email refuses -- a funder's reply must have somewhere to go",
     !r.ok && r.code === "no_sender_email"
@@ -1513,7 +1610,7 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
 {
   // The name is the org's record verbatim, normalized only as far as a mail
   // header requires: quotes and newlines cannot survive into the header.
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: ' The "Village"\r\nInitiative ' });
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, orgName: ' The "Village"\r\nInitiative ' }, true);
   ok(
     "header-breaking characters in the org name are normalized, everything else kept",
     r.ok && r.payload.from === `"The 'Village' Initiative" <outreach@platform.example>`,
@@ -1537,6 +1634,60 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
 // same way section 4 exercises evaluateSendReadiness -- real correctness
 // of the substitution, not just "the action calls a function with this
 // name" (which the source-scan assertions above already establish).
+
+
+// --- 0076 / ruling 0032: the enablement refusal ---------------------------
+{
+  const D = baseDraft;
+  const F = "funder@example.org";
+  const msg = "Sending is not switched on for your organization yet. It is switched on per organization by the platform owner.";
+  const off = evaluateSendReadiness(D, [], F, baseSender, false);
+  ok("disabled org: refused before any attempt, code sending_not_enabled", !off.ok && off.code === "sending_not_enabled");
+  ok("...with the plain message, verbatim", !off.ok && off.reason === msg && off.reason === SENDING_NOT_ENABLED_MESSAGE, !off.ok ? off.reason : "");
+  const nul = evaluateSendReadiness(D, [], F, baseSender, null);
+  ok("FAIL CLOSED: enablement null (missing row / unreadable source) is not enabled", !nul.ok && nul.code === "sending_not_enabled");
+  const und = evaluateSendReadiness(D, [], F, baseSender, undefined);
+  ok("FAIL CLOSED: enablement undefined is not enabled", !und.ok && und.code === "sending_not_enabled");
+  const truthy = evaluateSendReadiness(D, [], F, baseSender, "true" as unknown as boolean);
+  ok("FAIL CLOSED: only an explicit boolean true enables -- a truthy non-boolean does not", !truthy.ok && truthy.code === "sending_not_enabled");
+  const on = evaluateSendReadiness(D, [], F, baseSender, true);
+  ok("enabled org: the same draft is ready and the payload is unchanged", on.ok && on.payload.to === F && on.payload.subject === "A real subject");
+  const offNoRecipient = evaluateSendReadiness(D, [], null, baseSender, false);
+  ok("the enablement refusal comes before the recipient/identity refusals (a disabled org is told the real reason, not fixable details)", !offNoRecipient.ok && offNoRecipient.code === "sending_not_enabled");
+  const offUnapproved = evaluateSendReadiness({ ...D, status: "draft" }, [], F, baseSender, false);
+  ok("draft facts still come first: an unapproved draft in a disabled org still says 'approve it first'", !offUnapproved.ok && offUnapproved.code === "not_approved");
+  const offSent = evaluateSendReadiness(D, [attempt({ outcome: "sent", completed_at: "x", resend_message_id: "m" })], F, baseSender, false);
+  ok("a draft already sent stays 'already sent' even if the org is later switched off", !offSent.ok && offSent.code === "already_sent");
+  ok("only a sending_not_enabled refusal is added -- the send module and payload shape are untouched (Draft kinds other than email still refuse as before)", (() => { const r = evaluateSendReadiness({ ...D, kind: "proposal" }, [], F, baseSender, false); return !r.ok && r.code === "not_email"; })());
+}
+
+// --- 0076: handler, page and panel pass and use the fact -------------------
+{
+  const pageText = readFileSync(join(root, "app/(dashboard)/prospects/[id]/page.tsx"), "utf8");
+  const panelText2 = readFileSync(join(root, "app/(dashboard)/prospects/[id]/draft-panel.tsx"), "utf8");
+  const enIdx = handlerText.indexOf('.from("org_sending_enablement")');
+  const rdIdx = handlerText.indexOf("evaluateSendReadiness(");
+  const birthIdx2 = handlerText.search(/\.from\("draft_send_attempts"\)\s*[\s\S]{0,40}?\.insert\(/);
+  ok("the handler re-reads org_sending_enablement server-side, BEFORE evaluating readiness and before the birth insert", enIdx > 0 && enIdx < rdIdx && rdIdx < birthIdx2, `en ${enIdx}, readiness ${rdIdx}, birth ${birthIdx2}`);
+  ok("the handler passes the enablement fact into evaluateSendReadiness", /evaluateSendReadiness\([\s\S]*?sendingEnabled\s*\)/.test(handlerText));
+  ok("the handler's fact fails closed: an error reading it, no row, or enabled != true all mean false", /const sendingEnabled = !enablementError && enablement\?\.enabled === true;/.test(handlerText));
+  ok("the page reads the same fact through the caller's session and fails closed the same way", /from\("org_sending_enablement"\)/.test(pageText) && /const sendingEnabled = !sendingEnablementError && sendingEnablement\?\.enabled === true;/.test(pageText));
+  ok("the page passes it to the panel and the panel feeds the same evaluateSendReadiness the dialog uses", /sendingEnabled=\{sendingEnabled\}/.test(pageText) && /evaluateSendReadiness\(draft, attempts, contactEmail, sender, sendingEnabled\)/.test(panelText2));
+  ok("a disabled org's approved email card shows readiness.reason as a calm muted note, not a Send button or an error", /\) : \(\s*<p style=\{\{ fontSize: 12, color: colors\.textMuted \}\}>\{readiness\.reason\}<\/p>/.test(panelText2) && /readiness\.ok \? \(\s*<button/.test(panelText2));
+}
+
+// --- 0076: the admin toggle verifies superadmin server-side ----------------
+{
+  const adminActions = readFileSync(join(root, "app/admin/organizations/actions.ts"), "utf8");
+  const fnStart = adminActions.indexOf("export async function setOrganizationSendingEnabled");
+  const fnText = fnStart >= 0 ? adminActions.slice(fnStart) : "";
+  ok("setOrganizationSendingEnabled exists as a server action", fnStart > 0 && adminActions.startsWith('"use server"'));
+  ok("it calls requireSuperadmin() BEFORE any write (server-side, not trusting the UI)", fnText.indexOf("await requireSuperadmin()") >= 0 && fnText.indexOf("await requireSuperadmin()") < fnText.indexOf(".upsert("));
+  ok("it upserts org_sending_enablement with an explicit boolean, set_by = the verified user, never a delete", /from\("org_sending_enablement"\)\s*\.upsert\(/.test(fnText) && /set_by:\s*user\.id/.test(fnText) && /typeof enabled !== "boolean"/.test(fnText) && !/\.delete\(/.test(fnText));
+  const pageAdmin = readFileSync(join(root, "app/admin/organizations/page.tsx"), "utf8");
+  ok("the admin organizations page lists each org's enablement state (absent row = off) and renders the toggle", /org_sending_enablement/.test(pageAdmin) && /sendingEnabledByOrg\.get\(org\.id\) === true/.test(pageAdmin) && /<SendingToggle/.test(pageAdmin));
+  ok("the admin area is still gated on profiles.is_superadmin in its layout", /is_superadmin/.test(readFileSync(join(root, "app/admin/layout.tsx"), "utf8")));
+}
 
 section("fillDatePlaceholders: the deterministic safety net, exercised directly");
 
@@ -1713,6 +1864,47 @@ async function dbSection() {
 
     const { error: approveError } = await admin.from("drafts").update({ status: "approved", approved_by: userId, approved_at: new Date().toISOString() }).eq("id", draft.id);
     ok("approving a never-sent draft still works with the sent-once trigger in place (safe ahead of its code)", !approveError, approveError?.message ?? "");
+
+    // --- Migration 0076 (item 74, ruling 0032): sending is off until enabled --
+    // Probed like 0069/0070: when org_sending_enablement does not exist the
+    // birth function is still the 0075 one and births need no enablement, so
+    // the rest of this section runs as before and these checks report NOT
+    // EVALUATED (not a pass). When it exists, the test org must be ENABLED
+    // for every later birth below to mean what it says -- the enablement row
+    // is inserted through the service role, exactly as the admin toggle
+    // writes it. Nothing here hardcodes a real organization: ORG_NAME is the
+    // equality-matched throwaway, and its enablement row cascades away with it.
+    const { error: enablementProbeError } = await admin.from("org_sending_enablement").select("organization_id").limit(1);
+    if (enablementProbeError && MISSING_TABLE.has(enablementProbeError.code ?? "")) {
+      console.log("NOT EVALUATED: org_sending_enablement does not exist -- migration 0076 is not applied. The enablement checks are not a pass.");
+      notEvaluated.push("DB assertions for org_sending_enablement / birth refusal when disabled -- migration 0076 not applied");
+    } else {
+      if (enablementProbeError) throw new Error(`Could not probe org_sending_enablement: ${enablementProbeError.message}`);
+      const { error: noRowBirthError } = await admin.from("draft_send_attempts").insert(birthRow);
+      ok(
+        "0076: an attempt cannot be born for an org with NO enablement row -- absence is the off state (ruling 0032 clauses 1, 3)",
+        !!noRowBirthError && /sending is not switched on/.test(noRowBirthError.message),
+        noRowBirthError?.message ?? "no error"
+      );
+      const { error: disabledInsertError } = await admin.from("org_sending_enablement").insert({ organization_id: orgId, enabled: false, set_by: userId });
+      if (disabledInsertError) throw new Error(`Could not insert a disabled enablement row: ${disabledInsertError.message}`);
+      const { error: disabledBirthError } = await admin.from("draft_send_attempts").insert(birthRow);
+      ok(
+        "0076: an attempt cannot be born for an org whose row says enabled = false",
+        !!disabledBirthError && /sending is not switched on/.test(disabledBirthError.message),
+        disabledBirthError?.message ?? "no error"
+      );
+      const { error: omittedEnabledError } = await admin.from("org_sending_enablement").upsert({ organization_id: orgId, set_by: userId } as never, { onConflict: "organization_id" });
+      ok("0076: enabled is NOT NULL with no default -- a write that omits it fails rather than taking a value nobody chose", !!omittedEnabledError, omittedEnabledError?.message ?? "no error");
+      const { error: enableError } = await admin
+        .from("org_sending_enablement")
+        .update({ enabled: true, set_by: userId, set_at: new Date().toISOString() })
+        .eq("organization_id", orgId);
+      if (enableError) throw new Error(`Could not enable the test org: ${enableError.message}`);
+      // The enabled birth is exercised by every later assertion in this
+      // section (live attempt, terminal-once, ...): they only pass when an
+      // enabled org's attempt is born.
+    }
 
     const { error: prefinalizedError } = await admin
       .from("draft_send_attempts")

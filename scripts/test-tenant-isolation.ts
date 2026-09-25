@@ -954,6 +954,65 @@ async function main() {
     // research_expected_facts and prospect_outcomes, which reference prospects
     // directly with the same `on delete cascade`. Doing it by identity rather
     // than by captured id is what lets the teardown cover a failed setup.
+
+    // --- org_sending_enablement (migration 0076, ruling 0032) ---
+    // Sending is off per organization until a superadmin turns it on. Reads
+    // are org-scoped; writes are superadmin-only, so NEITHER test user (both
+    // is_superadmin = false) can write -- not even to its own org's row.
+    // Rows are seeded through the service role; org deletion cascades them
+    // (on delete cascade), so the purge needs no extra step. NOT-EVALUATED
+    // when the table does not exist yet (42P01 / PGRST205).
+    const { error: enablementSeedError } = await admin
+      .from("org_sending_enablement")
+      .insert({ organization_id: a.orgId, enabled: true });
+    if (enablementSeedError && (enablementSeedError.code === "42P01" || enablementSeedError.code === "PGRST205")) {
+      notEvaluated.push("org_sending_enablement isolation -- migration 0076 is not applied to this database");
+      console.log("\nNOT EVALUATED: org_sending_enablement (migration 0076 not applied). This is not a pass.\n");
+    } else {
+      if (enablementSeedError) throw new Error(`org_sending_enablement seed failed: ${enablementSeedError.message}`);
+
+      const { data: enBRead } = await clientB.from("org_sending_enablement").select("organization_id").eq("organization_id", a.orgId);
+      check("Org B cannot SELECT Org A's org_sending_enablement row", (enBRead?.length ?? 0) === 0);
+      const { data: enARead } = await clientA.from("org_sending_enablement").select("enabled").eq("organization_id", a.orgId);
+      check("Org A's member CAN read its own organization's enablement row", (enARead?.length ?? 0) === 1 && enARead![0].enabled === true);
+
+      const { data: enAOwnUpdate } = await clientA
+        .from("org_sending_enablement")
+        .update({ enabled: false })
+        .eq("organization_id", a.orgId)
+        .select("organization_id");
+      check("A same-org NON-superadmin member's UPDATE of its own enablement row affects 0 rows", (enAOwnUpdate?.length ?? 0) === 0);
+      const { data: enAfterOwn } = await admin.from("org_sending_enablement").select("enabled").eq("organization_id", a.orgId).single();
+      check("...and the row is verified unchanged via the service role (still enabled)", enAfterOwn?.enabled === true);
+
+      const { data: enBCrossUpdate } = await clientB
+        .from("org_sending_enablement")
+        .update({ enabled: false })
+        .eq("organization_id", a.orgId)
+        .select("organization_id");
+      check("Org B's UPDATE of Org A's enablement row affects 0 rows", (enBCrossUpdate?.length ?? 0) === 0);
+
+      const { error: enBSelfEnable } = await clientB
+        .from("org_sending_enablement")
+        .insert({ organization_id: b.orgId, enabled: true });
+      check("A non-superadmin member cannot INSERT (enable) its OWN organization -- refused by RLS", enBSelfEnable !== null);
+      const { data: enBRowAfter } = await admin.from("org_sending_enablement").select("organization_id").eq("organization_id", b.orgId);
+      check("...and no enablement row exists for Org B afterwards (absence = off)", (enBRowAfter?.length ?? 0) === 0);
+
+      const { error: enACrossInsert } = await clientA
+        .from("org_sending_enablement")
+        .insert({ organization_id: b.orgId, enabled: true });
+      check("Org A's member cannot INSERT an enablement row for Org B", enACrossInsert !== null);
+
+      const { data: enADelete } = await clientA
+        .from("org_sending_enablement")
+        .delete()
+        .eq("organization_id", a.orgId)
+        .select("organization_id");
+      check("No delete policy: a member's DELETE of its own enablement row affects 0 rows", (enADelete?.length ?? 0) === 0);
+      const { data: enStillThere } = await admin.from("org_sending_enablement").select("enabled").eq("organization_id", a.orgId);
+      check("...and the row still exists, verified via the service role", (enStillThere?.length ?? 0) === 1 && enStillThere![0].enabled === true);
+    }
   } finally {
     cleanupProblems = await purgeTestIdentities("teardown");
   }

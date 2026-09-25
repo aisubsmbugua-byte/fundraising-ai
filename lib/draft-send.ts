@@ -71,7 +71,11 @@ export type SendBlockCode =
   | "empty_body"
   | "no_org_name"
   | "send_not_configured"
-  | "no_sender_email";
+  | "no_sender_email"
+  | "sending_not_enabled";
+
+export const SENDING_NOT_ENABLED_MESSAGE =
+  "Sending is not switched on for your organization yet. It is switched on per organization by the platform owner.";
 
 // Deliberately loose: the point is catching "there is no address here at
 // all" (blank, a name, a note), not RFC validation -- Resend rejects a
@@ -95,7 +99,13 @@ export function evaluateSendReadiness(
   draft: SendableDraftFields,
   attempts: DraftSendAttempt[],
   contactEmail: string | null | undefined,
-  sender: SenderIdentity
+  sender: SenderIdentity,
+  // Ruling 0032: the per-organization enablement fact, read by the caller
+  // from org_sending_enablement. FAIL CLOSED: only an explicit `true`
+  // enables sending -- null, undefined, or anything else (a missing row, an
+  // unreadable or not-yet-created table) is "not enabled". Required, so a
+  // caller that forgets to pass it does not compile.
+  sendingEnabled: boolean | null | undefined
 ): SendReadiness {
   if (draft.kind !== "intro_email") {
     return { ok: false, code: "not_email", reason: "Only an email draft can be sent. Call prep notes are for a human-led call." };
@@ -117,6 +127,12 @@ export function evaluateSendReadiness(
         "A send was attempted and the provider never confirmed the outcome -- the email may or may not have been delivered. " +
         "The system will not risk sending it twice: if it needs to go out, create a new draft.",
     };
+  }
+  // Ruling 0032 clause 3: refuse in plain words BEFORE any attempt is born.
+  // The database refuses the attempt birth too (migration 0076); this is the
+  // earlier, explained refusal.
+  if (sendingEnabled !== true) {
+    return { ok: false, code: "sending_not_enabled", reason: SENDING_NOT_ENABLED_MESSAGE };
   }
   const to = (contactEmail ?? "").trim();
   if (!to || !EMAIL_SHAPE.test(to)) {

@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import DeleteOrgButton from "./delete-org-button";
 import CreateOrgForm from "./create-org-form";
+import SendingToggle from "./sending-toggle";
 import { spacing, colors, cardStyle, type as typeScale } from "@/lib/ui";
 
 // createAdminClient() has no cookies() dependency to implicitly force
@@ -23,6 +24,13 @@ export default async function AdminOrganizationsPage() {
     .order("created_at", { ascending: false });
 
   const { data: profiles } = await admin.from("profiles").select("organization_id, email, is_superadmin");
+
+  // Ruling 0032: which organizations have sending switched on. Read with the
+  // service role so every org is visible. Fail closed for display too -- an
+  // error (table not yet created) or no row shows "off".
+  const { data: enablementRows } = await admin.from("org_sending_enablement").select("organization_id, enabled");
+  const sendingEnabledByOrg = new Map<string, boolean>();
+  for (const r of enablementRows ?? []) sendingEnabledByOrg.set(r.organization_id, r.enabled === true);
 
   const membersByOrg = new Map<string, { email: string; is_superadmin: boolean }[]>();
   for (const p of profiles ?? []) {
@@ -52,6 +60,7 @@ export default async function AdminOrganizationsPage() {
                   {members.length} member{members.length === 1 ? "" : "s"}
                   {members.length > 0 && ` · ${members.map((m) => m.email).join(", ")}`}
                 </div>
+                <SendingToggle organizationId={org.id} enabled={sendingEnabledByOrg.get(org.id) === true} />
               </div>
               <DeleteOrgButton organizationId={org.id} name={org.name} />
             </div>

@@ -134,6 +134,17 @@ export default async function ProspectDetailPage({
       ? await supabase.from("draft_send_attempts").select("*").in("draft_id", draftIds).returns<DraftSendAttempt[]>()
       : { data: [] as DraftSendAttempt[] };
 
+  // Ruling 0032: the org's sending-enablement fact, for the confirmation.
+  // Fail closed -- an error (table not yet created), no row, or anything
+  // but an explicit true is "not enabled". Same read the send handler
+  // repeats server-side at send time.
+  const { data: sendingEnablement, error: sendingEnablementError } = await supabase
+    .from("org_sending_enablement")
+    .select("enabled")
+    .limit(1)
+    .maybeSingle<{ enabled: boolean }>();
+  const sendingEnabled = !sendingEnablementError && sendingEnablement?.enabled === true;
+
   const latestScreening = screenings?.[0] ?? null;
   const rules = (rulesData ?? []) as ScreeningRule[];
   const fitPercentage = screenProspect(prospect, rules).breakdown.percentage;
@@ -458,6 +469,7 @@ export default async function ProspectDetailPage({
                     drafts={drafts ?? []}
                     sendAttempts={sendAttempts ?? []}
                     contactEmail={prospect.contact_email}
+                    sendingEnabled={sendingEnabled}
                     sender={{
                       // RESEND_FROM_EMAIL is an address, not a secret (the
                       // API key never leaves lib/send-draft.ts) -- read here
