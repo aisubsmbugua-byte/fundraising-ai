@@ -420,7 +420,7 @@ async function dbSection() {
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
   const { error: probeError } = await admin.from("ai_runs").select("id").limit(1);
-  if (probeError && probeError.code === "42P01") {
+  if (probeError && (probeError.code === "42P01" || probeError.code === "PGRST205")) {
     console.log("NOT EVALUATED: ai_runs does not exist in this database -- migration 0067 is not applied. This is not a pass.");
     notEvaluated.push("DB assertions -- migration 0067 not applied");
     return;

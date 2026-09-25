@@ -5,8 +5,9 @@
 // migration 0066 (prospect_outcomes, prospect_outcome_dispositions), on the
 // ruling-0026 run ledger added in migration 0067 (ai_runs), on the
 // ruling-0027 retraction table added in migration 0068
-// (prospect_outcome_retractions), and on the ruling-0029 send-attempt
-// ledger added in migration 0069 (draft_send_attempts), in both
+// (prospect_outcome_retractions), on the ruling-0029 send-attempt
+// ledger added in migration 0069 (draft_send_attempts), and on drafts
+// itself (which carries the send facts since 0069), in both
 // directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -70,6 +71,10 @@ let failCount = 0;
 // yet applied. "Not evaluated" and "evaluated and clean" are different facts
 // (CLAUDE.md), so these are reported by name rather than silently skipped.
 const notEvaluated: string[] = [];
+// Behaviour the run OBSERVED that is a known gap, not a pass or a fail --
+// listed by name at the end so an assertion that documents a current gap
+// cannot be mistaken for evidence the gap is closed.
+const knownGaps: string[] = [];
 function check(label: string, pass: boolean) {
   console.log(`${pass ? "PASS" : "FAIL"}: ${label}`);
   if (pass) passCount++;
@@ -159,11 +164,11 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
     // ai_runs references organizations with no cascade and no delete policy
     // (service role bypasses RLS, which is the only reason this cleanup can
     // work at all), so its test rows must go before the org rows can.
-    // Error 42P01 (relation does not exist) is tolerated: it just means
+    // Error 42P01 / PGRST205 (relation does not exist / not in the PostgREST schema cache) is tolerated: it just means
     // migration 0067 has not been applied yet, and the ai_runs section
     // below reports itself as NOT EVALUATED in that case.
     const { error: aiRunsError } = await admin.from("ai_runs").delete().in("organization_id", orgIds);
-    if (aiRunsError && aiRunsError.code !== "42P01") {
+    if (aiRunsError && aiRunsError.code !== "42P01" && aiRunsError.code !== "PGRST205") {
       problems.push(`[${phase}] deleting ai_runs in test orgs failed: ${aiRunsError.message}`);
     }
 
@@ -580,7 +585,7 @@ async function main() {
     // and -- ruling 0027's test of compliance -- after a retraction both the
     // outcome row and the retraction row are still readable.
     const { error: retractionsProbeError } = await admin.from("prospect_outcome_retractions").select("id").limit(1);
-    if (retractionsProbeError && retractionsProbeError.code === "42P01") {
+    if (retractionsProbeError && (retractionsProbeError.code === "42P01" || retractionsProbeError.code === "PGRST205")) {
       notEvaluated.push(
         "prospect_outcome_retractions -- migration 0068 is not applied to this database, so its assertions did not run"
       );
@@ -666,7 +671,7 @@ async function main() {
     // retained), and updates reach only unfinalized rows, so a terminal
     // outcome is written once through any session-client code path.
     const { error: aiRunsProbeError } = await admin.from("ai_runs").select("id").limit(1);
-    if (aiRunsProbeError && aiRunsProbeError.code === "42P01") {
+    if (aiRunsProbeError && (aiRunsProbeError.code === "42P01" || aiRunsProbeError.code === "PGRST205")) {
       notEvaluated.push("ai_runs -- migration 0067 is not applied to this database, so its assertions did not run");
       console.log("\nNOT EVALUATED: ai_runs (migration 0067 not applied). Apply 0067 and re-run; this is not a pass.\n");
     } else {
@@ -807,6 +812,104 @@ async function main() {
       );
     }
 
+    // --- drafts (migrations 0017 + 0033, send facts from 0069) ---
+    //
+    // drafts is the highest-value org-scoped table this script had never
+    // covered: since 0069 it carries the send facts (sent_at, sent_by,
+    // resend_message_id). Same treatment -- two real authenticated sessions,
+    // equality-matched test rows only. No send attempt is created here (the
+    // draft_send_attempts FK has no cascade, so an attempt would block the
+    // purge's prospects -> drafts cascade); this draft stays status 'draft'
+    // and is removed by that cascade when its prospect goes.
+    const { data: draftGovA, error: draftGovAError } = await clientA
+      .from("drafts")
+      .insert({
+        prospect_id: prospectA.id,
+        kind: "intro_email",
+        subject: "[test] Org A governed draft",
+        content: "[test] Org A governed draft body",
+        status: "draft",
+        created_by: a.userId,
+      })
+      .select("id")
+      .single();
+    if (draftGovAError || !draftGovA) throw new Error(`Org A drafts insert failed: ${draftGovAError?.message}`);
+
+    const { data: readDraft } = await clientB.from("drafts").select("id").eq("id", draftGovA.id);
+    check("Org B cannot SELECT Org A's drafts row by id", (readDraft?.length ?? 0) === 0);
+
+    const { data: draftCrossUpdate } = await clientB
+      .from("drafts")
+      .update({ subject: "[test] cross-org rewrite" })
+      .eq("id", draftGovA.id)
+      .select("id");
+    check("Org B's UPDATE on Org A's drafts row affects 0 rows", (draftCrossUpdate?.length ?? 0) === 0);
+    const { data: draftAfterCross } = await admin.from("drafts").select("subject").eq("id", draftGovA.id).single();
+    check("...and Org A's draft subject is verifiably unchanged (read via the service role, not trusting the 0-row response)", draftAfterCross?.subject === "[test] Org A governed draft");
+
+    // The gap this section exists to document honestly. drafts has RLS on
+    // organization_id, but NO org-match trigger on its prospect_id FK
+    // (searched: no create trigger on drafts other than 0069's
+    // drafts_sent_once). FK checks bypass RLS, so the insert below carries
+    // Org B's own organization_id (its default), passes the with-check, and
+    // links to Org A's prospect. Compare research_claims, whose org-match
+    // trigger refuses the equivalent insert above. This assertion states the
+    // CURRENT behaviour; it will flip to FAIL the day a trigger closes the
+    // gap, which is the signal to invert it. Escalated, not fixed here.
+    const { data: crossDraft, error: crossDraftError } = await clientB
+      .from("drafts")
+      .insert({
+        prospect_id: prospectA.id,
+        kind: "intro_email",
+        subject: "[test] cross-org draft against Org A's prospect",
+        content: "[test] cross-org attempt",
+        status: "draft",
+        created_by: b.userId,
+      })
+      .select("id, organization_id")
+      .single();
+    check(
+      "KNOWN GAP (hard rule 6, escalated): CURRENT behaviour -- Org B CAN insert a drafts row referencing Org A's prospect; drafts has no org-match trigger on prospect_id",
+      !crossDraftError && crossDraft?.organization_id === b.orgId
+    );
+    if (!crossDraftError && crossDraft) {
+      knownGaps.push(
+        "drafts: Org B inserted a draft referencing Org A's prospect (no org-match trigger on drafts.prospect_id) -- hard-rule-6 gap, escalated to the decision space"
+      );
+      const { data: crossDraftReadByA } = await clientA.from("drafts").select("id").eq("id", crossDraft.id);
+      check("...the row is Org B's own (Org A cannot read it), so the gap is a write-side link into Org A's prospect, not a read leak", (crossDraftReadByA?.length ?? 0) === 0);
+    }
+
+    const { data: draftOwnUpdate } = await clientA
+      .from("drafts")
+      .update({ subject: "[test] Org A edited its own draft" })
+      .eq("id", draftGovA.id)
+      .select("id");
+    check("Org A can UPDATE its own drafts row while status is draft (affects 1 row)", (draftOwnUpdate?.length ?? 0) === 1);
+
+    // Send facts exist only from migration 0069; without it there is no
+    // column to attack, and the section says so rather than passing.
+    if (sendAttemptsProbeError && (sendAttemptsProbeError.code === "42P01" || sendAttemptsProbeError.code === "PGRST205")) {
+      notEvaluated.push("drafts send-fact isolation -- migration 0069 is not applied to this database, so drafts has no send columns to test");
+      console.log("\nNOT EVALUATED: drafts send facts (migration 0069 not applied). This is not a pass.\n");
+    } else {
+      const { data: sendFactsCrossUpdate } = await clientB
+        .from("drafts")
+        .update({ sent_at: new Date().toISOString(), sent_by: b.userId, resend_message_id: "[test] cross-org forged send fact" })
+        .eq("id", draftGovA.id)
+        .select("id");
+      check("Org B's UPDATE writing send facts (sent_at, sent_by, resend_message_id) on Org A's draft affects 0 rows", (sendFactsCrossUpdate?.length ?? 0) === 0);
+      const { data: sendFactsAfter } = await admin
+        .from("drafts")
+        .select("sent_at, sent_by, resend_message_id")
+        .eq("id", draftGovA.id)
+        .single();
+      check(
+        "...and Org A's draft carries no send facts afterwards (read via the service role)",
+        !!sendFactsAfter && sendFactsAfter.sent_at === null && sendFactsAfter.sent_by === null && sendFactsAfter.resend_message_id === null
+      );
+    }
+
     // --- Symmetry: one probe under Org B, unreachable from Org A ---
     const { data: prospectB } = await clientB
       .from("prospects")
@@ -834,6 +937,7 @@ async function main() {
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   for (const n of notEvaluated) console.log(`NOT EVALUATED: ${n}`);
+  for (const g of knownGaps) console.log(`KNOWN GAP: ${g}`);
   if (cleanupProblems.length > 0) {
     console.error(
       `\nTeardown left ${cleanupProblems.length} problem(s) above -- test data is still in the live database. ` +

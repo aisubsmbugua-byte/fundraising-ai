@@ -245,6 +245,68 @@ ok(
 );
 ok("migration 0069 itself is untouched (never rewrite an applied migration)", /add\s+column\s+sent_at/.test(sql) && !/from_identity/.test(sql));
 
+// --- 1c. Migration 0074: the un-approve guard (STATE item 72d) -------------
+// The database half of item 68's app-level wall: approved -> draft is refused
+// while a live (outcome null) or confirmed ('sent') attempt exists. Read as
+// text; the live behaviour is asserted in the DB section once the owner
+// applies the migration.
+
+section("migration 0074 is additive and guards only approved -> draft against a live or sent attempt");
+
+const sql74 = readFileSync(join(root, "supabase/migrations/0074_drafts_unapprove_guard.sql"), "utf8");
+const stmts74 = sql74
+  .split("\n")
+  .map((l) => l.replace(/--.*$/, ""))
+  .join("\n")
+  .toLowerCase();
+
+ok(
+  "additive: no DROP, no ALTER, no new table, no policy, no data write",
+  !/\bdrop\b/.test(stmts74) &&
+    !/\balter\b/.test(stmts74) &&
+    !/create\s+table/.test(stmts74) &&
+    !/create\s+policy/.test(stmts74) &&
+    !/\b(insert|delete)\b/.test(stmts74) &&
+    !/\bupdate\s+[a-z_]+\s+set\b/.test(stmts74)
+);
+ok(
+  "exactly one function and one trigger, and the trigger is BEFORE UPDATE on drafts",
+  (stmts74.match(/create\s+(or\s+replace\s+)?function/g) ?? []).length === 1 &&
+    (stmts74.match(/create\s+trigger/g) ?? []).length === 1 &&
+    /create\s+trigger\s+drafts_unapprove_guard\s+before\s+update\s+on\s+drafts\s+for\s+each\s+row/.test(stmts74)
+);
+ok(
+  "the guard fires only on approved -> draft (old.status = 'approved' and new.status = 'draft')",
+  /old\.status\s*=\s*'approved'\s+and\s+new\.status\s*=\s*'draft'/.test(stmts74)
+);
+ok(
+  "the refusal condition is a live (outcome is null) or confirmed (outcome = 'sent') attempt for this draft -- a 'failed' attempt does not block",
+  /from\s+draft_send_attempts\s+where\s+draft_id\s*=\s*old\.id\s+and\s+\(outcome\s+is\s+null\s+or\s+outcome\s*=\s*'sent'\)/.test(stmts74) &&
+    !/outcome\s*=\s*'failed'/.test(stmts74) &&
+    (stmts74.match(/raise\s+exception/g) ?? []).length === 1
+);
+ok(
+  "it never gates draft -> approved, approved -> approved (the send handler's sent-fact write) or any other transition: no other status comparison exists",
+  (stmts74.match(/(old|new)\.status/g) ?? []).length === 2 && !/sent_at|sent_by|resend_message_id/.test(stmts74)
+);
+ok(
+  "it reads the ledger as security definer with search_path = public, like the 0069 drafts trigger (fail-closed independent of the caller's RLS view)",
+  /security\s+definer\s+set\s+search_path\s*=\s*public/.test(stmts74) && /security\s+definer\s+set\s+search_path\s*=\s*public/.test(sql.toLowerCase())
+);
+ok(
+  "it only raises or returns new -- it never rewrites the row",
+  /return\s+new;/.test(stmts74) && !/new\.[a-z_]+\s*:=/.test(stmts74)
+);
+ok(
+  "it coexists with 0069's drafts_sent_once: both stay BEFORE UPDATE row triggers on drafts under different names",
+  /create\s+trigger\s+drafts_sent_once\s+before\s+update\s+on\s+drafts/.test(stmts) && !/drafts_sent_once/.test(stmts74)
+);
+ok(
+  "the header states additivity, both deploy orders and the SQL-editor transaction caveat",
+  /additive under ruling 0020/i.test(sql74) && /safe to apply ahead of its code/i.test(sql74) && /reverse order is also safe/i.test(sql74) && /sql-editor caveat/i.test(sql74)
+);
+ok("migrations 0069 and 0070 are untouched by it (it names neither for rewriting)", !/create\s+or\s+replace\s+function\s+drafts_enforce_sent_once/.test(stmts74));
+
 // --- 2. Closed-set scan: one send module, one importer (clause 1) ---------
 
 section("closed-set scan: exactly one funder-facing send module, exactly one importer");
@@ -1649,6 +1711,79 @@ async function dbSection() {
     ok("an attempt can finalize 'failed' with the provider's error note", !failFinalizeError, failFinalizeError?.message ?? "");
     const { error: retryBirthError } = await admin.from("draft_send_attempts").insert(birth2);
     ok("after a FAILED attempt, a new attempt can be born -- a human may click again on a new confirmation (clause 5)", !retryBirthError, retryBirthError?.message ?? "");
+
+    // --- Migration 0074: the un-approve guard (item 72d) ---------------------
+    // draft2 is approved and now carries a LIVE attempt (the retry birth
+    // above). PostgREST cannot read pg_trigger, so applied-ness is probed
+    // behaviourally: the forbidden write either raises (0074 applied) or it
+    // lands (0074 absent -> NOT EVALUATED, never a pass).
+    const unapproveWrite = { status: "draft", approved_by: null, approved_at: null };
+    const { error: liveUnapproveError } = await admin.from("drafts").update(unapproveWrite).eq("id", draft2.id);
+    if (!liveUnapproveError) {
+      console.log(
+        "NOT EVALUATED: approved -> draft succeeded on a draft with a live attempt -- migration 0074 is not applied. The un-approve guard checks are not a pass."
+      );
+      notEvaluated.push("DB assertions for the un-approve guard -- migration 0074 not applied");
+    } else {
+      ok(
+        "approved -> draft is REFUSED while a LIVE (outcome null) attempt exists (0074 guard, backing up unapproveDraft)",
+        /live or confirmed send attempt/.test(liveUnapproveError.message),
+        liveUnapproveError.message
+      );
+      const { data: stillApproved } = await admin.from("drafts").select("status").eq("id", draft2.id).single();
+      ok("...and the refused write changed nothing: the draft is still approved", stillApproved?.status === "approved");
+
+      // A CONFIRMED attempt, on a fresh draft that has not had sent_at
+      // written yet (a sent draft is separately pinned by 0069).
+      const { data: draft3, error: draft3Error } = await admin
+        .from("drafts")
+        .insert({ prospect_id: prospect.id, kind: "intro_email", subject: "Third", content: "Third body", status: "approved", created_by: userId, organization_id: orgId })
+        .select("id")
+        .single();
+      if (draft3Error || !draft3) throw new Error(`Could not create third test draft: ${draft3Error?.message}`);
+      const birth3 = { ...birthRow, draft_id: draft3.id, subject: "Third", body: "Third body" };
+      const { data: born3, error: born3Error } = await admin.from("draft_send_attempts").insert(birth3).select("id").single();
+      if (born3Error || !born3) throw new Error(`Third draft's attempt birth failed: ${born3Error?.message}`);
+      const { error: sent3Error } = await admin
+        .from("draft_send_attempts")
+        .update({ outcome: "sent", completed_at: new Date().toISOString(), resend_message_id: "msg-guard-3" })
+        .eq("id", born3.id);
+      if (sent3Error) throw new Error(`Third draft's attempt finalize failed: ${sent3Error.message}`);
+      const { error: sentUnapproveError } = await admin.from("drafts").update(unapproveWrite).eq("id", draft3.id);
+      ok("approved -> draft is REFUSED while a CONFIRMED ('sent') attempt exists, even before sent_at is written", !!sentUnapproveError, sentUnapproveError?.message ?? "no error");
+
+      // draft -> approved and approved -> draft with no attempt at all.
+      const { data: draft4, error: draft4Error } = await admin
+        .from("drafts")
+        .insert({ prospect_id: prospect.id, kind: "intro_email", subject: "Fourth", content: "Fourth body", status: "draft", created_by: userId, organization_id: orgId })
+        .select("id")
+        .single();
+      if (draft4Error || !draft4) throw new Error(`Could not create fourth test draft: ${draft4Error?.message}`);
+      const { error: approve4Error } = await admin.from("drafts").update({ status: "approved", approved_by: userId, approved_at: new Date().toISOString() }).eq("id", draft4.id);
+      ok("draft -> approved is untouched by the guard", !approve4Error, approve4Error?.message ?? "");
+      const { error: editApproved4Error } = await admin.from("drafts").update({ updated_at: new Date().toISOString() }).eq("id", draft4.id);
+      ok("approved -> approved (a write that leaves status alone, as the send handler's does) is untouched by the guard", !editApproved4Error, editApproved4Error?.message ?? "");
+      const { error: noAttemptUnapproveError } = await admin.from("drafts").update(unapproveWrite).eq("id", draft4.id);
+      ok("approved -> draft with NO attempt on record is allowed (the legitimate un-approve)", !noAttemptUnapproveError, noAttemptUnapproveError?.message ?? "");
+
+      // approved -> draft with only a FAILED attempt: allowed, and the
+      // draft can go round again.
+      const { error: reapprove4Error } = await admin.from("drafts").update({ status: "approved", approved_by: userId, approved_at: new Date().toISOString() }).eq("id", draft4.id);
+      if (reapprove4Error) throw new Error(`Could not re-approve fourth draft: ${reapprove4Error.message}`);
+      const { data: born4, error: born4Error } = await admin
+        .from("draft_send_attempts")
+        .insert({ ...birthRow, draft_id: draft4.id, subject: "Fourth", body: "Fourth body" })
+        .select("id")
+        .single();
+      if (born4Error || !born4) throw new Error(`Fourth draft's attempt birth failed: ${born4Error?.message}`);
+      const { error: fail4Error } = await admin
+        .from("draft_send_attempts")
+        .update({ outcome: "failed", completed_at: new Date().toISOString(), error_note: "provider refused" })
+        .eq("id", born4.id);
+      if (fail4Error) throw new Error(`Fourth draft's attempt finalize failed: ${fail4Error.message}`);
+      const { error: failedOnlyUnapproveError } = await admin.from("drafts").update(unapproveWrite).eq("id", draft4.id);
+      ok("approved -> draft with ONLY a failed attempt on record is allowed -- a refusal is terminal for its attempt, not for the draft", !failedOnlyUnapproveError, failedOnlyUnapproveError?.message ?? "");
+    }
   } finally {
     await purge("teardown");
     const leftoverOrgs = await findOrgIds();
