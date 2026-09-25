@@ -13,6 +13,7 @@ import {
 import { channelLabel, stageLabel, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import type { Candidate } from "@/lib/candidates";
 import { INTERACTION_KINDS, interactionKindLabel, type Interaction, type InteractionKind } from "@/lib/interactions";
+import type { NurtureRow } from "@/lib/nurture";
 import { describeDisposition, type ProspectOutcome } from "@/lib/prospect-outcomes";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import HealthChip from "@/components/HealthChip";
@@ -24,9 +25,10 @@ export type DeclinedProspect = { prospect: Prospect; outcome: ProspectOutcome };
 type Row =
   | { kind: "prospect"; data: Prospect }
   | { kind: "candidate"; data: Candidate }
-  | { kind: "declined"; data: Prospect; outcome: ProspectOutcome };
+  | { kind: "declined"; data: Prospect; outcome: ProspectOutcome }
+  | { kind: "nurture"; data: Prospect; nurture: NurtureRow };
 
-type Tab = "due_now" | "open_questions" | "waiting" | "scheduled" | "revisit_later" | "past_decisions";
+type Tab = "due_now" | "open_questions" | "waiting" | "scheduled" | "revisit_later" | "past_decisions" | "nurture";
 // "Open questions" sits second, directly after the work that is already due,
 // because that is what it is: a funder said no and nobody has decided whether
 // to go back. Ruling 0019 requires that state to surface rather than sit.
@@ -37,7 +39,13 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "scheduled", label: "Scheduled" },
   { value: "revisit_later", label: "Revisit later" },
   { value: "past_decisions", label: "Past decisions" },
+  // Post-yes relationships going quiet (STATE item 75). Hosted as a tab here
+  // because the row detail already carries the suggest-next-step control.
+  { value: "nurture", label: "Nurture" },
 ];
+
+const NURTURE_NOTE =
+  "Nurture v1: this queue shows who has gone quiet. AI-drafted nurture notes are a later version — for now, use Suggest next step for ideas and Compose to write the note yourself; every email still needs your approval before it can be sent.";
 
 const ICON_BY_KIND: Record<InteractionKind, typeof Mail> = {
   email: Mail,
@@ -55,6 +63,7 @@ export default function FollowupWorkspace({
   pastDecisions,
   openQuestions,
   scheduledRevisits,
+  nurture,
   interactionsByProspect,
 }: {
   dueNow: Prospect[];
@@ -67,6 +76,7 @@ export default function FollowupWorkspace({
   pastDecisions: Candidate[];
   openQuestions: DeclinedProspect[];
   scheduledRevisits: DeclinedProspect[];
+  nurture: NurtureRow[];
   interactionsByProspect: Record<string, Interaction[]>;
 }) {
   const [tab, setTab] = useState<Tab>("due_now");
@@ -89,6 +99,7 @@ export default function FollowupWorkspace({
       ...scheduledRevisits.map((d) => ({ kind: "declined" as const, data: d.prospect, outcome: d.outcome })),
     ],
     past_decisions: pastDecisions.map((c) => ({ kind: "candidate", data: c })),
+    nurture: nurture.map((n) => ({ kind: "nurture", data: n.prospect, nurture: n })),
   };
   const rows = rowsByTab[tab];
   const selected = rows.find((r) => r.data.id === selectedId) ?? rows[0] ?? null;
@@ -126,6 +137,10 @@ export default function FollowupWorkspace({
           ))}
         </div>
 
+        {tab === "nurture" && (
+          <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.md, marginBottom: 0 }}>{NURTURE_NOTE}</p>
+        )}
+
         <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md, maxHeight: "70vh", overflowY: "auto" }}>
           {rows.map((row) => (
             <RowCard
@@ -138,7 +153,11 @@ export default function FollowupWorkspace({
               }}
             />
           ))}
-          {rows.length === 0 && <p style={{ fontSize: 13, color: colors.textMuted, padding: spacing.sm }}>Nothing here.</p>}
+          {rows.length === 0 && (
+            <p style={{ fontSize: 13, color: colors.textMuted, padding: spacing.sm }}>
+              {tab === "nurture" ? "Nobody has gone quiet. Every funder in Awarding or Stewardship has been touched recently." : "Nothing here."}
+            </p>
+          )}
         </div>
       </div>
 
@@ -152,8 +171,12 @@ export default function FollowupWorkspace({
           <ArrowLeft size={14} /> Back to list
         </button>
         {selected ? (
-          selected.kind === "prospect" ? (
-            <ProspectDetail prospect={selected.data} interactions={interactionsByProspect[selected.data.id] ?? []} />
+          selected.kind === "prospect" || selected.kind === "nurture" ? (
+            <ProspectDetail
+              prospect={selected.data}
+              interactions={interactionsByProspect[selected.data.id] ?? []}
+              composeHref={selected.kind === "nurture" ? `/prospects/${selected.data.id}?tab=strategy` : undefined}
+            />
           ) : selected.kind === "declined" ? (
             <DeclinedProspectDetail prospect={selected.data} outcome={selected.outcome} />
           ) : (
@@ -205,6 +228,11 @@ function RowCard({ row, selected, onClick }: { row: Row; selected: boolean; onCl
             {(row.data as Prospect).next_action}
           </div>
         )}
+        {row.kind === "nurture" && (
+          <div style={{ fontSize: 11, color: colors.textFaint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.nurture.lastInteractionSummary ?? "No interactions logged yet"}
+          </div>
+        )}
         {row.kind === "candidate" && row.data.dismissed_reason && (
           <div style={{ fontSize: 11, color: colors.textFaint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {row.data.dismissed_reason}
@@ -216,13 +244,28 @@ function RowCard({ row, selected, onClick }: { row: Row; selected: boolean; onCl
           </div>
         )}
       </div>
+      {row.kind === "nurture" && (
+        <span style={{ ...chipStyle("amber"), flexShrink: 0 }}>
+          {row.nurture.daysSinceLastTouch === null ? "Never touched" : `${row.nurture.daysSinceLastTouch} days quiet`}
+        </span>
+      )}
       {disposition && <span style={{ ...chipStyle(disposition.tone), flexShrink: 0 }}>{disposition.label}</span>}
       {health && <HealthChip status={health} />}
     </button>
   );
 }
 
-function ProspectDetail({ prospect, interactions }: { prospect: Prospect; interactions: Interaction[] }) {
+function ProspectDetail({
+  prospect,
+  interactions,
+  composeHref,
+}: {
+  prospect: Prospect;
+  interactions: Interaction[];
+  // Set only on the Nurture tab: a link into the existing human compose flow
+  // (Strategy tab, item 60). Nothing is drafted or sent from here.
+  composeHref?: string;
+}) {
   const [isPending, startTransition] = useTransition();
   const [logOpen, setLogOpen] = useState(false);
   const hasSuggestion = !!prospect.suggested_at;
@@ -242,9 +285,16 @@ function ProspectDetail({ prospect, interactions }: { prospect: Prospect; intera
               <span style={{ ...chipStyle("neutral"), marginTop: spacing.xs, display: "inline-block" }}>{stageLabel(prospect.stage)}</span>
             </div>
           </div>
-          <Link href={`/prospects/${prospect.id}`} style={{ ...buttonSecondary, flexShrink: 0 }}>
-            Open prospect →
-          </Link>
+          <div style={{ display: "flex", gap: spacing.sm, flexShrink: 0, flexWrap: "wrap" }}>
+            {composeHref && (
+              <Link href={composeHref} style={buttonSecondary}>
+                Compose email
+              </Link>
+            )}
+            <Link href={`/prospects/${prospect.id}`} style={buttonSecondary}>
+              Open prospect →
+            </Link>
+          </div>
         </div>
       </div>
 

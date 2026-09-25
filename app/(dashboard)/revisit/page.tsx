@@ -10,6 +10,7 @@ import {
   isRevisitDue,
   type ProspectOutcome,
 } from "@/lib/prospect-outcomes";
+import { selectNurtureQueue } from "@/lib/nurture";
 import { spacing, colors, type as typeScale } from "@/lib/ui";
 import FollowupWorkspace from "./followup-workspace";
 
@@ -78,6 +79,9 @@ export default async function RevisitPage() {
     (interactionsByProspect[i.prospect_id] ??= []).push(i);
   }
 
+  // Nurture v1 (STATE item 75): one shared derivation, same outcome index.
+  const nurture = selectNurtureQueue(all, interactionsByProspect, outcomeIndex, new Date());
+
   return (
     <div>
       <h1 style={{ fontSize: typeScale.pageTitle }}>Follow-ups</h1>
@@ -94,6 +98,7 @@ export default async function RevisitPage() {
         pastDecisions={pastDecisions}
         openQuestions={openQuestions}
         scheduledRevisits={scheduledRevisits}
+        nurture={nurture}
         interactionsByProspect={interactionsByProspect}
       />
     </div>
