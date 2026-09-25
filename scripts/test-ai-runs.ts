@@ -302,6 +302,7 @@ const INSTRUMENTED_FILES = [
   "app/(dashboard)/discovery/search/actions.ts",
   "app/(dashboard)/organization/channel-fit/actions.ts",
   "app/(dashboard)/prospects/[id]/draft-actions.ts",
+  "app/(dashboard)/prospects/[id]/network-actions.ts",
   "app/(dashboard)/prospects/[id]/strategy-actions.ts",
   "app/(dashboard)/revisit/actions.ts",
 ].sort();

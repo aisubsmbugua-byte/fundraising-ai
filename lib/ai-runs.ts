@@ -63,6 +63,10 @@ export const AI_RUN_OPERATIONS = [
   "proposal_revise",
   "deck_revise",
   "revisit_suggest",
+  // Finding network paths to a prospect (STATE item 76, ruling 0033 clause
+  // 6) is its own metered operation: decision 0006 prices per operation, and
+  // it is neither a draft nor a strategy.
+  "network_paths",
 ] as const;
 export type AiRunOperation = (typeof AI_RUN_OPERATIONS)[number];
 

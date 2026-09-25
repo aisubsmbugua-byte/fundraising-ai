@@ -19,6 +19,8 @@ import ActivityTab from "./activity-tab";
 import ContactsTab from "./contacts-tab";
 import StrategyPanel from "./strategy-panel";
 import DraftPanel from "./draft-panel";
+import NetworkPanel from "./network-panel";
+import { loadNetworkPanel } from "@/lib/network-panel";
 import FitScoreCircle from "@/components/FitScoreCircle";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle, sectionStyle } from "@/lib/ui";
@@ -144,6 +146,10 @@ export default async function ProspectDetailPage({
     .limit(1)
     .maybeSingle<{ enabled: boolean }>();
   const sendingEnabled = !sendingEnablementError && sendingEnablement?.enabled === true;
+
+  // "Who can open this door" (STATE item 76). Only the Strategy tab shows it,
+  // so only that tab pays for the read.
+  const networkPanel = searchParams.tab === "strategy" ? await loadNetworkPanel(supabase, prospect.id) : null;
 
   const latestScreening = screenings?.[0] ?? null;
   const rules = (rulesData ?? []) as ScreeningRule[];
@@ -458,6 +464,11 @@ export default async function ProspectDetailPage({
                       </div>
                     )}
                   </div>
+                  {/* Above the drafting panel, below the strategy: it is a
+                      "who can open this door" aid for outreach, needs approved
+                      research and no strategy, and sits in the existing tab so
+                      no new tab or page-level state is added. */}
+                  {networkPanel && <NetworkPanel prospectId={prospect.id} data={networkPanel} />}
                   {/* The panel is no longer gated on an approved strategy
                       (STATE item 60): a human can compose an email with no
                       strategy at all. AI drafting keeps its gate -- the

@@ -73,6 +73,7 @@ export default async function DashboardLayout({
   ];
   const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: string }[] = [
     { href: "/contacts", label: "Relationships", badge: 0, icon: "users" },
+    { href: "/network", label: "Network", badge: 0, icon: "network" },
     { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: "file-text" },
     { href: "/revisit", label: "Follow-up", badge: dueNowCount, icon: "calendar-clock" },
     { href: "/settings", label: "Settings", badge: 0, icon: "settings" },

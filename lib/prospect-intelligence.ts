@@ -569,6 +569,16 @@ export async function loadProspectIntelligence(
 // anything from a run whose identity was unresolved.
 
 export type ApprovedClaim = {
+  // The research_claims row this was read from. Carried so a consumer that
+  // must REFERENCE a claim (network paths, ruling 0033 clause 4) selects it by
+  // id rather than retyping it -- capture, don't retype.
+  claimId: string;
+  // True when a person recorded an approve / approve-with-note / correct
+  // decision on this claim. Distinct from `advisory` and `humanOverride`: an
+  // advisory claim enters without a decision, and a verified claim enters
+  // without one too. Consumers that need a HUMAN-approved fact read this,
+  // rather than inferring it from the limitation wording.
+  humanDecided: boolean;
   claimKey: string;
   claim: string;
   reportingPeriod: string | null;
@@ -738,6 +748,8 @@ export async function loadApprovedIntelligence(
       if (verdict && verdict !== "partially_supported") continue;
 
       approved.push({
+        claimId: c.id as string,
+        humanDecided: !!decision,
         claimKey: c.claim_key as string,
         claim: decision?.corrected || (c.claim as string),
         reportingPeriod: (c.reporting_period as string | null) ?? null,
@@ -778,6 +790,8 @@ export async function loadApprovedIntelligence(
     }
 
     approved.push({
+      claimId: c.id as string,
+      humanDecided: !!decision,
       claimKey: c.claim_key as string,
       claim: decision?.corrected || (c.claim as string),
       reportingPeriod: (c.reporting_period as string | null) ?? null,

@@ -7,7 +7,9 @@
 // ruling-0027 retraction table added in migration 0068
 // (prospect_outcome_retractions), on the ruling-0029 send-attempt
 // ledger added in migration 0069 (draft_send_attempts), and on drafts
-// itself (which carries the send facts since 0069), in both
+// itself (which carries the send facts since 0069), on the ruling-0033
+// network tables added in migration 0077 (network_connections,
+// network_path_suggestions), in both
 // directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -180,6 +182,18 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
     const { error: sendAttemptsError } = await admin.from("draft_send_attempts").delete().in("organization_id", orgIds);
     if (sendAttemptsError && sendAttemptsError.code !== "42P01" && sendAttemptsError.code !== "PGRST205") {
       problems.push(`[${phase}] deleting draft_send_attempts in test orgs failed: ${sendAttemptsError.message}`);
+    }
+
+    // network_connections (0077, ruling 0033) references organizations and
+    // auth.users with NO cascade, so surviving rows would block the profile,
+    // auth-user and org deletes below. Deleting a connection cascades to its
+    // network_path_suggestions (which also cascade from prospects), so this
+    // one delete clears both new tables and must precede the prospects delete.
+    // 42P01/PGRST205 tolerated: migration 0077 not applied yet, and the
+    // network section below reports itself NOT EVALUATED in that case.
+    const { error: networkError } = await admin.from("network_connections").delete().in("organization_id", orgIds);
+    if (networkError && networkError.code !== "42P01" && networkError.code !== "PGRST205") {
+      problems.push(`[${phase}] deleting network_connections in test orgs failed: ${networkError.message}`);
     }
 
     const { data: prospects, error: prospectsError } = await admin
@@ -1012,6 +1026,192 @@ async function main() {
       check("No delete policy: a member's DELETE of its own enablement row affects 0 rows", (enADelete?.length ?? 0) === 0);
       const { data: enStillThere } = await admin.from("org_sending_enablement").select("enabled").eq("organization_id", a.orgId);
       check("...and the row still exists, verified via the service role", (enStillThere?.length ?? 0) === 1 && enStillThere![0].enabled === true);
+    }
+
+    // --- Network paths (migration 0077, ruling 0033) ---
+    // network_connections is the organization's own editable, deletable note
+    // about a person; network_path_suggestions is the AI's proposal anchored to
+    // one connection and one approved research claim. Two real authenticated
+    // sessions, never the service role, for every isolation assertion. The
+    // three org-match triggers (prospect, connection, claim) are exercised by
+    // cross-org INSERTs that must be REFUSED, and the update-repoint case
+    // covers the extension 0077 makes beyond 0066's insert-only pattern.
+    // NOT-EVALUATED when the tables do not exist (42P01 / PGRST205).
+    const { error: networkProbeError } = await admin.from("network_connections").select("id").limit(1);
+    if (networkProbeError && (networkProbeError.code === "42P01" || networkProbeError.code === "PGRST205")) {
+      notEvaluated.push("network_connections / network_path_suggestions -- migration 0077 is not applied to this database, so their assertions did not run");
+      console.log("\nNOT EVALUATED: network tables (migration 0077 not applied). Apply 0077 and re-run; this is not a pass.\n");
+    } else {
+      const { data: connA, error: connAError } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: a.userId, person_name: "[test] Org A person", strength: "warm" })
+        .select("id")
+        .single();
+      if (connAError || !connA) throw new Error(`Org A network connection insert failed: ${connAError?.message}`);
+      const { data: connB, error: connBError } = await clientB
+        .from("network_connections")
+        .insert({ recorded_by: b.userId, person_name: "[test] Org B person", strength: "close" })
+        .select("id")
+        .single();
+      if (connBError || !connB) throw new Error(`Org B network connection insert failed: ${connBError?.message}`);
+
+      const { data: nbRead } = await clientB.from("network_connections").select("id").eq("id", connA.id);
+      check("Org B cannot SELECT Org A's network_connections row by id", (nbRead?.length ?? 0) === 0);
+      const { data: nbUpdate } = await clientB.from("network_connections").update({ person_name: "[test] hijacked" }).eq("id", connA.id).select("id");
+      check("Org B's UPDATE of Org A's network_connections row affects 0 rows", (nbUpdate?.length ?? 0) === 0);
+      const { data: nbDelete } = await clientB.from("network_connections").delete().eq("id", connA.id).select("id");
+      check("Org B's DELETE of Org A's network_connections row affects 0 rows", (nbDelete?.length ?? 0) === 0);
+      const { data: connAAfter } = await admin.from("network_connections").select("person_name").eq("id", connA.id).single();
+      check("...and Org A's connection is verified unchanged via the service role", connAAfter?.person_name === "[test] Org A person");
+
+      const { error: noStrengthError } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: a.userId, person_name: "[test] no strength" });
+      check("A connection with NO strength is refused (not null, no default)", !!noStrengthError);
+      const { error: badStrengthError } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: a.userId, person_name: "[test] bad strength", strength: "best-friend" });
+      check("A connection with a strength outside the closed list is refused", !!badStrengthError);
+      const { error: foreignRecorderError } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: b.userId, person_name: "[test] wrong recorder", strength: "warm" });
+      check("A connection cannot be recorded as someone else (recorded_by must be the session user)", !!foreignRecorderError);
+
+      const { data: ownUpdate } = await clientA.from("network_connections").update({ notes: "[test] edited" }).eq("id", connA.id).select("id");
+      check("Org A CAN edit its own connection (editable by design, ruling 0033 clause 2)", (ownUpdate?.length ?? 0) === 1);
+
+      // Suggestions.
+      const { data: sugA, error: sugAError } = await clientA
+        .from("network_path_suggestions")
+        .insert({
+          prospect_id: prospectA.id,
+          network_connection_id: connA.id,
+          funder_claim_id: claimA.id,
+          reasoning: "[test] Org A path",
+          model_confidence: "low",
+        })
+        .select("id, status, decided_by, decided_at")
+        .single();
+      if (sugAError || !sugA) throw new Error(`Org A network suggestion insert failed: ${sugAError?.message}`);
+      check("A new suggestion is born 'suggested' with no decider and no decision time", sugA.status === "suggested" && sugA.decided_by === null && sugA.decided_at === null);
+
+      const { data: sbRead } = await clientB.from("network_path_suggestions").select("id").eq("id", sugA.id);
+      check("Org B cannot SELECT Org A's network_path_suggestions row by id", (sbRead?.length ?? 0) === 0);
+      const { data: sbUpdate } = await clientB.from("network_path_suggestions").update({ reasoning: "[test] hijacked" }).eq("id", sugA.id).select("id");
+      check("Org B's UPDATE of Org A's suggestion affects 0 rows", (sbUpdate?.length ?? 0) === 0);
+      const { data: sbDelete } = await clientB.from("network_path_suggestions").delete().eq("id", sugA.id).select("id");
+      check("Org B's DELETE of Org A's suggestion affects 0 rows", (sbDelete?.length ?? 0) === 0);
+      const { data: sugStill } = await admin.from("network_path_suggestions").select("reasoning").eq("id", sugA.id).single();
+      check("...and Org A's suggestion is verified unchanged via the service role", sugStill?.reasoning === "[test] Org A path");
+
+      // The three org-match triggers: each cross-org insert must be REFUSED.
+      // Org B's session inserts under Org B's own organization_id (the default)
+      // while citing one of Org A's rows; RLS alone would let that through
+      // because the row's own organization_id is Org B's.
+      const { error: xConnErr } = await clientB.from("network_path_suggestions").insert({
+        prospect_id: prospectBEarly!.id,
+        network_connection_id: connA.id,
+        funder_claim_id: claimBEarly!.id,
+        reasoning: "[test] cross-org connection",
+      });
+      check("Org B cannot INSERT a suggestion citing Org A's CONNECTION (connection org-match trigger)", !!xConnErr);
+      const { error: xProspectErr } = await clientB.from("network_path_suggestions").insert({
+        prospect_id: prospectA.id,
+        network_connection_id: connB.id,
+        funder_claim_id: claimBEarly!.id,
+        reasoning: "[test] cross-org prospect",
+      });
+      check("Org B cannot INSERT a suggestion citing Org A's PROSPECT (prospect org-match trigger; the claim-prospect check also fires)", !!xProspectErr);
+      const { error: xClaimErr } = await clientB.from("network_path_suggestions").insert({
+        prospect_id: prospectBEarly!.id,
+        network_connection_id: connB.id,
+        funder_claim_id: claimA.id,
+        reasoning: "[test] cross-org claim",
+      });
+      check("Org B cannot INSERT a suggestion citing Org A's CLAIM (claim org-match trigger)", !!xClaimErr);
+      const { error: xOwnErr } = await clientB.from("network_path_suggestions").insert({
+        prospect_id: prospectBEarly!.id,
+        network_connection_id: connB.id,
+        funder_claim_id: claimBEarly!.id,
+        reasoning: "[test] control: all three references are Org B's own",
+      });
+      check("Control: Org B CAN insert a suggestion whose three references are all its own", !xOwnErr);
+
+      // A claim from a different prospect of the SAME org is also refused.
+      const { data: prospectA2 } = await clientA
+        .from("prospects")
+        .insert({ name: "[test] Org A second prospect", channel: "foundation", owner_id: a.userId })
+        .select("id")
+        .single();
+      const { error: wrongProspectClaimErr } = await clientA.from("network_path_suggestions").insert({
+        prospect_id: prospectA2!.id,
+        network_connection_id: connA.id,
+        funder_claim_id: claimA.id,
+        reasoning: "[test] claim belongs to a different prospect",
+      });
+      check("A suggestion citing a claim that belongs to a DIFFERENT prospect is refused (claim-prospect check)", !!wrongProspectClaimErr);
+
+      // Update-repoint: the extension beyond 0066's insert-only pattern.
+      const { error: repointErr } = await clientA.from("network_path_suggestions").update({ network_connection_id: connB.id }).eq("id", sugA.id);
+      check("Org A cannot UPDATE its suggestion to point at Org B's connection (update-time org-match trigger)", !!repointErr);
+      const { data: sugAfterRepoint } = await admin.from("network_path_suggestions").select("network_connection_id").eq("id", sugA.id).single();
+      check("...and the suggestion still points at Org A's own connection", sugAfterRepoint?.network_connection_id === connA.id);
+
+      // Only a human's update decides; nothing is born decided.
+      const { error: bornAcceptedErr } = await clientA.from("network_path_suggestions").insert({
+        prospect_id: prospectA.id,
+        network_connection_id: connA.id,
+        funder_claim_id: claimA.id,
+        reasoning: "[test] born accepted",
+        status: "accepted",
+        decided_by: a.userId,
+        decided_at: new Date().toISOString(),
+      });
+      check("A suggestion cannot be INSERTED already accepted (insert policy admits only 'suggested')", !!bornAcceptedErr);
+      const { error: undecidedAcceptErr } = await clientA.from("network_path_suggestions").update({ status: "accepted" }).eq("id", sugA.id);
+      check("Accepting without a decider and time is refused (decision check constraint)", !!undecidedAcceptErr);
+      const { data: decided } = await clientA
+        .from("network_path_suggestions")
+        .update({ status: "accepted", decided_by: a.userId, decided_at: new Date().toISOString() })
+        .eq("id", sugA.id)
+        .select("status");
+      check("A human decision (status + decided_by + decided_at) is accepted", decided?.[0]?.status === "accepted");
+
+      // Deleting a person deletes every path derived from them (clause 2).
+      const { data: connToDelete } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: a.userId, person_name: "[test] to be erased", strength: "acquaintance" })
+        .select("id")
+        .single();
+      const { data: sugToCascade } = await clientA
+        .from("network_path_suggestions")
+        .insert({ prospect_id: prospectA.id, network_connection_id: connToDelete!.id, funder_claim_id: claimA.id, reasoning: "[test] derived path" })
+        .select("id")
+        .single();
+      const { data: deletedOwn } = await clientA.from("network_connections").delete().eq("id", connToDelete!.id).select("id");
+      check("Org A CAN delete its own connection (deletable by design)", (deletedOwn?.length ?? 0) === 1);
+      const { data: cascaded } = await admin.from("network_path_suggestions").select("id").eq("id", sugToCascade!.id);
+      check("Deleting a connection deletes the suggestions derived from it (foreign key cascade)", (cascaded?.length ?? 0) === 0);
+
+      // A suggestion does not outlive its anchoring claim.
+      const { data: claimA2 } = await clientA
+        .from("research_claims")
+        .insert({ research_run_id: runA.id, prospect_id: prospectA.id, claim_type: "fact", claim_key: "people.key_contacts", category: "People", claim: "[test] Jane Test, Director", confidence: "high" })
+        .select("id")
+        .single();
+      const { data: connForClaim } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: a.userId, person_name: "[test] claim-cascade person", strength: "close" })
+        .select("id")
+        .single();
+      const { data: sugClaim } = await clientA
+        .from("network_path_suggestions")
+        .insert({ prospect_id: prospectA.id, network_connection_id: connForClaim!.id, funder_claim_id: claimA2!.id, reasoning: "[test] anchored path" })
+        .select("id")
+        .single();
+      await admin.from("research_claims").delete().eq("id", claimA2!.id);
+      const { data: claimCascaded } = await admin.from("network_path_suggestions").select("id").eq("id", sugClaim!.id);
+      check("Deleting the anchoring claim deletes the suggestion (foreign key cascade)", (claimCascaded?.length ?? 0) === 0);
     }
   } finally {
     cleanupProblems = await purgeTestIdentities("teardown");

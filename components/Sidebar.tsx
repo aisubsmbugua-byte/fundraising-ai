@@ -14,6 +14,7 @@ import {
   FileText,
   CalendarClock,
   Settings as SettingsIcon,
+  Network,
   type LucideIcon,
 } from "lucide-react";
 import { colors, radiusSm, radiusPill } from "@/lib/ui";
@@ -29,6 +30,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "file-text": FileText,
   "calendar-clock": CalendarClock,
   settings: SettingsIcon,
+  network: Network,
 };
 
 type NavItem = { href: string; label: string; badge: number; icon: string };
