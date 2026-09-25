@@ -17,6 +17,8 @@ import {
   CONNECTION_STRENGTHS,
   NETWORK_ANCHOR_CLAIM_KEYS,
   NETWORK_DISCLOSURE,
+  NETWORK_PATHS_MAX_CONNECTIONS,
+  connectionCapRefusal,
   NETWORK_PATHS_TOOL,
   buildNetworkPathPrompt,
   selectAnchorClaims,
@@ -150,10 +152,13 @@ function claim(over: Partial<ApprovedClaim> & { claimId: string; claimKey: strin
   return { humanDecided: false, claim: "x", reportingPeriod: null, advisory: false, limitation: null, humanOverride: false, overrideNote: null, sources: [], ...over };
 }
 const pool = [
-  claim({ claimId: "c-people-verified", claimKey: "people.key_contacts", claim: "Jane Doe, Executive Director" }),
+  claim({ claimId: "c-people-verified", claimKey: "people.key_contacts", claim: "Jane Doe, Executive Director", humanDecided: true }),
   claim({ claimId: "c-people-advisory-undecided", claimKey: "people.key_contacts", advisory: true, humanDecided: false }),
   claim({ claimId: "c-people-advisory-decided", claimKey: "people.key_contacts", advisory: true, humanDecided: true }),
-  claim({ claimId: "c-grants", claimKey: "funding.recent_grants" }),
+  claim({ claimId: "c-grants", claimKey: "funding.recent_grants", humanDecided: true }),
+  claim({ claimId: "c-grants-undecided", claimKey: "funding.recent_grants", humanDecided: false }),
+  claim({ claimId: "c-invitation", claimKey: "application.invitation_mechanism", humanDecided: true }),
+  claim({ claimId: "c-denom", claimKey: "application.denominational_restriction", humanDecided: true }),
   claim({ claimId: "c-money", claimKey: "funding.total_annual_giving" }),
   claim({ claimId: "c-deadline", claimKey: "application.deadline" }),
 ];
@@ -161,8 +166,12 @@ const anchors = selectAnchorClaims(pool).map((c) => c.claimId);
 ok("claims that name a person or organization are anchors", anchors.includes("c-people-verified") && anchors.includes("c-grants"));
 ok("a claim about money or a deadline names nobody and is never handed over", !anchors.includes("c-money") && !anchors.includes("c-deadline"));
 ok("an advisory claim no human decided is NOT an anchor; one a human decided is", !anchors.includes("c-people-advisory-undecided") && anchors.includes("c-people-advisory-decided"));
-ok("the anchor key list includes people.key_contacts", NETWORK_ANCHOR_CLAIM_KEYS.includes("people.key_contacts"));
-ok("no approved claims naming anybody yields an empty pool (the action then refuses without a model call)", selectAnchorClaims([pool[4], pool[5]]).length === 0);
+ok("the anchor key list is EXACTLY people.key_contacts and funding.recent_grants", JSON.stringify([...NETWORK_ANCHOR_CLAIM_KEYS]) === JSON.stringify(["people.key_contacts", "funding.recent_grants"]));
+ok("invitation mechanism and denominational restriction are not anchors, even human-decided", !anchors.includes("c-invitation") && !anchors.includes("c-denom"));
+ok("a claim with humanDecided false is excluded regardless of key or advisory flag", !anchors.includes("c-grants-undecided") && !anchors.includes("c-people-advisory-undecided") && selectAnchorClaims([claim({ claimId: "u", claimKey: "people.key_contacts", advisory: false, humanDecided: false })]).length === 0);
+ok("the humanDecided requirement is unconditional in the function, not carried by the key list", /&&\s*c\.humanDecided\s*\)/.test(stripComments(read("lib/network.ts"))) && !/advisory/.test(stripComments(read("lib/network.ts")).slice(stripComments(read("lib/network.ts")).indexOf("export function selectAnchorClaims"), stripComments(read("lib/network.ts")).indexOf("export const NETWORK_PATHS_MAX_CONNECTIONS"))));
+ok("the cap is 150; 150 connections are accepted, 151 refused with the count and the limit in plain words", NETWORK_PATHS_MAX_CONNECTIONS === 150 && connectionCapRefusal(150) === null && connectionCapRefusal(0) === null && /151/.test(connectionCapRefusal(151) ?? "") && /150/.test(connectionCapRefusal(151) ?? "") && /remove/i.test(connectionCapRefusal(151) ?? ""));
+ok("no approved claims naming anybody yields an empty pool (the action then refuses without a model call)", selectAnchorClaims(pool.filter((c) => c.claimId === "c-money" || c.claimId === "c-deadline")).length === 0);
 
 section("lib/network.ts: validateNetworkPaths -- an id outside the pool is discarded, never kept");
 const conns = new Set(["k1", "k2"]);
@@ -227,6 +236,12 @@ const findStart = actions.indexOf("export async function findNetworkPaths");
 const decideStart = actions.indexOf("export async function decideNetworkPath");
 const find = actions.slice(findStart, decideStart);
 const decide = actions.slice(decideStart);
+{
+  const capAt = find.indexOf("connectionCapRefusal(");
+  const beginAt = find.indexOf("await beginRun(");
+  const modelAt = find.indexOf("anthropic.messages.create");
+  ok("the cap refusal precedes beginRun and the model call, and returns rather than truncating", capAt > 0 && capAt < beginAt && beginAt < modelAt && /if \(capRefusal\) return/.test(find) && !/\.slice\(|\.limit\(|\.range\(/.test(find));
+}
 ok("both actions found", findStart > 0 && decideStart > findStart);
 ok("research is read ONLY through loadApprovedIntelligence; research_claims is never queried here", find.includes("loadApprovedIntelligence(") && !/from\("research_claims"\)/.test(actions) && !/from\("research_runs"\)/.test(actions));
 const at = (needle: string) => find.indexOf(needle);

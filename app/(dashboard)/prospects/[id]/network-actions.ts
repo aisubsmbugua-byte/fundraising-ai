@@ -24,6 +24,7 @@ import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs
 import {
   NETWORK_PATHS_TOOL,
   buildNetworkPathPrompt,
+  connectionCapRefusal,
   selectAnchorClaims,
   validateNetworkPaths,
   type NetworkConnection,
@@ -62,12 +63,16 @@ export async function findNetworkPaths(prospectId: string): Promise<FindPathsRes
       };
     }
 
-    const { data: connectionRows, error: connectionsError } = await supabase
+    const { data: connectionRows, error: connectionsError, count: connectionCount } = await supabase
       .from("network_connections")
-      .select("*")
+      .select("*", { count: "exact" })
       .order("updated_at", { ascending: false });
     if (connectionsError) return { error: "Could not read your network just now, so no paths were looked for." };
     const connections = (connectionRows ?? []) as NetworkConnection[];
+    // Over the v1 cap the request is refused, never truncated (item 77). The
+    // exact count is used so the message is right even past the row limit.
+    const capRefusal = connectionCapRefusal(connectionCount ?? connections.length);
+    if (capRefusal) return { error: capRefusal };
     if (connections.length === 0) {
       return { error: "You have not recorded anyone you know yet. Add people on the Network page, then look for paths." };
     }

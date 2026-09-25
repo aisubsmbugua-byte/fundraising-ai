@@ -63,30 +63,33 @@ export type NetworkPathSuggestion = {
   created_at: string;
 };
 
-// The funder-side facts that can anchor a path: approved claims that NAME a
-// person or an organization. A door is opened by someone who knows someone, so
-// the claim must give a name to be known by:
+// The funder-side facts that can anchor a path: approved claims that name a
+// person or an organization one can be introduced through:
 //   people.key_contacts             a named person and their role
 //   funding.recent_grants           names the recipient organizations
-//   application.denominational_restriction   names a religious body
-//   application.invitation_mechanism         may name who invites or refers
-// A claim about a dollar figure or a deadline names nobody and can anchor
-// nothing, so it is never handed to the model.
-export const NETWORK_ANCHOR_CLAIM_KEYS: readonly string[] = [
-  "people.key_contacts",
-  "funding.recent_grants",
-  "application.denominational_restriction",
-  "application.invitation_mechanism",
-];
+// An application mechanism or a denominational rule is not a person, so those
+// kinds make weak anchors and are not handed over. A claim about a dollar
+// figure or a deadline names nobody and can anchor nothing either.
+export const NETWORK_ANCHOR_CLAIM_KEYS: readonly string[] = ["people.key_contacts", "funding.recent_grants"];
 
-// Ruling 0033 clause 4 requires a funder-side fact a HUMAN has approved. The
-// approved-intelligence payload also admits claims that were merely verified
-// against their evidence and "advisory" claims nobody has decided; of those, an
-// advisory claim no person has decided is exactly the unapproved case and is
-// excluded. Verified claims are admitted as the loader admits them (see the
-// escalation in the build report).
+// Ruling 0033 clause 4 requires a funder-side fact a HUMAN has approved. That
+// guarantee lives HERE, unconditionally: it does not depend on which keys the
+// policy above happens to list, because the key list could change. A claim no
+// human has decided is never an anchor, advisory or not.
 export function selectAnchorClaims(claims: readonly ApprovedClaim[]): ApprovedClaim[] {
-  return claims.filter((c) => NETWORK_ANCHOR_CLAIM_KEYS.includes(c.claimKey) && (!c.advisory || c.humanDecided));
+  return claims.filter((c) => NETWORK_ANCHOR_CLAIM_KEYS.includes(c.claimKey) && c.humanDecided);
+}
+
+// v1 default: the most recorded connections one path-finding call considers.
+// Over it, the request is REFUSED -- never truncated, because silently choosing
+// which people the model sees is the defect shape ruling 0033 exists to avoid.
+export const NETWORK_PATHS_MAX_CONNECTIONS = 150;
+
+// The plain refusal for an over-cap network, or null when the count is allowed
+// (exactly the cap is allowed). Pure, so the boundary is testable by running it.
+export function connectionCapRefusal(recorded: number): string | null {
+  if (recorded <= NETWORK_PATHS_MAX_CONNECTIONS) return null;
+  return `You have ${recorded} people recorded, and v1 considers up to ${NETWORK_PATHS_MAX_CONNECTIONS} at once. Remove the entries that are not relevant on the Network page, then look for paths again.`;
 }
 
 // The human-readable label for the fact a path anchors to. For a named person
