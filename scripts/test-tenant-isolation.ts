@@ -847,37 +847,60 @@ async function main() {
     const { data: draftAfterCross } = await admin.from("drafts").select("subject").eq("id", draftGovA.id).single();
     check("...and Org A's draft subject is verifiably unchanged (read via the service role, not trusting the 0-row response)", draftAfterCross?.subject === "[test] Org A governed draft");
 
-    // The gap this section exists to document honestly. drafts has RLS on
-    // organization_id, but NO org-match trigger on its prospect_id FK
-    // (searched: no create trigger on drafts other than 0069's
-    // drafts_sent_once). FK checks bypass RLS, so the insert below carries
-    // Org B's own organization_id (its default), passes the with-check, and
-    // links to Org A's prospect. Compare research_claims, whose org-match
-    // trigger refuses the equivalent insert above. This assertion states the
-    // CURRENT behaviour; it will flip to FAIL the day a trigger closes the
-    // gap, which is the signal to invert it. Escalated, not fixed here.
-    const { data: crossDraft, error: crossDraftError } = await clientB
+    // Item 73 closes the gap item 72 documented here: drafts had RLS on its
+    // own organization_id but no org-match trigger on prospect_id, and FK
+    // checks bypass RLS, so Org B could link a draft to Org A's prospect.
+    // Migration 0075's drafts_prospect_org_match refuses it. The assertion is
+    // therefore INVERTED (passes when refused) -- but "the insert succeeded"
+    // is ambiguous between "0075 is not applied" and "0075 is broken", and
+    // an unapplied migration must read as neither a pass nor a fail of the
+    // fix. Applied-ness is probed with a service-role insert carrying sent
+    // facts, which only 0075's drafts_no_insert_with_sent_facts refuses
+    // (0069's sent-once trigger is update-only); PostgREST cannot read
+    // pg_trigger. If the probe insert lands it is deleted at once.
+    const { data: probeDraft, error: probeDraftError } = await admin
       .from("drafts")
       .insert({
         prospect_id: prospectA.id,
         kind: "intro_email",
-        subject: "[test] cross-org draft against Org A's prospect",
-        content: "[test] cross-org attempt",
+        subject: "[test] 0075 applied-ness probe",
+        content: "[test] probe",
         status: "draft",
-        created_by: b.userId,
+        created_by: a.userId,
+        organization_id: a.orgId,
+        sent_at: new Date().toISOString(),
+        sent_by: a.userId,
+        resend_message_id: "[test] probe",
       })
-      .select("id, organization_id")
+      .select("id")
       .single();
-    check(
-      "KNOWN GAP (hard rule 6, escalated): CURRENT behaviour -- Org B CAN insert a drafts row referencing Org A's prospect; drafts has no org-match trigger on prospect_id",
-      !crossDraftError && crossDraft?.organization_id === b.orgId
-    );
-    if (!crossDraftError && crossDraft) {
-      knownGaps.push(
-        "drafts: Org B inserted a draft referencing Org A's prospect (no org-match trigger on drafts.prospect_id) -- hard-rule-6 gap, escalated to the decision space"
+    // A missing send column (0069 absent) also means 0075 cannot be in effect.
+    const probeColumnsMissing = !!probeDraftError && (probeDraftError.code === "42703" || probeDraftError.code === "PGRST204");
+    if ((!probeDraftError && probeDraft) || probeColumnsMissing) {
+      if (probeDraft) await admin.from("drafts").delete().eq("id", probeDraft.id);
+      notEvaluated.push("drafts cross-org prospect link -- migration 0075 is not applied to this database, so the org-match refusal was not evaluated");
+      console.log("\nNOT EVALUATED: drafts org-match on prospect_id (migration 0075 not applied). Apply 0075 and re-run; this is not a pass.\n");
+    } else {
+      const { data: crossDraft, error: crossDraftError } = await clientB
+        .from("drafts")
+        .insert({
+          prospect_id: prospectA.id,
+          kind: "intro_email",
+          subject: "[test] cross-org draft against Org A's prospect",
+          content: "[test] cross-org attempt",
+          status: "draft",
+          created_by: b.userId,
+        })
+        .select("id, organization_id")
+        .single();
+      check(
+        "Org B cannot INSERT a drafts row referencing Org A's prospect (org-match trigger on drafts.prospect_id, migration 0075)",
+        !!crossDraftError && !crossDraft
       );
-      const { data: crossDraftReadByA } = await clientA.from("drafts").select("id").eq("id", crossDraft.id);
-      check("...the row is Org B's own (Org A cannot read it), so the gap is a write-side link into Org A's prospect, not a read leak", (crossDraftReadByA?.length ?? 0) === 0);
+      if (crossDraft) {
+        // The fix failed; leave no row behind.
+        await admin.from("drafts").delete().eq("id", crossDraft.id);
+      }
     }
 
     const { data: draftOwnUpdate } = await clientA

@@ -307,6 +307,120 @@ ok(
 );
 ok("migrations 0069 and 0070 are untouched by it (it names neither for rewriting)", !/create\s+or\s+replace\s+function\s+drafts_enforce_sent_once/.test(stmts74));
 
+// --- 1d. Migration 0075: drafts hardening (STATE item 73) -------------------
+// Three constructs: (i) org-match on drafts.prospect_id, (ii) no send facts
+// on INSERT, (iii) the birth trigger's draft read takes FOR UPDATE. Read as
+// text; live behaviour is asserted in the DB section once the owner applies
+// the migration.
+
+section("migration 0075 is additive in effect and closes the three drafts holes");
+
+const sql75 = readFileSync(join(root, "supabase/migrations/0075_drafts_hardening.sql"), "utf8");
+const stmts75 = sql75
+  .split("\n")
+  .map((l) => l.replace(/--.*$/, ""))
+  .join("\n")
+  .toLowerCase();
+
+ok(
+  "additive: no DROP, no ALTER, no new table, no policy, no data write",
+  !/\bdrop\b/.test(stmts75) &&
+    !/\balter\b/.test(stmts75) &&
+    !/create\s+table/.test(stmts75) &&
+    !/create\s+policy/.test(stmts75) &&
+    !/\b(insert\s+into|delete)\b/.test(stmts75) &&
+    !/\bupdate\s+[a-z_]+\s+set\b/.test(stmts75)
+);
+ok(
+  "exactly three functions and two triggers; exactly ONE create or replace, and it is the birth function",
+  (stmts75.match(/create\s+(or\s+replace\s+)?function/g) ?? []).length === 3 &&
+    (stmts75.match(/create\s+trigger/g) ?? []).length === 2 &&
+    (stmts75.match(/create\s+or\s+replace\s+function\s+([a-z_]+)/g) ?? []).length === 1 &&
+    /create\s+or\s+replace\s+function\s+draft_send_attempts_enforce_birth/.test(stmts75)
+);
+ok(
+  "(i) org-match trigger: BEFORE INSERT OR UPDATE OF prospect_id on drafts, comparing new.organization_id to the prospect's",
+  /create\s+trigger\s+drafts_prospect_org_match\s+before\s+insert\s+or\s+update\s+of\s+prospect_id\s+on\s+drafts\s+for\s+each\s+row/.test(stmts75) &&
+    /new\.organization_id\s+is\s+distinct\s+from\s+\(select\s+organization_id\s+from\s+prospects\s+where\s+id\s*=\s*new\.prospect_id\)/.test(stmts75)
+);
+const fn66 = readFileSync(join(root, "supabase/migrations/0066_prospect_outcomes.sql"), "utf8").toLowerCase();
+ok(
+  "(i) the org-match function is security definer with search_path = public, the same as 0066's org-match functions (reads prospects independent of the caller's RLS view)",
+  /create\s+function\s+enforce_draft_prospect_org_match\(\)[\s\S]*?security\s+definer\s+set\s+search_path\s*=\s*public;/.test(stmts75) &&
+    /create\s+function\s+enforce_prospect_outcome_prospect_org_match\(\)[\s\S]*?security\s+definer\s+set\s+search_path\s*=\s*public;/.test(fn66)
+);
+ok(
+  "(ii) BEFORE INSERT trigger on drafts refuses a row with sent_at, sent_by OR resend_message_id set",
+  /create\s+trigger\s+drafts_no_insert_with_sent_facts\s+before\s+insert\s+on\s+drafts\s+for\s+each\s+row/.test(stmts75) &&
+    /new\.sent_at\s+is\s+not\s+null\s+or\s+new\.sent_by\s+is\s+not\s+null\s+or\s+new\.resend_message_id\s+is\s+not\s+null/.test(stmts75)
+);
+ok(
+  "(ii) it is a plain plpgsql function -- no security definer, reads no table",
+  (() => {
+    const m = stmts75.match(/create\s+function\s+drafts_refuse_insert_with_sent_facts\(\)[\s\S]*?\$\$\s+language[^;]*;/);
+    return !!m && !/security\s+definer/.test(m[0]) && !/\bfrom\b/.test(m[0]);
+  })()
+);
+
+// (iii): the replacement is 0069's function plus ONLY the lock.
+function fnBody(text: string, name: string): string {
+  const m = text.match(new RegExp(`create\\s+(?:or\\s+replace\\s+)?function\\s+${name}\\(\\)[\\s\\S]*?\\$\\$\\s+language[^;]*;`));
+  return m ? m[0].replace(/create\s+or\s+replace\s+function/, "create function").replace(/\s+/g, " ").trim() : "";
+}
+const birth69 = fnBody(stmts, "draft_send_attempts_enforce_birth");
+const birth75 = fnBody(stmts75, "draft_send_attempts_enforce_birth");
+ok("(iii) both the 0069 and 0075 birth functions were found", birth69.length > 200 && birth75.length > 200);
+ok(
+  "(iii) the replacement is 0069's function plus ONLY `for update` on the draft read (comments aside, whitespace-normalised identical otherwise)",
+  birth75.length > 0 && birth75.replace(" for update;", ";") === birth69 && birth75 !== birth69,
+  `\n0069: ${birth69}\n0075: ${birth75}`
+);
+ok(
+  "(iii) the draft read takes FOR UPDATE: select ... from drafts where id = new.draft_id for update",
+  /select\s+organization_id,\s*status,\s*sent_at\s+into\s+d\s+from\s+drafts\s+where\s+id\s*=\s*new\.draft_id\s+for\s+update;/.test(stmts75)
+);
+ok(
+  "(iii) every distinctive 0069 birth check survives: org match, approved-only, already-sent, live/confirmed attempt exists, born-unfinalized (5 raises, same messages)",
+  (birth75.match(/raise exception/g) ?? []).length === 5 &&
+    ["must match the referenced draft", "only an approved draft can be sent", "already been sent", "already exists for this draft", "born unfinalized"].every((frag) => birth75.includes(frag)) &&
+    /d\.status\s*<>\s*'approved'/.test(birth75) &&
+    /d\.sent_at\s+is\s+not\s+null/.test(birth75) &&
+    /outcome\s*=\s*'sent'\s+or\s+outcome\s+is\s+null/.test(birth75) &&
+    /security\s+definer\s+set\s+search_path\s*=\s*public/.test(birth75)
+);
+ok(
+  "0074's un-approve trigger is untouched: 0075 neither names it nor its function, and 0074 still creates it BEFORE UPDATE on drafts",
+  !/drafts_unapprove_guard|drafts_refuse_unapprove_with_attempt/.test(stmts75) &&
+    /create\s+trigger\s+drafts_unapprove_guard\s+before\s+update\s+on\s+drafts/.test(stmts74)
+);
+ok(
+  "0069's sent-once trigger is untouched (0075 never names it) and 0075 adds no BEFORE UPDATE trigger on drafts other than the prospect_id-scoped org match",
+  !/drafts_sent_once|drafts_enforce_sent_once/.test(stmts75) && !/before\s+update\s+on\s+drafts/.test(stmts75)
+);
+const header75 = sql75
+  .split("\n")
+  .filter((l) => l.startsWith("--"))
+  .map((l) => l.replace(/^--\s?/, ""))
+  .join(" ")
+  .replace(/\s+/g, " ");
+ok(
+  "the header states additive-in-effect (0070's precedent), both deploy orders, the SQL-editor transaction caveat and the lock",
+  /additive in effect/i.test(header75) && /0070/.test(header75) && /safe to apply ahead of its code/i.test(header75) && /reverse order is also safe/i.test(header75) && /sql-editor caveat/i.test(header75) && /for update/i.test(header75)
+);
+ok(
+  "no app or lib code inserts a draft carrying a send fact (every .from(\"drafts\").insert({...}) omits sent_at, sent_by, resend_message_id)",
+  (() => {
+    const hits: string[] = [];
+    for (const f of [...walk(join(root, "app")), ...walk(join(root, "lib"))]) {
+      const t = readFileSync(f, "utf8");
+      for (const m of t.matchAll(/from\(["']drafts["']\)\s*\.insert\(\{[\s\S]{0,700}?\}\)/g)) {
+        if (/sent_at|sent_by|resend_message_id/.test(m[0])) hits.push(relative(root, f));
+      }
+    }
+    return hits.length === 0;
+  })()
+);
+
 // --- 2. Closed-set scan: one send module, one importer (clause 1) ---------
 
 section("closed-set scan: exactly one funder-facing send module, exactly one importer");
@@ -1783,6 +1897,109 @@ async function dbSection() {
       if (fail4Error) throw new Error(`Fourth draft's attempt finalize failed: ${fail4Error.message}`);
       const { error: failedOnlyUnapproveError } = await admin.from("drafts").update(unapproveWrite).eq("id", draft4.id);
       ok("approved -> draft with ONLY a failed attempt on record is allowed -- a refusal is terminal for its attempt, not for the draft", !failedOnlyUnapproveError, failedOnlyUnapproveError?.message ?? "");
+    }
+
+    // --- Migration 0075: drafts hardening (item 73) --------------------------
+    // Applied-ness is probed behaviourally, as for 0074 (PostgREST cannot read
+    // pg_trigger): an insert carrying sent facts either raises (0075 applied)
+    // or lands (absent -> the stray row is deleted and everything below is
+    // NOT EVALUATED, never a pass and never a fail of the fix).
+    const sentFactsRow = {
+      prospect_id: prospect.id,
+      kind: "intro_email",
+      subject: "Born sent",
+      content: "Born sent body",
+      status: "approved",
+      created_by: userId,
+      organization_id: orgId,
+      sent_at: new Date().toISOString(),
+      sent_by: userId,
+      resend_message_id: "msg-born-sent",
+    };
+    const { data: bornSent, error: bornSentError } = await admin.from("drafts").insert(sentFactsRow).select("id").single();
+    if (!bornSentError && bornSent) {
+      await admin.from("drafts").delete().eq("id", bornSent.id);
+      console.log(
+        "NOT EVALUATED: a draft insert carrying sent facts succeeded -- migration 0075 is not applied. The drafts-hardening checks are not a pass."
+      );
+      notEvaluated.push("DB assertions for drafts hardening (org-match, no-insert-with-sent-facts, birth lock) -- migration 0075 not applied");
+    } else {
+      ok(
+        "(ii) an INSERT carrying sent_at, sent_by and resend_message_id is REFUSED -- sent facts are not born on insert",
+        /sent facts cannot be born on insert/.test(bornSentError?.message ?? ""),
+        bornSentError?.message ?? "no error"
+      );
+      for (const [label, facts] of [
+        ["sent_at alone", { sent_at: new Date().toISOString() }],
+        ["sent_by alone", { sent_by: userId }],
+        ["resend_message_id alone", { resend_message_id: "msg-partial" }],
+      ] as const) {
+        const { data: partial, error: partialError } = await admin
+          .from("drafts")
+          .insert({ prospect_id: prospect.id, kind: "intro_email", subject: "Partial", content: "Partial body", status: "draft", created_by: userId, organization_id: orgId, ...facts })
+          .select("id")
+          .single();
+        if (partial) await admin.from("drafts").delete().eq("id", partial.id);
+        ok(`(ii) an INSERT carrying ${label} is refused too`, !!partialError && !partial, partialError?.message ?? "row was created");
+      }
+      const { count: bornSentRows } = await admin.from("drafts").select("id", { count: "exact", head: true }).eq("subject", "Born sent").eq("organization_id", orgId);
+      ok("(ii) ...and the refused inserts left no row behind", bornSentRows === 0);
+
+      const { data: plainDraft, error: plainDraftError } = await admin
+        .from("drafts")
+        .insert({ prospect_id: prospect.id, kind: "intro_email", subject: "Plain", content: "Plain body", status: "draft", created_by: userId, organization_id: orgId })
+        .select("id")
+        .single();
+      ok("(ii) an INSERT without send facts is allowed, and it is a same-org draft-to-prospect link (0075 does not block the ordinary case)", !plainDraftError && !!plainDraft, plainDraftError?.message ?? "");
+
+      // The org-match: a second throwaway org (same equality-matched name, so
+      // the purge removes it) with its own prospect.
+      const { data: org2, error: org2Error } = await admin.from("organizations").insert({ name: ORG_NAME }).select("id").single();
+      if (org2Error || !org2) throw new Error(`Could not create second test org: ${org2Error?.message}`);
+      const { data: prospect2, error: prospect2Error } = await admin
+        .from("prospects")
+        .insert({ name: "[test] Draft Send Probe 2", channel: "foundation", owner_id: userId, organization_id: org2.id as string, contact_email: "funder2@example.org" })
+        .select("id")
+        .single();
+      if (prospect2Error || !prospect2) throw new Error(`Could not create second test prospect: ${prospect2Error?.message}`);
+
+      const { data: crossDraft, error: crossDraftError } = await admin
+        .from("drafts")
+        .insert({ prospect_id: prospect2.id, kind: "intro_email", subject: "Cross", content: "Cross body", status: "draft", created_by: userId, organization_id: orgId })
+        .select("id")
+        .single();
+      ok(
+        "(i) an INSERT of a draft in one org against ANOTHER org's prospect is REFUSED (org-match trigger, hard rule 6)",
+        !!crossDraftError && !crossDraft && /must match the referenced prospect/.test(crossDraftError.message),
+        crossDraftError?.message ?? "row was created"
+      );
+      if (crossDraft) await admin.from("drafts").delete().eq("id", crossDraft.id);
+
+      // Re-pointing an existing draft is refused too (UPDATE OF prospect_id).
+      const { error: repointError } = await admin.from("drafts").update({ prospect_id: prospect2.id }).eq("id", plainDraft?.id ?? "");
+      ok("(i) UPDATE re-pointing an existing draft's prospect_id to another org's prospect is REFUSED", !!repointError && /must match the referenced prospect/.test(repointError.message), repointError?.message ?? "no error");
+      const { data: sameOrgProspect2, error: sameOrgProspect2Error } = await admin
+        .from("prospects")
+        .insert({ name: "[test] Draft Send Probe 3", channel: "foundation", owner_id: userId, organization_id: orgId, contact_email: "funder3@example.org" })
+        .select("id")
+        .single();
+      if (sameOrgProspect2Error || !sameOrgProspect2) throw new Error(`Could not create third test prospect: ${sameOrgProspect2Error?.message}`);
+      const { error: sameOrgRepointError } = await admin.from("drafts").update({ prospect_id: sameOrgProspect2.id }).eq("id", plainDraft?.id ?? "");
+      ok("(i) re-pointing to a SAME-org prospect still works", !sameOrgRepointError, sameOrgRepointError?.message ?? "");
+      const { error: unrelatedUpdateError } = await admin.from("drafts").update({ subject: "Plain edited" }).eq("id", plainDraft?.id ?? "");
+      ok("(i) an ordinary edit that does not touch prospect_id is unaffected", !unrelatedUpdateError, unrelatedUpdateError?.message ?? "");
+
+      // The lock (iii) does not change any outcome the 0069 checks produced:
+      // birth still works on an approved draft and still refuses on a draft.
+      const { error: lockedBirthDraftError } = await admin
+        .from("draft_send_attempts")
+        .insert({ ...birthRow, draft_id: plainDraft?.id, subject: "Plain", body: "Plain body" });
+      ok("(iii) with the lock in place, birth against a not-approved draft is still refused", !!lockedBirthDraftError && /only an approved draft/.test(lockedBirthDraftError.message), lockedBirthDraftError?.message ?? "no error");
+      await admin.from("drafts").update({ status: "approved", approved_by: userId, approved_at: new Date().toISOString() }).eq("id", plainDraft?.id ?? "");
+      const { error: lockedBirthOkError } = await admin
+        .from("draft_send_attempts")
+        .insert({ ...birthRow, draft_id: plainDraft?.id, subject: "Plain", body: "Plain body" });
+      ok("(iii) ...and birth against an approved draft still works", !lockedBirthOkError, lockedBirthOkError?.message ?? "");
     }
   } finally {
     await purge("teardown");
