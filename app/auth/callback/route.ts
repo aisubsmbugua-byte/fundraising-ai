@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { ensureProfileForCurrentUser } from "@/lib/auth-callback";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -10,38 +11,29 @@ export async function GET(request: Request) {
     const supabase = createClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && data.user) {
-      const { data: existingProfile } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      if (!existingProfile) {
-        const organizationId = data.user.app_metadata?.organization_id as string | undefined;
-        if (!organizationId) {
-          // Signed in successfully but was never invited into an
-          // organization -- app_metadata is only ever set by the
-          // invite actions (app/admin, settings/team), never by the
-          // user themselves, so this means the account exists but
-          // has no org to land in.
-          return NextResponse.redirect(`${origin}/login?error=no_organization`);
-        }
-        // The insert policy on profiles re-validates organizationId
-        // against this same app_metadata claim server-side, so this
-        // can't be spoofed even though it's read from the session here.
-        const { error: profileError } = await supabase.from("profiles").insert({
-          id: data.user.id,
-          organization_id: organizationId,
-          email: data.user.email,
-        });
-        if (profileError) {
-          return NextResponse.redirect(`${origin}/login?error=auth`);
-        }
+      const result = await ensureProfileForCurrentUser(supabase);
+      if (result.status === "no_organization") {
+        return NextResponse.redirect(`${origin}/login?error=no_organization`);
+      }
+      if (result.status === "error") {
+        return NextResponse.redirect(`${origin}/login?error=auth`);
       }
 
       return NextResponse.redirect(`${origin}${next}`);
     }
+
+    // code was present but the exchange itself failed (expired, already
+    // used, etc.) -- a genuinely broken PKCE exchange, distinct from the
+    // no-code case below, so it stays on the direct error message.
+    return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+  // No ?code= at all: this is the shape Supabase's verify endpoint
+  // produces for a server-side-issued link (admin.auth.admin.inviteUserByEmail,
+  // no PKCE challenge -- see lib/invite.ts). The session comes back as
+  // tokens in the URL fragment, which never reaches this server-side
+  // handler, but a fragment survives a redirect whose target specifies
+  // none of its own -- so hand off to the client-side page that can read
+  // it, preserving `next`.
+  return NextResponse.redirect(`${origin}/auth/complete-signin?next=${encodeURIComponent(next)}`);
 }
