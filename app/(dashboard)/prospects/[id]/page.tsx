@@ -16,6 +16,7 @@ import { loadProspectIntelligence, strategyReadiness } from "@/lib/prospect-inte
 import { loadProspectWorkflow } from "@/lib/prospect-workflow";
 import { loadProspectOutcome, describeDisposition } from "@/lib/prospect-outcomes";
 import ActivityTab from "./activity-tab";
+import type { Interaction } from "@/lib/interactions";
 import ContactsTab from "./contacts-tab";
 import StrategyPanel from "./strategy-panel";
 import DraftPanel from "./draft-panel";
@@ -57,7 +58,7 @@ export default async function ProspectDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { edit?: string; tab?: string };
+  searchParams: { edit?: string; tab?: string; logOpen?: string };
 }) {
   const supabase = createClient();
   const { data: prospect } = await supabase
@@ -85,6 +86,7 @@ export default async function ProspectDetailPage({
 
   const [
     { data: history },
+    { data: interactions },
     { data: screenings },
     { data: strategyRun },
     { data: drafts },
@@ -101,6 +103,16 @@ export default async function ProspectDetailPage({
       .eq("prospect_id", prospect.id)
       .order("created_at", { ascending: false })
       .returns<StageChange[]>(),
+    // STATE item 79: the Activity tab now also shows and can log
+    // interactions, the same action and table the Follow-up page's
+    // "+Log" already uses (lib/interactions.ts, app/(dashboard)/revisit/
+    // actions.ts's logInteraction) -- one place that writes it.
+    supabase
+      .from("interactions")
+      .select("*")
+      .eq("prospect_id", prospect.id)
+      .order("occurred_at", { ascending: false })
+      .returns<Interaction[]>(),
     supabase
       .from("screening_results")
       .select("*")
@@ -493,7 +505,14 @@ export default async function ProspectDetailPage({
                   />
                 </>
               )}
-              {activeTab === "activity" && <ActivityTab history={history ?? []} />}
+              {activeTab === "activity" && (
+                <ActivityTab
+                  history={history ?? []}
+                  interactions={interactions ?? []}
+                  prospectId={prospect.id}
+                  defaultLogOpen={searchParams.logOpen === "1"}
+                />
+              )}
               {activeTab === "contacts" && <ContactsTab prospect={prospect} relatedContacts={relatedContacts ?? []} />}
             </div>
             <RightRail prospect={prospect} />

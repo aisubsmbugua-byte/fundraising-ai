@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Sparkles, ThumbsUp, ThumbsDown, Plus, Mail, PhoneCall, Users, MessageSquare, CalendarClock, ArrowLeft } from "lucide-react";
 import {
-  logInteraction,
   suggestNextStep,
   useSuggestedNextStep,
   dismissSuggestedNextStep,
@@ -12,13 +11,14 @@ import {
 } from "./actions";
 import { channelLabel, stageLabel, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import type { Candidate } from "@/lib/candidates";
-import { INTERACTION_KINDS, interactionKindLabel, type Interaction, type InteractionKind } from "@/lib/interactions";
+import { interactionKindLabel, type Interaction, type InteractionKind } from "@/lib/interactions";
 import type { NurtureRow } from "@/lib/nurture";
 import { describeDisposition, type ProspectOutcome } from "@/lib/prospect-outcomes";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import HealthChip from "@/components/HealthChip";
 import ProspectOutcomePanel from "@/components/ProspectOutcomePanel";
-import { spacing, colors, radiusSm, fieldStyle, labelStyle, cardStyle, sectionStyle, chipStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
+import LogInteractionForm from "@/components/LogInteractionForm";
+import { spacing, colors, radiusSm, fieldStyle, labelStyle, sectionStyle, chipStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 
 export type DeclinedProspect = { prospect: Prospect; outcome: ProspectOutcome };
 
@@ -396,47 +396,6 @@ function ProspectDetail({
         )}
       </div>
     </div>
-  );
-}
-
-function LogInteractionForm({ prospectId, onDone }: { prospectId: string; onDone: () => void }) {
-  const [isPending, startTransition] = useTransition();
-
-  return (
-    <form
-      action={(formData) => {
-        startTransition(async () => {
-          await logInteraction(
-            prospectId,
-            formData.get("kind") as InteractionKind,
-            formData.get("summary") as string,
-            (formData.get("occurred_at") as string) || new Date().toISOString().slice(0, 10)
-          );
-          onDone();
-        });
-      }}
-      style={{ display: "grid", gap: spacing.sm, marginTop: spacing.sm, ...cardStyle }}
-    >
-      <div style={{ display: "flex", gap: spacing.sm }}>
-        <select name="kind" defaultValue="email" style={{ ...fieldStyle, marginTop: 0 }}>
-          {INTERACTION_KINDS.map((k) => (
-            <option key={k.value} value={k.value}>
-              {k.label}
-            </option>
-          ))}
-        </select>
-        <input type="date" name="occurred_at" defaultValue={new Date().toISOString().slice(0, 10)} style={{ ...fieldStyle, marginTop: 0 }} />
-      </div>
-      <textarea name="summary" placeholder="What happened?" required rows={2} style={fieldStyle} />
-      <div style={{ display: "flex", gap: spacing.sm }}>
-        <button type="submit" disabled={isPending} style={buttonPrimary}>
-          {isPending ? "Saving…" : "Save"}
-        </button>
-        <button type="button" onClick={onDone} style={buttonSecondary}>
-          Cancel
-        </button>
-      </div>
-    </form>
   );
 }
 

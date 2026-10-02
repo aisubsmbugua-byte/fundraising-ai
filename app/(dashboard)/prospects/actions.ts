@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { upsertContact } from "@/lib/contacts";
 import { requireUser } from "@/lib/auth";
+import { resolveStartingStage, buildStartingStageChange } from "@/lib/prospect-starting-stage";
 
 // Accepts what people actually type -- "58-2218044", "582218044", stray
 // spaces -- and stores the canonical dashed form the research code compares
@@ -60,13 +61,30 @@ export async function createProspect(formData: FormData) {
   if (!user) redirect("/login");
 
   const fields = fieldsFromForm(formData);
+  // STATE item 79: where the prospect starts, read straight from the form.
+  // Deliberately NOT part of fieldsFromForm -- see lib/prospect-starting-stage.ts.
+  const { stage, reason } = resolveStartingStage(
+    formData.get("stage") as string | null,
+    formData.get("stage_reason") as string | null
+  );
   const { data, error } = await supabase
     .from("prospects")
-    .insert({ ...fields, owner_id: user.id })
+    .insert({ ...fields, stage, owner_id: user.id })
     .select("id")
     .single();
 
   if (error) throw new Error(error.message);
+
+  // Discovery (the default) writes nothing here, leaving a prospect born
+  // today byte-identical to before this item. A non-Discovery starting point
+  // writes exactly one row explaining why, directly -- not via
+  // moveProspectStage (app/(dashboard)/pipeline/actions.ts), because this is
+  // a backfill of something that already happened, not a move.
+  const stageChange = buildStartingStageChange(data.id, stage, reason, user.id, user.email);
+  if (stageChange) {
+    const { error: stageChangeError } = await supabase.from("stage_changes").insert(stageChange);
+    if (stageChangeError) throw new Error(stageChangeError.message);
+  }
 
   await upsertContact(supabase, {
     name: fields.contact_name,
@@ -77,7 +95,13 @@ export async function createProspect(formData: FormData) {
   });
 
   revalidatePath("/pipeline");
-  redirect(`/prospects/${data.id}`);
+  // A non-Discovery start lands on Activity with the log-interaction form
+  // already open (logOpen=1), so the human sees the backfill row just
+  // written and is invited, not required, to log what already happened --
+  // same tab the ?tab= pattern already serves elsewhere on this page
+  // (page.tsx), and the same form the Follow-up page's "+Log" uses
+  // (components/LogInteractionForm.tsx -> logInteraction).
+  redirect(stage === "discovery" ? `/prospects/${data.id}` : `/prospects/${data.id}?tab=activity&logOpen=1`);
 }
 
 export async function updateProspect(id: string, formData: FormData) {

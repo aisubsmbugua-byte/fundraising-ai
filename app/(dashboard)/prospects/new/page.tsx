@@ -1,8 +1,16 @@
+"use client";
+
+import { useState } from "react";
 import { createProspect } from "../actions";
-import { CHANNELS } from "@/lib/prospects";
+import { CHANNELS, STAGES } from "@/lib/prospects";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary } from "@/lib/ui";
 
 export default function NewProspectPage() {
+  // Defaults to Discovery, same as every prospect created before this field
+  // existed -- the reason input only appears once a human deliberately picks
+  // somewhere else (STATE item 79).
+  const [stage, setStage] = useState<string>("discovery");
+
   return (
     <div style={{ maxWidth: 480 }}>
       <h1>New Prospect</h1>
@@ -56,6 +64,26 @@ export default function NewProspectPage() {
         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginTop: spacing.sm }}>
           Pipeline tracking (optional)
         </div>
+        <label style={labelStyle}>
+          Where are they today?
+          <select name="stage" value={stage} onChange={(e) => setStage(e.target.value)} style={fieldStyle}>
+            {STAGES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {stage !== "discovery" && (
+          <label style={labelStyle}>
+            Why are they starting here?
+            <input
+              name="stage_reason"
+              placeholder="e.g. Existing relationship, already in stewardship"
+              style={fieldStyle}
+            />
+          </label>
+        )}
         <label style={labelStyle}>
           Ask amount
           <input name="ask_amount" type="number" min={0} step={1} placeholder="e.g. 25000" style={fieldStyle} />
