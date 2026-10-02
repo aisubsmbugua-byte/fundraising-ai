@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutGrid, List, Plus, DollarSign, Users2, TriangleAlert } from "lucide-react";
+import { LayoutGrid, List, Plus, Upload, DollarSign, Users2, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   STAGES,
@@ -130,6 +130,14 @@ export default async function PipelinePage({
           </Link>
           <Link href="/pipeline?view=list" style={{ ...(view === "list" ? buttonPrimary : buttonSecondary), display: "flex", alignItems: "center", gap: 8 }}>
             <List size={15} /> List
+          </Link>
+          {/* STATE item 83: a visibly different link/icon/label from "New
+              Prospect" -- this one never creates a prospect, it only logs
+              gifts against prospects already in the pipeline. Kept
+              distinguishable so the two are never confused, same posture the
+              Supporters page takes between its two import links. */}
+          <Link href="/prospects/import-gifts" style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+            <Upload size={15} /> Import giving history
           </Link>
           <Link href="/prospects/new" style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
             <Plus size={15} /> New Prospect

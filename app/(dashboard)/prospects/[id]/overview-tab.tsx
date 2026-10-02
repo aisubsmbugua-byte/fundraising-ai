@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { Layers, Clock, CalendarDays, type LucideIcon } from "lucide-react";
-import { channelLabel, stageLabel, type Prospect, type StageChange } from "@/lib/prospects";
+import { channelLabel, stageLabel, type Prospect, type StageChange, type ProspectGift } from "@/lib/prospects";
 import { tierLabel, type ScreeningResult } from "@/lib/screening";
 import type { StrategyRun } from "@/lib/strategy";
 import { spacing, colors, radiusSm, sectionStyle, buttonSecondary } from "@/lib/ui";
 import TierBadge from "@/components/TierBadge";
 import EditableAskAmount from "@/components/EditableAskAmount";
 import ProspectOutcomePanel, { type RetractedTrace } from "@/components/ProspectOutcomePanel";
+import ProspectGiftHistory from "@/components/ProspectGiftHistory";
 import type { ProspectOutcome } from "@/lib/prospect-outcomes";
 
 const MS_PER_DAY = 86400000;
@@ -19,6 +20,7 @@ export default function OverviewTab({
   recentHistory,
   outcome,
   retractedTrace,
+  gifts,
 }: {
   prospect: Prospect;
   daysInStage: number;
@@ -27,6 +29,7 @@ export default function OverviewTab({
   recentHistory: StageChange[];
   outcome: ProspectOutcome | null;
   retractedTrace: RetractedTrace | null;
+  gifts: ProspectGift[];
 }) {
   return (
     <div style={{ display: "grid", gap: spacing.xl }}>
@@ -54,6 +57,12 @@ export default function OverviewTab({
           <SummaryTile icon={Clock} label="In stage" value={`${Math.round(daysInStage)}d`} />
         </div>
       </div>
+
+      {/* STATE item 83, ruling 0035: what this funder has ACTUALLY given in
+          the past -- a different fact from ask_amount above, which is what
+          is being asked for now. Beside the Opportunity summary card, same
+          tab, same visual language. */}
+      <ProspectGiftHistory prospectId={prospect.id} gifts={gifts} />
 
       <div style={sectionStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

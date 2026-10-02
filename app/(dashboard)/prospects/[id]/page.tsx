@@ -3,7 +3,7 @@ import { Pencil } from "lucide-react";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { updateProspect } from "../actions";
-import { CHANNELS, channelLabel, stageLabel, STAGES, type Prospect, type StageChange } from "@/lib/prospects";
+import { CHANNELS, channelLabel, stageLabel, STAGES, type Prospect, type StageChange, type ProspectGift } from "@/lib/prospects";
 import { screenProspect, type ScreeningRule, type ScreeningResult } from "@/lib/screening";
 import DeleteProspectButton from "./delete-button";
 import ScreenButton from "./screen-button";
@@ -93,6 +93,7 @@ export default async function ProspectDetailPage({
     { data: rulesData },
     { data: relatedContacts },
     { data: orgProfileName },
+    { data: gifts },
     {
       data: { user },
     },
@@ -133,6 +134,18 @@ export default async function ProspectDetailPage({
     // own profile supplies the display name and the session supplies the
     // reply-to. Same sources the send handler re-reads at send time.
     supabase.from("org_profile").select("name").limit(1).maybeSingle<{ name: string | null }>(),
+    // STATE item 83, ruling 0035: this prospect's actual giving history, for
+    // the Overview tab's giving-history card (components/ProspectGiftHistory.tsx).
+    // Tolerant of a database that predates migration 0079: the select errors,
+    // data stays null, and the card shows an empty gift list -- nothing can
+    // actually be logged pre-migration either, since logProspectGift's own
+    // insert would fail the same way.
+    supabase
+      .from("prospect_gifts")
+      .select("*")
+      .eq("prospect_id", prospect.id)
+      .order("gift_date", { ascending: false })
+      .returns<ProspectGift[]>(),
     supabase.auth.getUser(),
   ]);
 
@@ -418,6 +431,7 @@ export default async function ProspectDetailPage({
                   recentHistory={(history ?? []).slice(0, 3)}
                   outcome={outcome}
                   retractedTrace={outcomeView.retractedTrace}
+                  gifts={gifts ?? []}
                 />
               )}
               {activeTab === "research" && (

@@ -7,6 +7,8 @@ import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { upsertContact } from "@/lib/contacts";
 import { requireUser } from "@/lib/auth";
 import { resolveStartingStage, buildStartingStageChange } from "@/lib/prospect-starting-stage";
+import { parseProspectGiftCsvRow, type ProspectGiftCsvErrorReason } from "@/lib/prospects";
+import { parseCsv } from "@/lib/candidates";
 
 // Accepts what people actually type -- "58-2218044", "582218044", stray
 // spaces -- and stores the canonical dashed form the research code compares
@@ -418,6 +420,91 @@ export async function confirmProspectOperatingIdentity(prospectId: string, domai
   revalidatePath(`/prospects/${prospectId}`);
   revalidatePath("/admin/research");
   return { error: null };
+}
+
+// Gift-history CSV bulk import -- STATE item 83, ruling 0035. HARD BOUNDARY
+// (stated in the ruling, restated here): this importer creates NO prospects,
+// ever. Every row must match an existing prospect already in the
+// organization, or the row is an error, counted and reported -- never a
+// silent skip and never a new prospect. Structurally mirrors
+// importSupporterGiftsCsv (app/(dashboard)/supporters/actions.ts) exactly:
+// requireUser, load the organization's current prospects once, parse every
+// row against that fixed list with parseCsv (lib/candidates.ts, the same
+// utility importSupportersCsv/importCandidatesCsv already use), run each row
+// through parseProspectGiftCsvRow (lib/prospects.ts -- pure, no database, see
+// its own comment for the exact matching/validation rules, including why the
+// identifier columns are prospect_name/prospect_email matched against
+// contact_email rather than a plain email column), and report
+// imported/error counts separately, with every error reason kept
+// distinguishable rather than blended into one bucket (ruling 0021).
+//
+// Insert choice: a SINGLE BATCH INSERT of every "insert" outcome, not one
+// logProspectGift() call per row -- same reasoning importSupporterGiftsCsv
+// documents at its own equivalent spot: logProspectGift's own body is just
+// one insert call plus checks parseProspectGiftCsvRow already performs more
+// precisely before a row ever reaches this point, so calling it per row would
+// re-validate nothing useful while paying N round trips instead of one. The
+// inserted shape is identical to logProspectGift's: prospect_id, amount,
+// gift_date, note, recorded_by -- so a batch-imported gift is
+// indistinguishable in shape from a manually logged one.
+export async function importProspectGiftsCsv(formData: FormData) {
+  const user = await requireUser();
+  const supabase = createClient();
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Choose a CSV file to upload");
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+
+  // Every existing prospect's id/name/contact_email, read once --
+  // parseProspectGiftCsvRow matches each row against this SAME fixed list
+  // for the whole run; a gift CSV never grows the prospect list, so unlike a
+  // prospect-creating importer there is no "known" list to append to as
+  // rows are processed.
+  const { data: existingProspects } = await supabase.from("prospects").select("id, name, contact_email");
+  const known: { id: string; name: string; contact_email: string | null }[] = [...(existingProspects ?? [])];
+
+  const toInsert: { prospect_id: string; amount: number; gift_date: string; note: string | null; recorded_by: string }[] = [];
+  const errorsByReason: Record<ProspectGiftCsvErrorReason, number> = {
+    "no match": 0,
+    "ambiguous match": 0,
+    "invalid amount": 0,
+    "invalid date": 0,
+  };
+
+  for (const row of rows) {
+    const outcome = parseProspectGiftCsvRow(row, known);
+    if (outcome.kind === "error") {
+      errorsByReason[outcome.reason]++;
+      continue;
+    }
+    toInsert.push({
+      prospect_id: outcome.prospectId,
+      amount: outcome.amount,
+      gift_date: outcome.giftDate,
+      note: outcome.note,
+      recorded_by: user.id,
+    });
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("prospect_gifts").insert(toInsert);
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/pipeline");
+  const errorCount = Object.values(errorsByReason).reduce((a, b) => a + b, 0);
+  // Every reason kept distinguishable in the query string too, not blended
+  // into the single errors count -- ruling 0021's discipline, matching
+  // importSupporterGiftsCsv's own redirect at this exact spot.
+  redirect(
+    `/prospects/import-gifts?imported=${toInsert.length}&errors=${errorCount}` +
+      `&noMatch=${errorsByReason["no match"]}` +
+      `&ambiguous=${errorsByReason["ambiguous match"]}` +
+      `&invalidAmount=${errorsByReason["invalid amount"]}` +
+      `&invalidDate=${errorsByReason["invalid date"]}`,
+  );
 }
 
 // The counterpart to clearProspectEin. A confirmation a person cannot revise

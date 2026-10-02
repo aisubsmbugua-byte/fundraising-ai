@@ -1351,6 +1351,73 @@ async function main() {
       const { data: interactionCascaded } = await admin.from("supporter_interactions").select("id").eq("id", interactionToCascade!.id);
       check("Deleting a supporter deletes its interaction history (foreign key cascade)", (interactionCascaded?.length ?? 0) === 0);
     }
+
+    // --- Prospect gifts (migration 0079, ruling 0035) ---
+    // The institutional-funder half of the same append-only gift ledger
+    // ruling 0034 gave supporters (supporter_gifts, just above): insert and
+    // select ONLY, no update, no delete, matching ruling 0019's retention
+    // posture. Keyed to `prospects` directly rather than a separate parent
+    // table, so prospectA/prospectB (created at the top of this run) are
+    // reused here rather than seeding new rows. Both real authenticated
+    // sessions, never the service-role client, for every isolation
+    // assertion. NOT-EVALUATED when the table does not exist (42P01 /
+    // PGRST205).
+    const { error: prospectGiftsProbeError } = await admin.from("prospect_gifts").select("id").limit(1);
+    if (prospectGiftsProbeError && (prospectGiftsProbeError.code === "42P01" || prospectGiftsProbeError.code === "PGRST205")) {
+      notEvaluated.push("prospect_gifts -- migration 0079 is not applied to this database, so its assertions did not run");
+      console.log("\nNOT EVALUATED: prospect_gifts (migration 0079 not applied). Apply 0079 and re-run; this is not a pass.\n");
+    } else {
+      const { data: prospectGiftA, error: prospectGiftAError } = await clientA
+        .from("prospect_gifts")
+        .insert({ prospect_id: prospectA.id, amount: 500, gift_date: "2026-09-01", recorded_by: a.userId })
+        .select("id")
+        .single();
+      if (prospectGiftAError || !prospectGiftA) throw new Error(`Org A prospect gift insert failed: ${prospectGiftAError?.message}`);
+
+      const { data: prospectGiftReadB } = await clientB.from("prospect_gifts").select("id").eq("id", prospectGiftA.id);
+      check("Org B cannot SELECT Org A's prospect_gifts row by id", (prospectGiftReadB?.length ?? 0) === 0);
+
+      const { error: crossProspectGiftError } = await clientB
+        .from("prospect_gifts")
+        .insert({ prospect_id: prospectA.id, amount: 10, gift_date: "2026-09-02", recorded_by: b.userId });
+      check("Org B cannot INSERT a prospect_gifts row against Org A's prospect (org-match trigger)", !!crossProspectGiftError);
+
+      const { error: zeroProspectGiftAmountError } = await clientA
+        .from("prospect_gifts")
+        .insert({ prospect_id: prospectA.id, amount: 0, gift_date: "2026-09-01", recorded_by: a.userId });
+      check("A prospect gift of $0 is refused (amount > 0 check)", !!zeroProspectGiftAmountError);
+      const { error: negativeProspectGiftAmountError } = await clientA
+        .from("prospect_gifts")
+        .insert({ prospect_id: prospectA.id, amount: -5, gift_date: "2026-09-01", recorded_by: a.userId });
+      check("A negative prospect gift amount is refused (amount > 0 check)", !!negativeProspectGiftAmountError);
+      const { error: impersonatedProspectGiftError } = await clientA
+        .from("prospect_gifts")
+        .insert({ prospect_id: prospectA.id, amount: 10, gift_date: "2026-09-01", recorded_by: b.userId });
+      check("A prospect gift cannot be recorded as someone else (recorded_by must be the session user)", !!impersonatedProspectGiftError);
+
+      const { data: prospectGiftOwnUpdate } = await clientA.from("prospect_gifts").update({ amount: 999 }).eq("id", prospectGiftA.id).select("id");
+      check("prospect_gifts has no update policy -- even Org A's own UPDATE on its own row affects 0 rows", (prospectGiftOwnUpdate?.length ?? 0) === 0);
+      const { data: prospectGiftOwnDelete } = await clientA.from("prospect_gifts").delete().eq("id", prospectGiftA.id).select("id");
+      check("prospect_gifts has no delete policy -- even Org A's own DELETE on its own row affects 0 rows", (prospectGiftOwnDelete?.length ?? 0) === 0);
+
+      // Cascade: deleting a prospect deletes its gift history. A dedicated
+      // prospect, not prospectA itself -- prospectA is reused by other
+      // sections above and below this one.
+      const { data: prospectToDelete } = await clientA
+        .from("prospects")
+        .insert({ name: "[test] Org A prospect to be erased", channel: "foundation", owner_id: a.userId })
+        .select("id")
+        .single();
+      const { data: prospectGiftToCascade } = await clientA
+        .from("prospect_gifts")
+        .insert({ prospect_id: prospectToDelete!.id, amount: 5, gift_date: "2026-09-01", recorded_by: a.userId })
+        .select("id")
+        .single();
+      const { data: deletedProspectForGift } = await clientA.from("prospects").delete().eq("id", prospectToDelete!.id).select("id");
+      check("Org A CAN delete its own prospect", (deletedProspectForGift?.length ?? 0) === 1);
+      const { data: prospectGiftCascaded } = await admin.from("prospect_gifts").select("id").eq("id", prospectGiftToCascade!.id);
+      check("Deleting a prospect deletes its gift history (foreign key cascade)", (prospectGiftCascaded?.length ?? 0) === 0);
+    }
   } finally {
     cleanupProblems = await purgeTestIdentities("teardown");
   }

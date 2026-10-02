@@ -38,6 +38,19 @@ import { parseHashTokens, ensureProfileForCurrentUser, type EnsureProfileResult 
 const root = join(__dirname, "..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
 const readAtHead = (p: string) => execSync(`git show HEAD:${p}`, { cwd: root }).toString();
+// HEAD drifts forward with every commit to the branch -- correct for the
+// four checks below that want "this file's current committed content,
+// unchanged since the refactor" (login.ts, invite.ts, the two Supabase
+// clients: none of them have been touched again, so HEAD and a pinned SHA
+// agree). WRONG for the one check that wants a specific moment in history:
+// "what route.ts looked like before item 78's refactor extracted its
+// insert into lib/auth-callback.ts" is a fact about one commit, not about
+// whatever the latest commit happens to be. Pinned to that commit's parent
+// (5567386^) rather than the literal string HEAD, which is exactly the
+// shape of bug scripts/ledger-check.ts's own table-citation check exists
+// to catch at the schema level -- this is the same mistake at the git level.
+const readAtCommit = (sha: string, p: string) => execSync(`git show ${sha}:${p}`, { cwd: root }).toString();
+const PRE_ITEM_78_SHA = "5c1f57f124550aceab9eb15ecd511f7667f986d3"; // parent of 5567386, the refactor commit
 
 let pass = 0;
 let fail = 0;
@@ -200,9 +213,9 @@ async function outcome(opts: StubOpts) {
 
   // --- 2b. the insert shape matches the pre-refactor route.ts verbatim ----
 
-  section("insert shape diffed against the pre-refactor route.ts (git HEAD)");
+  section("insert shape diffed against the pre-refactor route.ts (pinned commit, not HEAD)");
 
-  const preRefactorRoute = readAtHead("app/auth/callback/route.ts");
+  const preRefactorRoute = readAtCommit(PRE_ITEM_78_SHA, "app/auth/callback/route.ts");
   const preInsertMatch = preRefactorRoute.match(
     /\.insert\(\{\s*id:\s*data\.user\.id,\s*organization_id:\s*organizationId,\s*email:\s*data\.user\.email,\s*\}\)/
   );
