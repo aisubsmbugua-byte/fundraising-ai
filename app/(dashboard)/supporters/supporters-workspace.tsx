@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Plus, Upload, Mail, PhoneCall, Users as UsersIcon, MessageSquare, ArrowLeft } from "lucide-react";
+import { Plus, Upload, DollarSign, Mail, PhoneCall, Users as UsersIcon, MessageSquare, ArrowLeft } from "lucide-react";
 import { createSupporter, logSupporterGift, logSupporterInteraction } from "./actions";
 import {
   SOURCE_TYPES,
@@ -59,6 +59,16 @@ export default function SupportersWorkspace({
               style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "6px 10px", textDecoration: "none" }}
             >
               <Upload size={13} /> Import CSV
+            </Link>
+            {/* STATE item 82: a visibly different link/icon/label from
+                "Import CSV" above -- that one creates supporters, this one
+                never does, it only logs gifts against people already on the
+                list. Kept distinguishable so the two are never confused. */}
+            <Link
+              href="/supporters/import-gifts"
+              style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "6px 10px", textDecoration: "none" }}
+            >
+              <DollarSign size={13} /> Import giving history
             </Link>
             <button
               type="button"

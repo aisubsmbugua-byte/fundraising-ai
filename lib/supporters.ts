@@ -346,3 +346,98 @@ export function parseSupporterCsvRow(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Gift-history CSV bulk import (STATE item 82, ruling 0034 clauses 2 and 4):
+// the pure per-row parse/validate/match step behind importSupporterGiftsCsv
+// (app/(dashboard)/supporters/actions.ts). Same separation-of-concerns
+// discipline as parseSupporterCsvRow above: no database, no clock, a
+// discriminated-union outcome, so the matching and validation rules are
+// provable offline.
+//
+// HARD BOUNDARY, stated plainly because it is easy to blur with item 81's
+// supporter importer right above: this function creates NO supporters, ever.
+// A row that does not resolve to exactly one EXISTING supporter is an error
+// -- never a new supporter, and never a silent skip into nothing.
+//
+// Required: an identifier -- supporter_email OR supporter_name, at least one
+// present and resolving to existing supporters (see matching rule below);
+// amount (numeric, > 0); gift_date (a valid calendar date). Optional: note.
+//
+// Matching rule: if the row carries a non-blank supporter_email, match
+// existing supporters by exact case-insensitive email first. Only when that
+// yields zero candidates (no email given, or an email given that matches no
+// one) does the row fall back to exact case-insensitive supporter_name
+// matching -- an email that matches MORE than one existing supporter is
+// reported ambiguous directly, it does not also try the name. Zero
+// candidates after both steps is "no match"; more than one candidate at
+// either step is "ambiguous" -- never guessed, matching parseSupporterCsvRow's
+// own exact (not substring/isSameOrg) matching discipline for person names.
+//
+// Date validation reuses this file's OWN existing precedent rather than
+// inventing a second rule: utcDay (above) already treats a gift_date as
+// valid only when slicing it to its first 10 characters and parsing as a
+// UTC midnight timestamp does not produce NaN. isValidGiftDate below is that
+// identical check, factored out so both can use it without one importing
+// the other's internals.
+export type GiftCsvErrorReason = "no match" | "ambiguous match" | "invalid amount" | "invalid date";
+
+export type GiftCsvOutcome =
+  | {
+      kind: "insert";
+      supporterId: string;
+      amount: number;
+      giftDate: string;
+      note: string | null;
+    }
+  | { kind: "error"; reason: GiftCsvErrorReason };
+
+// Same rule utcDay (above) applies to gift_date/occurred_at strings, exposed
+// standalone so parseGiftCsvRow can validate a row BEFORE it has a known
+// supporter_id to key utcDay's per-supporter maps by.
+export function isValidGiftDate(raw: string): boolean {
+  return !Number.isNaN(Date.parse(`${raw.slice(0, 10)}T00:00:00Z`));
+}
+
+export function parseGiftCsvRow(
+  row: Record<string, string>,
+  existingSupporters: readonly { id: string; name: string; email: string | null }[],
+): GiftCsvOutcome {
+  const email = (row.supporter_email ?? "").trim();
+  const name = (row.supporter_name ?? "").trim();
+
+  let matches: { id: string; name: string; email: string | null }[] = [];
+  if (email) {
+    const normalizedEmail = email.toLowerCase();
+    matches = existingSupporters.filter((s) => s.email && s.email.toLowerCase() === normalizedEmail);
+  }
+  // Falls back to name matching only when the email step found NOTHING --
+  // an email that matched two-plus supporters is reported ambiguous below,
+  // it is not given a second chance via name.
+  if (matches.length === 0 && name) {
+    const normalizedName = normalizeSupporterName(name);
+    matches = existingSupporters.filter((s) => normalizeSupporterName(s.name) === normalizedName);
+  }
+
+  if (matches.length === 0) return { kind: "error", reason: "no match" };
+  if (matches.length > 1) return { kind: "error", reason: "ambiguous match" };
+
+  const amountRaw = (row.amount ?? "").trim();
+  const amount = Number(amountRaw);
+  if (!amountRaw || !Number.isFinite(amount) || amount <= 0) {
+    return { kind: "error", reason: "invalid amount" };
+  }
+
+  const giftDateRaw = (row.gift_date ?? "").trim();
+  if (!giftDateRaw || !isValidGiftDate(giftDateRaw)) {
+    return { kind: "error", reason: "invalid date" };
+  }
+
+  return {
+    kind: "insert",
+    supporterId: matches[0].id,
+    amount,
+    giftDate: giftDateRaw,
+    note: (row.note ?? "").trim() || null,
+  };
+}

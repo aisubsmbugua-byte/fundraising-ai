@@ -23,7 +23,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import type { InteractionKind } from "@/lib/interactions";
-import { SOURCE_TYPES, PLEDGE_FREQUENCIES, parseSupporterCsvRow } from "@/lib/supporters";
+import { SOURCE_TYPES, PLEDGE_FREQUENCIES, parseSupporterCsvRow, parseGiftCsvRow, type GiftCsvErrorReason } from "@/lib/supporters";
 import { parseCsv } from "@/lib/candidates";
 
 type Result = { error: string } | { success: true; id: string };
@@ -208,4 +208,94 @@ export async function importSupportersCsv(formData: FormData) {
   // not be read or validated is the import failing (ruling 0021's
   // discipline; same comment importCandidatesCsv makes at this exact spot).
   redirect(`/supporters/import?imported=${toInsert.length}&errors=${errorCount}&duplicates=${duplicateCount}`);
+}
+
+// Gift-history CSV bulk import -- STATE item 82, ruling 0034 clauses 2 and
+// 4. HARD BOUNDARY (stated in the item, restated here): this importer
+// creates NO supporters, ever. Every row must match an existing supporter
+// already in the organization, or the row is an error, counted and
+// reported -- never a silent skip and never a new supporter. Structurally
+// mirrors importSupportersCsv immediately above: requireUser (not a raw
+// supabase.auth.getUser() call -- that was importSupportersCsv's own
+// pre-existing pattern, not repeated here since requireUser is this file's
+// documented ordinary bar, see lib/auth.ts), load the organization's current
+// supporters once, parse every row against that fixed list with parseCsv
+// (lib/candidates.ts, the same utility importSupportersCsv already uses),
+// run each row through parseGiftCsvRow (lib/supporters.ts -- pure, no
+// database, see its own comment for the exact matching/validation rules),
+// and report imported/error counts separately, with every error reason kept
+// distinguishable rather than blended into one bucket (ruling 0021).
+//
+// Insert choice: a SINGLE BATCH INSERT of every "insert" outcome, not one
+// logSupporterGift() call per row. Reason: logSupporterGift's own body is
+// just one insert call plus the amount/giftDate truthy checks that
+// parseGiftCsvRow already performs more precisely (numeric > 0, real
+// calendar date) before a row ever reaches this point -- calling it per row
+// would re-validate nothing useful while paying N round trips instead of
+// one, and importSupportersCsv (immediately above) already established the
+// batch-insert-after-full-validation pattern for this exact file. The
+// inserted shape is identical to logSupporterGift's: supporter_id, amount,
+// gift_date, note, recorded_by -- same four data fields plus recorded_by:
+// user.id, and created_at is left to the column default both ways (neither
+// logSupporterGift nor this path sets it explicitly), so a batch-imported
+// gift is indistinguishable in shape from a manually logged one.
+export async function importSupporterGiftsCsv(formData: FormData) {
+  const user = await requireUser();
+  const supabase = createClient();
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Choose a CSV file to upload");
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+
+  // Every existing supporter's id/name/email, read once -- parseGiftCsvRow
+  // matches each row against this SAME fixed list for the whole run; a gift
+  // CSV never grows the supporter list, so unlike importSupportersCsv there
+  // is no "known" list to append to as rows are processed.
+  const { data: existingSupporters } = await supabase.from("supporters").select("id, name, email");
+  const known: { id: string; name: string; email: string | null }[] = [...(existingSupporters ?? [])];
+
+  const toInsert: { supporter_id: string; amount: number; gift_date: string; note: string | null; recorded_by: string }[] = [];
+  const errorsByReason: Record<GiftCsvErrorReason, number> = {
+    "no match": 0,
+    "ambiguous match": 0,
+    "invalid amount": 0,
+    "invalid date": 0,
+  };
+
+  for (const row of rows) {
+    const outcome = parseGiftCsvRow(row, known);
+    if (outcome.kind === "error") {
+      errorsByReason[outcome.reason]++;
+      continue;
+    }
+    toInsert.push({
+      supporter_id: outcome.supporterId,
+      amount: outcome.amount,
+      gift_date: outcome.giftDate,
+      note: outcome.note,
+      recorded_by: user.id,
+    });
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("supporter_gifts").insert(toInsert);
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/supporters");
+  revalidatePath("/revisit");
+  const errorCount = Object.values(errorsByReason).reduce((a, b) => a + b, 0);
+  // Every reason kept distinguishable in the query string too, not blended
+  // into the single errors count -- ruling 0021's discipline, same as item
+  // 81's duplicates-vs-errors split above, carried one level further here
+  // since this importer has four distinct error reasons instead of one.
+  redirect(
+    `/supporters/import-gifts?imported=${toInsert.length}&errors=${errorCount}` +
+      `&noMatch=${errorsByReason["no match"]}` +
+      `&ambiguous=${errorsByReason["ambiguous match"]}` +
+      `&invalidAmount=${errorsByReason["invalid amount"]}` +
+      `&invalidDate=${errorsByReason["invalid date"]}`,
+  );
 }

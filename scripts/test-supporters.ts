@@ -49,6 +49,22 @@
 //      database-touching code (section 4 above does the same thing for
 //      scripts/test-tenant-isolation.ts).
 //
+//   6. STATE item 82, ruling 0034 clauses 2 and 4 -- gift-history CSV bulk
+//      import. parseGiftCsvRow (lib/supporters.ts): the HARD BOUNDARY that
+//      this importer creates no supporters, ever -- a row matching zero
+//      existing supporters is an error ("no match"), a row matching two or
+//      more (an explicit same-name fixture, constructed deliberately, not
+//      hypothesized) is an error ("ambiguous match"), never a guess; email
+//      match is tried first and only falls back to name when email finds
+//      nothing; an invalid amount (zero, negative, non-numeric, blank) is an
+//      error ("invalid amount"); an invalid date is an error ("invalid
+//      date"); every reason stays distinguishable in the counts, never
+//      blended into one error bucket (ruling 0021, carried over from item
+//      81's own test style immediately above). importSupporterGiftsCsv
+//      itself (app/(dashboard)/supporters/actions.ts) touches the database
+//      and is not exercised here, matching this suite's posture toward every
+//      other database-touching action above.
+//
 // Usage: npx tsx scripts/test-supporters.ts
 
 import { readFileSync } from "node:fs";
@@ -59,6 +75,7 @@ import {
   daysSinceSupporterTouch,
   supporterTierThresholdDays,
   parseSupporterCsvRow,
+  parseGiftCsvRow,
   SUPPORTER_TIER_LIGHT_THRESHOLD_DAYS,
   SUPPORTER_TIER_STANDARD_THRESHOLD_DAYS,
   SUPPORTER_TIER_PRIORITY_THRESHOLD_DAYS,
@@ -478,6 +495,124 @@ check("duplicate by exact name match (case/whitespace-insensitive)", parseSuppor
 check("duplicate by exact email match, different name", parseSupporterCsvRow({ name: "Someone New", email: "JANE@EXAMPLE.COM" }, [{ name: "Jane Doe", email: "jane@example.com" }]), { kind: "duplicate" });
 check("NOT a duplicate: a short name merely contained in a longer one (the isSameOrg behavior this deliberately avoids)", parseSupporterCsvRow({ name: "Jon" }, [{ name: "Jonathan Smith", email: null }])?.kind, "insert");
 check("not a duplicate: different name, no email overlap", parseSupporterCsvRow({ name: "Totally Different" }, [{ name: "Jane Doe", email: "jane@example.com" }])?.kind, "insert");
+
+// --- 6. Gift-history CSV import (STATE item 82, ruling 0034 clauses 2/4) -
+
+section("gift-history CSV import: parseGiftCsvRow, offline, no database");
+
+const janeSupporter = { id: "sup-jane", name: "Jane Doe", email: "jane@example.com" };
+const johnSupporter = { id: "sup-john", name: "John Smith", email: "john@example.com" };
+// Two DIFFERENT existing supporters who happen to share a name -- constructed
+// explicitly, per the item's own instruction, to prove a shared-name row is
+// reported ambiguous rather than guessed at either one.
+const amySmithA = { id: "sup-amy-a", name: "Amy Smith", email: "amy.a@example.com" };
+const amySmithB = { id: "sup-amy-b", name: "Amy Smith", email: "amy.b@example.com" };
+const giftKnown = [janeSupporter, johnSupporter, amySmithA, amySmithB];
+
+// A row matching exactly one supporter by email imports correctly.
+check(
+  "matches by exact case-insensitive email",
+  parseGiftCsvRow({ supporter_email: "JANE@EXAMPLE.COM", amount: "50", gift_date: "2026-03-15", note: "Spring gift" }, giftKnown),
+  { kind: "insert", supporterId: "sup-jane", amount: 50, giftDate: "2026-03-15", note: "Spring gift" },
+);
+
+// A row matching by name when email is absent.
+check(
+  "matches by exact case-insensitive name when no email is given",
+  parseGiftCsvRow({ supporter_name: "john smith", amount: "100", gift_date: "2026-04-01" }, giftKnown),
+  { kind: "insert", supporterId: "sup-john", amount: 100, giftDate: "2026-04-01", note: null },
+);
+
+// A row with an email that matches no one falls back to name.
+check(
+  "falls back to name when the given email matches no one",
+  parseGiftCsvRow({ supporter_email: "nobody@example.com", supporter_name: "Jane Doe", amount: "10", gift_date: "2026-01-01" }, giftKnown),
+  { kind: "insert", supporterId: "sup-jane", amount: 10, giftDate: "2026-01-01", note: null },
+);
+
+// A row matching TWO existing supporters sharing a name is "ambiguous", not
+// a guess -- the explicit two-same-named-supporters fixture above.
+check(
+  "two existing supporters sharing a name: ambiguous match, never guessed",
+  parseGiftCsvRow({ supporter_name: "Amy Smith", amount: "25", gift_date: "2026-02-01" }, giftKnown),
+  { kind: "error", reason: "ambiguous match" },
+);
+
+// A row matching zero supporters (neither identifier resolves) is "no match".
+check(
+  "no identifier resolves to any existing supporter: no match",
+  parseGiftCsvRow({ supporter_name: "Nobody Here", amount: "25", gift_date: "2026-02-01" }, giftKnown),
+  { kind: "error", reason: "no match" },
+);
+check(
+  "blank supporter_email and supporter_name: no match (not a crash)",
+  parseGiftCsvRow({ amount: "25", gift_date: "2026-02-01" }, giftKnown),
+  { kind: "error", reason: "no match" },
+);
+
+// Invalid amount: zero, negative, non-numeric, blank -- all "invalid amount".
+check("zero amount: invalid amount", parseGiftCsvRow({ supporter_email: "jane@example.com", amount: "0", gift_date: "2026-01-01" }, giftKnown), { kind: "error", reason: "invalid amount" });
+check("negative amount: invalid amount", parseGiftCsvRow({ supporter_email: "jane@example.com", amount: "-5", gift_date: "2026-01-01" }, giftKnown), { kind: "error", reason: "invalid amount" });
+check("non-numeric amount: invalid amount", parseGiftCsvRow({ supporter_email: "jane@example.com", amount: "fifty", gift_date: "2026-01-01" }, giftKnown), { kind: "error", reason: "invalid amount" });
+check("blank amount: invalid amount", parseGiftCsvRow({ supporter_email: "jane@example.com", amount: "", gift_date: "2026-01-01" }, giftKnown), { kind: "error", reason: "invalid amount" });
+
+// Invalid date: unparseable, blank -- "invalid date". A matched supporter and
+// a valid amount are not enough on their own to import the row.
+check("unparseable gift_date: invalid date", parseGiftCsvRow({ supporter_email: "jane@example.com", amount: "25", gift_date: "not-a-date" }, giftKnown), { kind: "error", reason: "invalid date" });
+check("blank gift_date: invalid date", parseGiftCsvRow({ supporter_email: "jane@example.com", amount: "25", gift_date: "" }, giftKnown), { kind: "error", reason: "invalid date" });
+
+// A whole small CSV run through parseCsv + parseGiftCsvRow, counts kept in
+// separate per-reason buckets throughout, never blended (ruling 0021).
+const giftCsvText = [
+  "supporter_email,supporter_name,amount,gift_date,note",
+  "jane@example.com,,50,2026-03-15,Spring gift", // insert (email match)
+  ",John Smith,100,2026-04-01,", // insert (name match)
+  ",Amy Smith,25,2026-02-01,", // ambiguous (two Amy Smiths)
+  ",Nobody Here,25,2026-02-01,", // no match
+  "jane@example.com,,-5,2026-01-01,", // invalid amount
+  "jane@example.com,,25,not-a-date,", // invalid date
+].join("\n");
+
+const giftCsvRows = parseCsv(giftCsvText);
+check("parseCsv reads 6 data rows from the 7-line gift file", giftCsvRows.length, 6);
+
+function runGiftImport(rows: Record<string, string>[], known: { id: string; name: string; email: string | null }[]) {
+  let imported = 0;
+  const errorsByReason: Record<string, number> = { "no match": 0, "ambiguous match": 0, "invalid amount": 0, "invalid date": 0 };
+  for (const row of rows) {
+    const outcome = parseGiftCsvRow(row, known);
+    if (outcome.kind === "error") errorsByReason[outcome.reason]++;
+    else imported++;
+  }
+  const errors = Object.values(errorsByReason).reduce((a, b) => a + b, 0);
+  return { imported, errors, errorsByReason, total: rows.length };
+}
+
+// Before -> after: an empty-looking run (no known supporters) would reject
+// every row as "no match"; the real run below, against the fixture roster,
+// is what's asserted.
+const emptyKnownResult = runGiftImport(giftCsvRows, []);
+check("before: with NO known supporters, every row is a no-match error", emptyKnownResult, {
+  imported: 0,
+  errors: 6,
+  errorsByReason: { "no match": 6, "ambiguous match": 0, "invalid amount": 0, "invalid date": 0 },
+  total: 6,
+});
+
+const giftResult = runGiftImport(giftCsvRows, giftKnown);
+check("after: counts: imported", giftResult.imported, 2);
+check("after: counts: errors (total)", giftResult.errors, 4);
+check("after: counts by reason, each distinguishable (never blended into one bucket)", giftResult.errorsByReason, {
+  "no match": 1,
+  "ambiguous match": 1,
+  "invalid amount": 1,
+  "invalid date": 1,
+});
+ok(
+  "counts cover every row with no overlap and no gap (imported + errors = rows in)",
+  giftResult.imported + giftResult.errors === giftResult.total,
+  `${giftResult.imported}+${giftResult.errors} != ${giftResult.total}`,
+);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
