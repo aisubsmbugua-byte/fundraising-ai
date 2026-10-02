@@ -1,5 +1,14 @@
 # The ledger — how the decision space and the build space talk
 
+> **Single-agent mode is the default as of decision 0009 (2026-09-29).** One
+> session now holds both roles below under the owner's direct, real-time
+> guidance — the two-terminal handoff this file describes is no longer the
+> normal path, though everything below still describes the discipline that
+> applies (countercheck yourself as rigorously as a second session would;
+> write rulings before code; nothing binds until it's in a file). Codex is a
+> new, third thing — an on-demand advisory consultant, not a third role in
+> this handoff — see `AGENTS.md` and `docs/decisions/0009-*.md`.
+
 **Fundraising AI Build and Decision Space.** Two roles, one directory, named so
 there is a term for the whole arrangement rather than only its halves.
 

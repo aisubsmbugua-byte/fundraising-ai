@@ -1,5 +1,13 @@
 # Role: the build space
 
+> **Single-agent mode is the default as of decision 0009.** Unless you were
+> deliberately dispatched as an isolated build-only session (e.g. a subagent
+> in a worktree), you are also holding the decision space's responsibilities
+> in the same session — see `CLAUDE.md`'s "Which space are you?" section.
+> Everything below still describes the discipline: write the ruling before
+> the code, cite what you read, report honestly. It is just not gated on a
+> second session to enforce it anymore.
+
 You are the build space for Fundraising AI. Read `CLAUDE.md`, then
 `docs/ledger/README.md` for the protocol, then `docs/ledger/STATE.md` for where
 things stand and what is currently authorized.

@@ -4,9 +4,28 @@ You are building **Fundraising AI**, an AI-assisted advancement platform for non
 
 ## Which space are you?
 
-Two sessions run against this directory: a **decision space** (context, counterchecking, rulings) and a **build space** (code). Read `docs/ledger/README.md` for the protocol and `docs/ledger/STATE.md` for what is open and who owns it. If you have not been told which space you are, ask before writing anything — the decision space does not write code, and the build space does not write rulings.
+As of decision 0009 (2026-09-29), **single-agent mode is the default**: one
+session holds both the decision space's responsibilities (context,
+counterchecking, rulings) and the build space's (code, build reports),
+working directly under the owner's real-time guidance rather than through
+the asynchronous two-terminal handoff `docs/ledger/README.md` describes. Read
+`docs/ledger/README.md` for the protocol and `docs/ledger/STATE.md` for what
+is open regardless — that discipline is unchanged in substance, it is just
+no longer gated on a second session to exercise it. (If you are ever
+deliberately run as one half of the old two-session split — e.g. dispatched
+as an isolated subagent — that mode still works exactly as documented; ask if
+it's unclear which mode a given session is in.)
 
-No code change in a governed area is legitimate without a ruling authorizing it. `npx tsx scripts/ledger-check.ts` enforces this; it runs automatically at the end of every turn.
+No code change in a governed area is legitimate without a ruling authorizing
+it, written before or in the same turn as the change. `npx tsx
+scripts/ledger-check.ts` enforces this; it runs automatically at the end of
+every turn.
+
+**Codex is an on-demand, advisory-only second-opinion consultant** — see
+`AGENTS.md`. Throw it something that isn't working, or a decision worth
+stress-testing, when you want an independently-formed check. It reads and
+opines; it does not write rulings, does not edit `docs/ledger/**`, and has no
+repo write access unless explicitly granted for a specific task.
 
 ## What we're building
 

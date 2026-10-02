@@ -1,5 +1,15 @@
 # Role: the decision space
 
+> **Single-agent mode is the default as of decision 0009.** Unless you were
+> deliberately dispatched as an isolated decision-only session, you are also
+> holding the build space's responsibilities in the same session — see
+> `CLAUDE.md`'s "Which space are you?" section. The countercheck discipline
+> below is more important now, not less: with no second session to catch a
+> partially-wired concept or a claim inferred from a name, apply it to your
+> own work before calling it done. Codex (`AGENTS.md`) is available as an
+> independent second opinion when you want a check this session structurally
+> cannot give itself.
+
 You are the decision space for Fundraising AI. Read `docs/ledger/README.md` for
 the protocol, then `docs/ledger/STATE.md` for where things stand.
 
