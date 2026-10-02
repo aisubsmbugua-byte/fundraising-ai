@@ -9,7 +9,8 @@
 // ledger added in migration 0069 (draft_send_attempts), and on drafts
 // itself (which carries the send facts since 0069), on the ruling-0033
 // network tables added in migration 0077 (network_connections,
-// network_path_suggestions), in both
+// network_path_suggestions), and on the ruling-0034 supporter tables added in
+// migration 0078 (supporters, supporter_gifts, supporter_interactions), in both
 // directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -194,6 +195,17 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
     const { error: networkError } = await admin.from("network_connections").delete().in("organization_id", orgIds);
     if (networkError && networkError.code !== "42P01" && networkError.code !== "PGRST205") {
       problems.push(`[${phase}] deleting network_connections in test orgs failed: ${networkError.message}`);
+    }
+
+    // supporters (0078, ruling 0034) references organizations with NO
+    // cascade; supporter_gifts and supporter_interactions both cascade FROM
+    // supporters, so this one delete clears all three new tables and must
+    // precede the profile/org deletes below. 42P01/PGRST205 tolerated:
+    // migration 0078 not applied yet, and the supporters section below
+    // reports itself NOT EVALUATED in that case.
+    const { error: supportersError } = await admin.from("supporters").delete().in("organization_id", orgIds);
+    if (supportersError && supportersError.code !== "42P01" && supportersError.code !== "PGRST205") {
+      problems.push(`[${phase}] deleting supporters in test orgs failed: ${supportersError.message}`);
     }
 
     const { data: prospects, error: prospectsError } = await admin
@@ -1212,6 +1224,132 @@ async function main() {
       await admin.from("research_claims").delete().eq("id", claimA2!.id);
       const { data: claimCascaded } = await admin.from("network_path_suggestions").select("id").eq("id", sugClaim!.id);
       check("Deleting the anchoring claim deletes the suggestion (foreign key cascade)", (claimCascaded?.length ?? 0) === 0);
+    }
+
+    // --- Supporters (migration 0078, ruling 0034) ---
+    // Three tables: supporters (team-scoped "for all", like prospects and
+    // candidates), supporter_gifts (append-only -- insert and select ONLY,
+    // no update, no delete, matching ruling 0019's posture), and
+    // supporter_interactions (team-scoped "for all", like the existing
+    // `interactions` table). Two real authenticated sessions, never the
+    // service-role client, for every isolation assertion. Both org-match
+    // triggers are exercised by cross-org INSERTs that must be REFUSED; the
+    // supporter_interactions trigger ALSO covers UPDATE OF supporter_id
+    // (0077's hardening), exercised by the repoint case below.
+    // NOT-EVALUATED when the tables do not exist (42P01 / PGRST205).
+    const { error: supportersProbeError } = await admin.from("supporters").select("id").limit(1);
+    if (supportersProbeError && (supportersProbeError.code === "42P01" || supportersProbeError.code === "PGRST205")) {
+      notEvaluated.push("supporters / supporter_gifts / supporter_interactions -- migration 0078 is not applied to this database, so their assertions did not run");
+      console.log("\nNOT EVALUATED: supporter tables (migration 0078 not applied). Apply 0078 and re-run; this is not a pass.\n");
+    } else {
+      const { data: supporterA, error: supporterAError } = await clientA
+        .from("supporters")
+        .insert({ created_by: a.userId, name: "[test] Org A supporter", source_type: "event", pledged_amount: 25, pledged_frequency: "monthly" })
+        .select("id")
+        .single();
+      if (supporterAError || !supporterA) throw new Error(`Org A supporter insert failed: ${supporterAError?.message}`);
+      const { data: supporterB, error: supporterBError } = await clientB
+        .from("supporters")
+        .insert({ created_by: b.userId, name: "[test] Org B supporter", source_type: "website" })
+        .select("id")
+        .single();
+      if (supporterBError || !supporterB) throw new Error(`Org B supporter insert failed: ${supporterBError?.message}`);
+
+      const { data: supReadB } = await clientB.from("supporters").select("id").eq("id", supporterA.id);
+      check("Org B cannot SELECT Org A's supporters row by id", (supReadB?.length ?? 0) === 0);
+      const { data: supUpdateB } = await clientB.from("supporters").update({ name: "[test] hijacked" }).eq("id", supporterA.id).select("id");
+      check("Org B's UPDATE of Org A's supporters row affects 0 rows", (supUpdateB?.length ?? 0) === 0);
+      const { data: supDeleteB } = await clientB.from("supporters").delete().eq("id", supporterA.id).select("id");
+      check("Org B's DELETE of Org A's supporters row affects 0 rows", (supDeleteB?.length ?? 0) === 0);
+      const { data: supAfter } = await admin.from("supporters").select("name").eq("id", supporterA.id).single();
+      check("...and Org A's supporter is verified unchanged via the service role", supAfter?.name === "[test] Org A supporter");
+
+      const { error: noNameError } = await clientA.from("supporters").insert({ created_by: a.userId, source_type: "event" });
+      check("A supporter with NO name is refused (not null)", !!noNameError);
+      const { error: badSourceError } = await clientA.from("supporters").insert({ created_by: a.userId, name: "[test] bad source", source_type: "carrier-pigeon" });
+      check("A supporter with a source_type outside the closed list is refused", !!badSourceError);
+      const { error: badFrequencyError } = await clientA
+        .from("supporters")
+        .insert({ created_by: a.userId, name: "[test] bad frequency", source_type: "other", pledged_frequency: "weekly" });
+      check("A supporter with a pledged_frequency outside the closed list is refused", !!badFrequencyError);
+
+      const { data: supOwnUpdate } = await clientA.from("supporters").update({ notes: "[test] edited" }).eq("id", supporterA.id).select("id");
+      check("Org A CAN edit its own supporter (team-scoped, like prospects/candidates)", (supOwnUpdate?.length ?? 0) === 1);
+
+      // Gift history: append-only.
+      const { data: giftA, error: giftAError } = await clientA
+        .from("supporter_gifts")
+        .insert({ supporter_id: supporterA.id, amount: 25, gift_date: "2026-09-01", recorded_by: a.userId })
+        .select("id")
+        .single();
+      if (giftAError || !giftA) throw new Error(`Org A gift insert failed: ${giftAError?.message}`);
+
+      const { data: giftReadB } = await clientB.from("supporter_gifts").select("id").eq("id", giftA.id);
+      check("Org B cannot SELECT Org A's supporter_gifts row by id", (giftReadB?.length ?? 0) === 0);
+
+      const { error: crossGiftError } = await clientB.from("supporter_gifts").insert({ supporter_id: supporterA.id, amount: 10, gift_date: "2026-09-02", recorded_by: b.userId });
+      check("Org B cannot INSERT a supporter_gifts row against Org A's supporter (org-match trigger)", !!crossGiftError);
+
+      const { error: zeroAmountError } = await clientA.from("supporter_gifts").insert({ supporter_id: supporterA.id, amount: 0, gift_date: "2026-09-01", recorded_by: a.userId });
+      check("A gift of $0 is refused (amount > 0 check)", !!zeroAmountError);
+      const { error: negativeAmountError } = await clientA.from("supporter_gifts").insert({ supporter_id: supporterA.id, amount: -5, gift_date: "2026-09-01", recorded_by: a.userId });
+      check("A negative gift amount is refused (amount > 0 check)", !!negativeAmountError);
+      const { error: impersonatedGiftError } = await clientA.from("supporter_gifts").insert({ supporter_id: supporterA.id, amount: 10, gift_date: "2026-09-01", recorded_by: b.userId });
+      check("A gift cannot be recorded as someone else (recorded_by must be the session user)", !!impersonatedGiftError);
+
+      const { data: giftOwnUpdate } = await clientA.from("supporter_gifts").update({ amount: 999 }).eq("id", giftA.id).select("id");
+      check("supporter_gifts has no update policy -- even Org A's own UPDATE on its own row affects 0 rows", (giftOwnUpdate?.length ?? 0) === 0);
+      const { data: giftOwnDelete } = await clientA.from("supporter_gifts").delete().eq("id", giftA.id).select("id");
+      check("supporter_gifts has no delete policy -- even Org A's own DELETE on its own row affects 0 rows", (giftOwnDelete?.length ?? 0) === 0);
+
+      // Supporter interactions: team-scoped "for all", like `interactions`.
+      const { data: suppInteractionA, error: suppInteractionAError } = await clientA
+        .from("supporter_interactions")
+        .insert({ supporter_id: supporterA.id, kind: "call", summary: "[test] thanked them", created_by: a.userId })
+        .select("id")
+        .single();
+      if (suppInteractionAError || !suppInteractionA) throw new Error(`Org A supporter interaction insert failed: ${suppInteractionAError?.message}`);
+
+      const { data: interactionReadB } = await clientB.from("supporter_interactions").select("id").eq("id", suppInteractionA.id);
+      check("Org B cannot SELECT Org A's supporter_interactions row by id", (interactionReadB?.length ?? 0) === 0);
+
+      const { error: crossInteractionError } = await clientB
+        .from("supporter_interactions")
+        .insert({ supporter_id: supporterA.id, kind: "call", summary: "[test] cross-org attempt", created_by: b.userId });
+      check("Org B cannot INSERT a supporter_interactions row against Org A's supporter (org-match trigger)", !!crossInteractionError);
+
+      const { data: interactionOwnUpdate } = await clientA
+        .from("supporter_interactions")
+        .update({ summary: "[test] edited" })
+        .eq("id", suppInteractionA.id)
+        .select("id");
+      check("Org A CAN edit its own supporter_interactions row (relationship memory, editable like `interactions`)", (interactionOwnUpdate?.length ?? 0) === 1);
+
+      // Repoint: the org-match trigger covers UPDATE OF supporter_id too
+      // (0077's hardening), since this table -- unlike supporter_gifts --
+      // has an update policy and so has a path an insert-only trigger misses.
+      const { error: repointError } = await clientA.from("supporter_interactions").update({ supporter_id: supporterB!.id }).eq("id", suppInteractionA.id);
+      check("Org A cannot UPDATE its supporter_interactions row to point at Org B's supporter (update-time org-match trigger)", !!repointError);
+      const { data: afterRepoint } = await admin.from("supporter_interactions").select("supporter_id").eq("id", suppInteractionA.id).single();
+      check("...and the row still points at Org A's own supporter", afterRepoint?.supporter_id === supporterA.id);
+
+      const { data: interactionOwnDelete } = await clientA.from("supporter_interactions").delete().eq("id", suppInteractionA.id).select("id");
+      check("Org A CAN delete its own supporter_interactions row (editable/deletable like `interactions`)", (interactionOwnDelete?.length ?? 0) === 1);
+
+      // Deleting a supporter cascades to its gifts and interactions.
+      const { data: toDelete } = await clientA.from("supporters").insert({ created_by: a.userId, name: "[test] to be erased", source_type: "other" }).select("id").single();
+      const { data: giftToCascade } = await clientA.from("supporter_gifts").insert({ supporter_id: toDelete!.id, amount: 5, gift_date: "2026-09-01", recorded_by: a.userId }).select("id").single();
+      const { data: interactionToCascade } = await clientA
+        .from("supporter_interactions")
+        .insert({ supporter_id: toDelete!.id, kind: "note", summary: "[test] will be cascaded", created_by: a.userId })
+        .select("id")
+        .single();
+      const { data: deletedSupporter } = await clientA.from("supporters").delete().eq("id", toDelete!.id).select("id");
+      check("Org A CAN delete its own supporter", (deletedSupporter?.length ?? 0) === 1);
+      const { data: giftCascaded } = await admin.from("supporter_gifts").select("id").eq("id", giftToCascade!.id);
+      check("Deleting a supporter deletes its gift history (foreign key cascade)", (giftCascaded?.length ?? 0) === 0);
+      const { data: interactionCascaded } = await admin.from("supporter_interactions").select("id").eq("id", interactionToCascade!.id);
+      check("Deleting a supporter deletes its interaction history (foreign key cascade)", (interactionCascaded?.length ?? 0) === 0);
     }
   } finally {
     cleanupProblems = await purgeTestIdentities("teardown");

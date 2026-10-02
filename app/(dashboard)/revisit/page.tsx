@@ -11,18 +11,32 @@ import {
   type ProspectOutcome,
 } from "@/lib/prospect-outcomes";
 import { selectNurtureQueue } from "@/lib/nurture";
+import { selectSupporterStewardshipQueue, type Supporter, type SupporterGift, type SupporterInteraction } from "@/lib/supporters";
 import { spacing, colors, type as typeScale } from "@/lib/ui";
 import FollowupWorkspace from "./followup-workspace";
 
 export default async function RevisitPage() {
   const supabase = createClient();
-  const [{ data: prospects, error }, { data: dismissedCandidates }, { data: interactions }, outcomeIndex] =
-    await Promise.all([
-      supabase.from("prospects").select("*").returns<Prospect[]>(),
-      supabase.from("candidates").select("*").eq("status", "dismissed").returns<Candidate[]>(),
-      supabase.from("interactions").select("*").order("occurred_at", { ascending: false }).returns<Interaction[]>(),
-      loadOutcomeIndex(supabase),
-    ]);
+  const [
+    { data: prospects, error },
+    { data: dismissedCandidates },
+    { data: interactions },
+    outcomeIndex,
+    { data: supporters },
+    { data: supporterGifts },
+    { data: supporterInteractions },
+  ] = await Promise.all([
+    supabase.from("prospects").select("*").returns<Prospect[]>(),
+    supabase.from("candidates").select("*").eq("status", "dismissed").returns<Candidate[]>(),
+    supabase.from("interactions").select("*").order("occurred_at", { ascending: false }).returns<Interaction[]>(),
+    loadOutcomeIndex(supabase),
+    // STATE item 80, ruling 0034: a separate population with its own
+    // derivation (lib/supporters.ts) -- never folded into the prospect
+    // queries or the Nurture selection above.
+    supabase.from("supporters").select("*").returns<Supporter[]>(),
+    supabase.from("supporter_gifts").select("*").returns<SupporterGift[]>(),
+    supabase.from("supporter_interactions").select("*").returns<SupporterInteraction[]>(),
+  ]);
 
   if (error) {
     return <p style={{ color: colors.danger }}>Error loading follow-ups: {error.message}</p>;
@@ -82,6 +96,24 @@ export default async function RevisitPage() {
   // Nurture v1 (STATE item 75): one shared derivation, same outcome index.
   const nurture = selectNurtureQueue(all, interactionsByProspect, outcomeIndex, new Date());
 
+  // Supporter stewardship (STATE item 80, ruling 0034): a separate
+  // derivation over a separate population -- not read from or merged with
+  // anything above.
+  const giftsBySupporter: Record<string, SupporterGift[]> = {};
+  for (const g of supporterGifts ?? []) {
+    (giftsBySupporter[g.supporter_id] ??= []).push(g);
+  }
+  const interactionsBySupporter: Record<string, SupporterInteraction[]> = {};
+  for (const i of supporterInteractions ?? []) {
+    (interactionsBySupporter[i.supporter_id] ??= []).push(i);
+  }
+  const supporterStewardship = selectSupporterStewardshipQueue(
+    supporters ?? [],
+    giftsBySupporter,
+    interactionsBySupporter,
+    new Date(),
+  );
+
   return (
     <div>
       <h1 style={{ fontSize: typeScale.pageTitle }}>Follow-ups</h1>
@@ -100,6 +132,7 @@ export default async function RevisitPage() {
         scheduledRevisits={scheduledRevisits}
         nurture={nurture}
         interactionsByProspect={interactionsByProspect}
+        supporterStewardship={supporterStewardship}
       />
     </div>
   );

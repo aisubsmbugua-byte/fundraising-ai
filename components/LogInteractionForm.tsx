@@ -1,23 +1,33 @@
 "use client";
 
 import { useTransition } from "react";
-import { logInteraction } from "@/app/(dashboard)/revisit/actions";
 import { INTERACTION_KINDS, type InteractionKind } from "@/lib/interactions";
 import { spacing, fieldStyle, cardStyle, buttonPrimary, buttonSecondary } from "@/lib/ui";
 
 // Shared by the Follow-up page's split view (app/(dashboard)/revisit/
-// followup-workspace.tsx) and the prospect page's Activity tab
-// (app/(dashboard)/prospects/[id]/activity-tab.tsx) -- one form, one call
-// to logInteraction, so the two surfaces cannot drift apart. STATE item 79.
-export default function LogInteractionForm({ prospectId, onDone }: { prospectId: string; onDone: () => void }) {
+// followup-workspace.tsx), the prospect page's Activity tab
+// (app/(dashboard)/prospects/[id]/activity-tab.tsx), and the Supporters page
+// (app/(dashboard)/supporters/) -- one form, parameterized by which action it
+// logs through, so none of those surfaces can drift apart. STATE item 79
+// built this against prospects only; STATE item 80 (ruling 0034) generalized
+// it: the form no longer knows what kind of record it's logging against --
+// it takes an `onLog` callback and calls that, so a caller supplies
+// `logInteraction` bound to a prospect or `logSupporterInteraction` bound to
+// a supporter, interchangeably.
+export default function LogInteractionForm({
+  onLog,
+  onDone,
+}: {
+  onLog: (kind: InteractionKind, summary: string, occurredAt: string) => Promise<unknown>;
+  onDone: () => void;
+}) {
   const [isPending, startTransition] = useTransition();
 
   return (
     <form
       action={(formData) => {
         startTransition(async () => {
-          await logInteraction(
-            prospectId,
+          await onLog(
             formData.get("kind") as InteractionKind,
             formData.get("summary") as string,
             (formData.get("occurred_at") as string) || new Date().toISOString().slice(0, 10)

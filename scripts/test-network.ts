@@ -57,7 +57,12 @@ const stripSqlComments = (t: string) =>
 section("migration 0077: numbering, additivity, header");
 const migrations = readdirSync(join(root, "supabase/migrations")).filter((f) => /^\d{4}_/.test(f)).sort();
 const file = migrations.find((f) => f.startsWith("0077_"));
-ok("0077 exists and is the highest-numbered migration", !!file && migrations[migrations.length - 1] === file, `last: ${migrations[migrations.length - 1]}`);
+// Not "...and is the highest-numbered migration" -- that was a
+// position-relative assertion guaranteed to fail the moment any later
+// migration landed (it did, at 0078). What this test actually cares about
+// is that 0077 exists and is additive, not where it sits in a list that
+// grows every week.
+ok("0077 exists among the migrations", !!file, `found: ${file}`);
 const raw = read(`supabase/migrations/${file}`);
 const stmts = stripSqlComments(raw);
 ok("header cites ruling 0020 additivity and states the deploy order both ways", /0020/.test(raw) && /CODE AHEAD OF THE MIGRATION/.test(raw) && /MIGRATION AHEAD OF THE CODE/.test(raw));

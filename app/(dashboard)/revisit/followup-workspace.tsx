@@ -8,12 +8,14 @@ import {
   useSuggestedNextStep,
   dismissSuggestedNextStep,
   updateCandidateRevisit,
+  logInteraction,
 } from "./actions";
 import { channelLabel, stageLabel, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import type { Candidate } from "@/lib/candidates";
 import { interactionKindLabel, type Interaction, type InteractionKind } from "@/lib/interactions";
 import type { NurtureRow } from "@/lib/nurture";
 import { describeDisposition, type ProspectOutcome } from "@/lib/prospect-outcomes";
+import { supporterTierLabel, formatPledge, sourceTypeLabel, type SupporterStewardshipRow } from "@/lib/supporters";
 import InitialsAvatar from "@/components/InitialsAvatar";
 import HealthChip from "@/components/HealthChip";
 import ProspectOutcomePanel from "@/components/ProspectOutcomePanel";
@@ -28,7 +30,15 @@ type Row =
   | { kind: "declined"; data: Prospect; outcome: ProspectOutcome }
   | { kind: "nurture"; data: Prospect; nurture: NurtureRow };
 
-type Tab = "due_now" | "open_questions" | "waiting" | "scheduled" | "revisit_later" | "past_decisions" | "nurture";
+type Tab =
+  | "due_now"
+  | "open_questions"
+  | "waiting"
+  | "scheduled"
+  | "revisit_later"
+  | "past_decisions"
+  | "nurture"
+  | "supporter_stewardship";
 // "Open questions" sits second, directly after the work that is already due,
 // because that is what it is: a funder said no and nobody has decided whether
 // to go back. Ruling 0019 requires that state to surface rather than sit.
@@ -42,10 +52,24 @@ const TABS: { value: Tab; label: string }[] = [
   // Post-yes relationships going quiet (STATE item 75). Hosted as a tab here
   // because the row detail already carries the suggest-next-step control.
   { value: "nurture", label: "Nurture" },
+  // STATE item 80, ruling 0034: individual, recurring supporters going quiet
+  // relative to THEIR OWN tiered threshold -- a separate population and a
+  // separate derivation (lib/supporters.ts) from prospect Nurture above;
+  // ruling 0034 is explicit the two must not collapse into one queue.
+  { value: "supporter_stewardship", label: "Supporter stewardship" },
 ];
 
 const NURTURE_NOTE =
   "Nurture v1: this queue shows who has gone quiet. AI-drafted nurture notes are a later version — for now, use Suggest next step for ideas and Compose to write the note yourself; every email still needs your approval before it can be sent.";
+
+const SUPPORTER_STEWARDSHIP_NOTE =
+  "Individual, recurring supporters, ordered stalest-first by their own tier's quiet threshold (light/standard/priority, scaled to pledge size -- ruling 0034). A different population and a different clock from Nurture above, which tracks prospects.";
+
+const TIER_TONE: Record<SupporterStewardshipRow["tier"], "neutral" | "amber" | "red"> = {
+  light: "neutral",
+  standard: "amber",
+  priority: "red",
+};
 
 const ICON_BY_KIND: Record<InteractionKind, typeof Mail> = {
   email: Mail,
@@ -65,6 +89,7 @@ export default function FollowupWorkspace({
   scheduledRevisits,
   nurture,
   interactionsByProspect,
+  supporterStewardship,
 }: {
   dueNow: Prospect[];
   // Ruling 0028 clause 3: a declined prospect whose revisit date has arrived
@@ -78,9 +103,15 @@ export default function FollowupWorkspace({
   scheduledRevisits: DeclinedProspect[];
   nurture: NurtureRow[];
   interactionsByProspect: Record<string, Interaction[]>;
+  // STATE item 80: a separate derivation (lib/supporters.ts), a separate
+  // population, rendered through its own list+detail rather than forced
+  // through Row/RowCard -- those are shaped for Prospect/Candidate data and a
+  // supporter has neither channel nor stage.
+  supporterStewardship: SupporterStewardshipRow[];
 }) {
   const [tab, setTab] = useState<Tab>("due_now");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSupporterId, setSelectedSupporterId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const rowsByTab: Record<Tab, Row[]> = {
@@ -100,9 +131,16 @@ export default function FollowupWorkspace({
     ],
     past_decisions: pastDecisions.map((c) => ({ kind: "candidate", data: c })),
     nurture: nurture.map((n) => ({ kind: "nurture", data: n.prospect, nurture: n })),
+    // supporter_stewardship is rendered through its own list+detail below, not
+    // through Row/RowCard -- kept out of rowsByTab's Row union rather than
+    // stuffing a Supporter into a type shaped for Prospect/Candidate.
+    supporter_stewardship: [],
   };
+  const isSupporterTab = tab === "supporter_stewardship";
   const rows = rowsByTab[tab];
   const selected = rows.find((r) => r.data.id === selectedId) ?? rows[0] ?? null;
+  const selectedSupporterRow =
+    supporterStewardship.find((r) => r.supporter.id === selectedSupporterId) ?? supporterStewardship[0] ?? null;
 
   return (
     <div
@@ -118,6 +156,7 @@ export default function FollowupWorkspace({
               onClick={() => {
                 setTab(t.value);
                 setSelectedId(null);
+                setSelectedSupporterId(null);
                 setMobileDetailOpen(false);
               }}
               style={{
@@ -132,7 +171,7 @@ export default function FollowupWorkspace({
                 whiteSpace: "nowrap",
               }}
             >
-              {t.label} {rowsByTab[t.value].length}
+              {t.label} {t.value === "supporter_stewardship" ? supporterStewardship.length : rowsByTab[t.value].length}
             </button>
           ))}
         </div>
@@ -140,20 +179,40 @@ export default function FollowupWorkspace({
         {tab === "nurture" && (
           <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.md, marginBottom: 0 }}>{NURTURE_NOTE}</p>
         )}
+        {isSupporterTab && (
+          <p style={{ fontSize: 13, color: colors.textMuted, marginTop: spacing.md, marginBottom: 0 }}>{SUPPORTER_STEWARDSHIP_NOTE}</p>
+        )}
 
         <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.md, maxHeight: "70vh", overflowY: "auto" }}>
-          {rows.map((row) => (
-            <RowCard
-              key={row.data.id}
-              row={row}
-              selected={selected?.data.id === row.data.id}
-              onClick={() => {
-                setSelectedId(row.data.id);
-                setMobileDetailOpen(true);
-              }}
-            />
-          ))}
-          {rows.length === 0 && (
+          {isSupporterTab
+            ? supporterStewardship.map((row) => (
+                <SupporterStewardshipRowCard
+                  key={row.supporter.id}
+                  row={row}
+                  selected={selectedSupporterRow?.supporter.id === row.supporter.id}
+                  onClick={() => {
+                    setSelectedSupporterId(row.supporter.id);
+                    setMobileDetailOpen(true);
+                  }}
+                />
+              ))
+            : rows.map((row) => (
+                <RowCard
+                  key={row.data.id}
+                  row={row}
+                  selected={selected?.data.id === row.data.id}
+                  onClick={() => {
+                    setSelectedId(row.data.id);
+                    setMobileDetailOpen(true);
+                  }}
+                />
+              ))}
+          {isSupporterTab && supporterStewardship.length === 0 && (
+            <p style={{ fontSize: 13, color: colors.textMuted, padding: spacing.sm }}>
+              Nobody is due for stewardship contact -- every supporter has been touched within their tier's window.
+            </p>
+          )}
+          {!isSupporterTab && rows.length === 0 && (
             <p style={{ fontSize: 13, color: colors.textMuted, padding: spacing.sm }}>
               {tab === "nurture" ? "Nobody has gone quiet. Every funder in Awarding or Stewardship has been touched recently." : "Nothing here."}
             </p>
@@ -170,7 +229,15 @@ export default function FollowupWorkspace({
         >
           <ArrowLeft size={14} /> Back to list
         </button>
-        {selected ? (
+        {isSupporterTab ? (
+          selectedSupporterRow ? (
+            <SupporterStewardshipDetail row={selectedSupporterRow} />
+          ) : (
+            <div style={{ border: `1px dashed ${colors.border}`, borderRadius: radiusSm, padding: spacing.xxl, textAlign: "center", color: colors.textFaint, fontSize: 14 }}>
+              Select a supporter from the list to see details.
+            </div>
+          )
+        ) : selected ? (
           selected.kind === "prospect" || selected.kind === "nurture" ? (
             <ProspectDetail
               prospect={selected.data}
@@ -187,6 +254,77 @@ export default function FollowupWorkspace({
             Select an item from the list to see details.
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SupporterStewardshipRowCard({ row, selected, onClick }: { row: SupporterStewardshipRow; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: spacing.sm,
+        textAlign: "left",
+        background: selected ? colors.teal100 : colors.surface,
+        border: `1px solid ${selected ? colors.teal700 : colors.border}`,
+        borderRadius: radiusSm,
+        padding: spacing.sm,
+        cursor: "pointer",
+      }}
+    >
+      <InitialsAvatar name={row.supporter.name} size={36} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {row.supporter.name}
+        </div>
+        <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>{formatPledge(row.supporter)}</div>
+      </div>
+      <span style={{ ...chipStyle(TIER_TONE[row.tier]), flexShrink: 0 }}>{supporterTierLabel(row.tier)}</span>
+      <span style={{ ...chipStyle("neutral"), flexShrink: 0 }}>
+        {row.daysSinceLastTouch === null ? "Never touched" : `${row.daysSinceLastTouch}d quiet`}
+      </span>
+    </button>
+  );
+}
+
+function SupporterStewardshipDetail({ row }: { row: SupporterStewardshipRow }) {
+  const { supporter } = row;
+  return (
+    <div style={{ display: "grid", gap: spacing.lg }}>
+      <div style={sectionStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: spacing.md }}>
+          <div style={{ display: "flex", gap: spacing.md, minWidth: 0 }}>
+            <InitialsAvatar name={supporter.name} size={44} />
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: 17, overflowWrap: "break-word" }}>{supporter.name}</h2>
+              <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+                {formatPledge(supporter)} · {sourceTypeLabel(supporter.source_type)}
+              </div>
+              <div style={{ display: "flex", gap: spacing.xs, marginTop: spacing.xs, flexWrap: "wrap" }}>
+                <span style={chipStyle(TIER_TONE[row.tier])}>{supporterTierLabel(row.tier)} tier</span>
+                <span style={chipStyle("neutral")}>
+                  Threshold: every {row.thresholdDays} days
+                </span>
+              </div>
+            </div>
+          </div>
+          <Link href={`/supporters?id=${supporter.id}`} style={{ ...buttonSecondary, flexShrink: 0 }}>
+            Open supporter →
+          </Link>
+        </div>
+      </div>
+
+      <div style={sectionStyle}>
+        <h3 style={{ fontSize: 14 }}>Why this row is here</h3>
+        <p style={{ fontSize: 13, margin: 0 }}>
+          {row.daysSinceLastTouch === null
+            ? `Never touched. The ${supporterTierLabel(row.tier).toLowerCase()} tier checks on a supporter at this pledge size every ${row.thresholdDays} days, and nothing has ever been logged.`
+            : `${row.daysSinceLastTouch} days since the last gift or interaction, past the ${supporterTierLabel(row.tier).toLowerCase()} tier's ${row.thresholdDays}-day threshold for this pledge size.`}
+        </p>
       </div>
     </div>
   );
@@ -372,7 +510,12 @@ function ProspectDetail({
           </button>
         </div>
 
-        {logOpen && <LogInteractionForm prospectId={prospect.id} onDone={() => setLogOpen(false)} />}
+        {logOpen && (
+          <LogInteractionForm
+            onLog={(kind, summary, occurredAt) => logInteraction(prospect.id, kind, summary, occurredAt)}
+            onDone={() => setLogOpen(false)}
+          />
+        )}
 
         {interactions.length > 0 ? (
           <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.sm }}>

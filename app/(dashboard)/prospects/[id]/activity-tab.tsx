@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { stageLabel, type StageChange } from "@/lib/prospects";
 import { interactionKindLabel, type Interaction } from "@/lib/interactions";
 import LogInteractionForm from "@/components/LogInteractionForm";
+import { logInteraction } from "@/app/(dashboard)/revisit/actions";
 import { spacing, colors, sectionStyle, buttonSecondary } from "@/lib/ui";
 
 export default function ActivityTab({
@@ -34,7 +35,12 @@ export default function ActivityTab({
           </button>
         </div>
 
-        {logOpen && <LogInteractionForm prospectId={prospectId} onDone={() => setLogOpen(false)} />}
+        {logOpen && (
+          <LogInteractionForm
+            onLog={(kind, summary, occurredAt) => logInteraction(prospectId, kind, summary, occurredAt)}
+            onDone={() => setLogOpen(false)}
+          />
+        )}
 
         {interactions.length > 0 ? (
           <div style={{ display: "grid", gap: spacing.sm, marginTop: spacing.sm }}>

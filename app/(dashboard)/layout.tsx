@@ -73,6 +73,11 @@ export default async function DashboardLayout({
   ];
   const AFTER_PIPELINE: { href: string; label: string; badge: number; icon: string }[] = [
     { href: "/contacts", label: "Relationships", badge: 0, icon: "users" },
+    // STATE item 80, ruling 0034: individual, recurring supporters -- their
+    // own page, not folded into Pipeline/Relationships. Badge 0: stewardship
+    // due-ness surfaces on the Follow-up page's "Supporter stewardship" tab,
+    // not here, same as Network.
+    { href: "/supporters", label: "Supporters", badge: 0, icon: "heart" },
     { href: "/network", label: "Network", badge: 0, icon: "network" },
     { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: "file-text" },
     { href: "/revisit", label: "Follow-up", badge: dueNowCount, icon: "calendar-clock" },
