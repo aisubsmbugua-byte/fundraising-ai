@@ -66,7 +66,10 @@ export default async function DashboardLayout({
   // serialize across that boundary (crashed the whole app in prod the
   // first time this file did that; see git history).
   const BEFORE_PIPELINE: { href: string; label: string; badge: number; icon: string }[] = [
-    { href: "/dashboard", label: "Home", badge: 0, icon: "home" },
+    // STATE item 86: was "Home"/home-icon -- renamed because item 85's new
+    // Supporters numbers weren't found under a label that didn't say
+    // "Dashboard."
+    { href: "/dashboard", label: "Dashboard", badge: 0, icon: "layout-dashboard" },
     { href: "/organization", label: "Org Profile", badge: 0, icon: "building2" },
     { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0, icon: "search" },
     { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount, icon: "clipboard-check" },

@@ -7,6 +7,7 @@ import {
   Menu,
   X,
   Home as HomeIcon,
+  LayoutDashboard,
   Building2,
   Search,
   ClipboardCheck,
@@ -24,6 +25,11 @@ import InitialsAvatar from "@/components/InitialsAvatar";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   home: HomeIcon,
+  // STATE item 86: the Home nav item's new icon. `home` is left in place
+  // (unused by any current nav item, but ICON_MAP's fallback is `?? HomeIcon`
+  // at render -- removing it would silently change the fallback icon for
+  // any future unrecognized string, which this item isn't authorized to do).
+  "layout-dashboard": LayoutDashboard,
   building2: Building2,
   search: Search,
   "clipboard-check": ClipboardCheck,
