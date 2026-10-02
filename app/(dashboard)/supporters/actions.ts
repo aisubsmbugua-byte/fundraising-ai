@@ -1,11 +1,14 @@
 "use server";
 
 // The Supporters page's write path (STATE item 80, ruling 0034). A supporter
-// is manually added or CSV-imported (item 81, ruling 0034 clause 4); a gift
-// is logged into the append-only gift-history table ONLY (migration 0078
-// grants insert+select, no update, no delete -- there is nothing to revise, a
-// correction is a new row); an interaction is logged the same way the
-// prospect-side one is, into the supporter's own table.
+// is manually added or CSV-imported (item 81, ruling 0034 clause 4), and can
+// now be edited or deleted -- singly or in bulk -- directly (item 84: the
+// supporters table's RLS policy was already "for all", so this closes the
+// missing application layer, no migration); a gift is logged into the
+// append-only gift-history table ONLY (migration 0078 grants insert+select,
+// no update, no delete -- there is nothing to revise, a correction is a new
+// row); an interaction is logged the same way the prospect-side one is, into
+// the supporter's own table.
 //
 // Every action returns its failure rather than throwing it, matching
 // app/(dashboard)/network/actions.ts's convention -- Next redacts a thrown
@@ -27,6 +30,9 @@ import { SOURCE_TYPES, PLEDGE_FREQUENCIES, parseSupporterCsvRow, parseGiftCsvRow
 import { parseCsv } from "@/lib/candidates";
 
 type Result = { error: string } | { success: true; id: string };
+// Delete paths return no id (there's nothing left to reference) -- same
+// error-return convention as Result above, just without the id field.
+type DeleteResult = { error: string } | { success: true };
 
 function blankToNull(raw: FormDataEntryValue | null): string | null {
   const v = typeof raw === "string" ? raw.trim() : "";
@@ -87,6 +93,107 @@ export async function createSupporter(formData: FormData): Promise<Result> {
     return { success: true, id: data.id as string };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not add that supporter." };
+  }
+}
+
+// STATE item 84: the supporter record itself (unlike supporter_gifts) has no
+// append-only retention rule -- migration 0078's "team members manage
+// supporters" policy is a plain "for all", so update and delete are already
+// permitted at the database level. Same field set, same validation as
+// createSupporter above (a full-row replace of every editable field, not a
+// partial patch), same error-return convention.
+export async function updateSupporter(id: string, formData: FormData): Promise<Result> {
+  try {
+    await requireUser();
+
+    const name = (formData.get("name") as string | null)?.trim();
+    if (!name) return { error: "Enter the supporter's name." };
+
+    const sourceType = ((formData.get("source_type") as string | null) || "other").trim();
+    if (!SOURCE_TYPE_VALUES.includes(sourceType)) return { error: "Choose how this supporter arrived (event, website, or other)." };
+
+    const pledgedFrequency = blankToNull(formData.get("pledged_frequency"));
+    if (pledgedFrequency && !PLEDGE_FREQUENCY_VALUES.includes(pledgedFrequency)) {
+      return { error: "Choose a valid pledge frequency (one-time, monthly, or annual)." };
+    }
+
+    const pledgedAmount = numberOrNull(formData.get("pledged_amount"));
+    if (pledgedAmount != null && pledgedAmount < 0) return { error: "A pledge amount can't be negative." };
+
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("supporters")
+      .update({
+        name,
+        email: blankToNull(formData.get("email")),
+        phone: blankToNull(formData.get("phone")),
+        source_type: sourceType,
+        source_detail: blankToNull(formData.get("source_detail")),
+        pledged_amount: pledgedAmount,
+        pledged_frequency: pledgedFrequency,
+        notes: blankToNull(formData.get("notes")),
+      })
+      .eq("id", id)
+      .select("id")
+      .single();
+    if (error || !data) return { error: error?.message ?? "Could not update that supporter." };
+
+    revalidatePath("/supporters");
+    revalidatePath("/revisit");
+    return { success: true, id: data.id as string };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not update that supporter." };
+  }
+}
+
+// STATE item 84: deletes the supporter row itself. The RLS policy already
+// permits delete (see the comment on updateSupporter above) -- this is
+// purely the missing application layer, no migration. supporter_gifts and
+// supporter_interactions are NOT touched here: both carry
+// `on delete cascade` foreign keys back to supporters (migration 0078,
+// confirmed in scripts/test-supporters.ts's schema-assertion section), so
+// removing the parent row is what removes the children -- deleting them
+// explicitly first would just be the database's own job, done twice.
+export async function deleteSupporter(id: string): Promise<DeleteResult> {
+  try {
+    await requireUser();
+    const supabase = createClient();
+    const { error } = await supabase.from("supporters").delete().eq("id", id);
+    if (error) return { error: error.message };
+
+    revalidatePath("/supporters");
+    revalidatePath("/revisit");
+    return { success: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not delete that supporter." };
+  }
+}
+
+// STATE item 84: bulk removal for the Supporters list's multi-select. A
+// SINGLE `.in("id", ids)` delete -- one round trip, one statement -- not a
+// loop calling deleteSupporter/this-table's delete once per id. That mirrors
+// this same file's existing batch-write precedent (importSupportersCsv's one
+// `.insert(toInsert)` call above, rather than one insert per row), and here
+// it is strictly better than a loop: a loop could partially succeed (some
+// ids deleted, a later one failing) and would have no natural way to report
+// that distinctly from "all failed", where `.in()` is one atomic statement
+// the database either applies or errors as a whole. Same cascade reasoning
+// as deleteSupporter: child rows go with their parent via the FKs, not by
+// this action touching supporter_gifts/supporter_interactions directly.
+export async function bulkDeleteSupporters(ids: string[]): Promise<DeleteResult> {
+  try {
+    await requireUser();
+    if (ids.length === 0) return { error: "Select at least one supporter to delete." };
+
+    const supabase = createClient();
+    const { error } = await supabase.from("supporters").delete().in("id", ids);
+    if (error) return { error: error.message };
+
+    revalidatePath("/supporters");
+    revalidatePath("/revisit");
+    return { success: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not delete the selected supporters." };
   }
 }
 

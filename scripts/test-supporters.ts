@@ -496,6 +496,31 @@ check("duplicate by exact email match, different name", parseSupporterCsvRow({ n
 check("NOT a duplicate: a short name merely contained in a longer one (the isSameOrg behavior this deliberately avoids)", parseSupporterCsvRow({ name: "Jon" }, [{ name: "Jonathan Smith", email: null }])?.kind, "insert");
 check("not a duplicate: different name, no email overlap", parseSupporterCsvRow({ name: "Totally Different" }, [{ name: "Jane Doe", email: "jane@example.com" }])?.kind, "insert");
 
+// --- regression: STATE item 84 -----------------------------------------
+// A real VWI import carried "Projected Annual Amount" (lowercased by
+// parseCsv to "projected annual amount") instead of the canonical
+// `pledged_amount` column, and the value was dollar-formatted ("$2,000").
+// Both silently produced a null pledge on live data before this fix.
+{
+  const row = { name: "Enrique and Michelle Cuevas", "projected annual amount": " $2,000 ", email: "quiquecue@gmail.com" };
+  const result = parseSupporterCsvRow(row, []);
+  check("real-world header alias ('projected annual amount') is recognized", result.kind, "insert");
+  if (result.kind === "insert") {
+    check("currency formatting ($ and commas) is stripped before parsing", result.supporter.pledged_amount, 2000);
+    check("the column name's own cadence (annual) is captured, not left null", result.supporter.pledged_frequency, "annual");
+  }
+}
+check(
+  "an explicit pledged_frequency column is never overridden by the alias's implied cadence",
+  (parseSupporterCsvRow({ name: "X", "projected annual amount": "100", pledged_frequency: "monthly" }, []) as { kind: "insert"; supporter: { pledged_frequency: string | null } }).supporter.pledged_frequency,
+  "monthly"
+);
+check(
+  "an unrecognized header is ignored, not an error",
+  parseSupporterCsvRow({ name: "X", "some other column": "whatever" }, [])?.kind,
+  "insert"
+);
+
 // --- 6. Gift-history CSV import (STATE item 82, ruling 0034 clauses 2/4) -
 
 section("gift-history CSV import: parseGiftCsvRow, offline, no database");
@@ -613,6 +638,184 @@ ok(
   giftResult.imported + giftResult.errors === giftResult.total,
   `${giftResult.imported}+${giftResult.errors} != ${giftResult.total}`,
 );
+
+// --- 7. STATE item 84: updateSupporter / deleteSupporter / bulkDeleteSupporters
+//
+// Offline, source-level assertions only -- these three touch the database
+// (an update, a delete, a bulk delete), matching this suite's existing
+// posture toward every other database-touching action (sections 4-6 above
+// do the same thing rather than running against a live Supabase project).
+
+section("STATE item 84: updateSupporter / deleteSupporter / bulkDeleteSupporters");
+
+const actionsSrc = readFileSync(join(root, "app/(dashboard)/supporters/actions.ts"), "utf8");
+
+// Signatures.
+ok(
+  "updateSupporter(id: string, formData: FormData) exists with the stated signature",
+  /export async function updateSupporter\(id: string, formData: FormData\)/.test(actionsSrc),
+);
+ok(
+  "deleteSupporter(id: string) exists with the stated signature",
+  /export async function deleteSupporter\(id: string\)/.test(actionsSrc),
+);
+ok(
+  "bulkDeleteSupporters(ids: string\\[\\]) exists with the stated signature",
+  /export async function bulkDeleteSupporters\(ids: string\[\]\)/.test(actionsSrc),
+);
+
+// Isolates exactly one function's own body -- NOT sliced up to the next
+// `export async function` text (that would also capture the NEXT function's
+// leading comment block, which for this file's functions explicitly
+// discusses supporter_gifts/supporter_interactions and would falsely trip
+// the "never references" assertions below). Brace-counted from the first
+// `{` after the signature to its matching `}` instead, so only real code
+// between those braces is returned.
+function bodyOf(name: string): string {
+  const sigStart = actionsSrc.indexOf(`export async function ${name}`);
+  if (sigStart < 0) return "";
+  const braceStart = actionsSrc.indexOf("{", sigStart);
+  if (braceStart < 0) return "";
+  let depth = 0;
+  for (let i = braceStart; i < actionsSrc.length; i++) {
+    if (actionsSrc[i] === "{") depth++;
+    else if (actionsSrc[i] === "}") {
+      depth--;
+      if (depth === 0) return actionsSrc.slice(sigStart, i + 1);
+    }
+  }
+  return actionsSrc.slice(sigStart);
+}
+
+const updateBody = bodyOf("updateSupporter");
+const deleteBody = bodyOf("deleteSupporter");
+const bulkDeleteBody = bodyOf("bulkDeleteSupporters");
+
+ok("updateSupporter is non-empty (found by the slicer)", updateBody.length > 0);
+ok("deleteSupporter is non-empty (found by the slicer)", deleteBody.length > 0);
+ok("bulkDeleteSupporters is non-empty (found by the slicer)", bulkDeleteBody.length > 0);
+
+// Error-return convention (not throw), matching createSupporter/logSupporterGift:
+// every failure path returns { error: ... }, and the function body contains
+// no bare `throw` of its own (a throw from requireUser() inside the try is
+// still caught and converted to a returned error, same as every other action
+// in this file -- see the catch block in each).
+for (const [name, body] of [
+  ["updateSupporter", updateBody],
+  ["deleteSupporter", deleteBody],
+  ["bulkDeleteSupporters", bulkDeleteBody],
+] as const) {
+  ok(`${name} returns { error: ... } on failure, like createSupporter/logSupporterGift`, /return\s*\{\s*error:/.test(body));
+  ok(`${name} returns { success: true`, /return\s*\{\s*success:\s*true/.test(body));
+  ok(`${name} wraps its body in try/catch (no bare throw escapes to the caller)`, /try\s*\{/.test(body) && /catch\s*\(err\)/.test(body));
+  ok(`${name} does not itself \`throw\` (every failure is a returned { error })`, !/\n\s*throw /.test(body));
+}
+
+// updateSupporter: same field set and same validation as createSupporter.
+const createBody = bodyOf("createSupporter");
+for (const field of ["name", "email", "phone", "source_type", "source_detail", "pledged_amount", "pledged_frequency", "notes"]) {
+  ok(`updateSupporter touches the "${field}" field, same as createSupporter`, updateBody.includes(field) && createBody.includes(field));
+}
+ok(
+  "updateSupporter validates source_type against SOURCE_TYPE_VALUES, same as createSupporter",
+  /SOURCE_TYPE_VALUES\.includes\(sourceType\)/.test(updateBody),
+);
+ok(
+  "updateSupporter validates pledged_frequency against PLEDGE_FREQUENCY_VALUES, same as createSupporter",
+  /PLEDGE_FREQUENCY_VALUES\.includes\(pledgedFrequency\)/.test(updateBody),
+);
+ok("updateSupporter rejects a negative pledge, same as createSupporter", /pledgedAmount\s*<\s*0/.test(updateBody));
+ok("updateSupporter writes via .update(...), not .insert(...)", /\.from\("supporters"\)\s*\n?\s*\.update\(/.test(updateBody) || /\.update\(\{/.test(updateBody));
+ok("updateSupporter scopes its update with .eq(\"id\", id)", /\.eq\("id",\s*id\)/.test(updateBody));
+ok("updateSupporter revalidates /supporters", /revalidatePath\("\/supporters"\)/.test(updateBody));
+
+// deleteSupporter: a real delete, scoped by id.
+ok("deleteSupporter calls .from(\"supporters\").delete()", /\.from\("supporters"\)[\s\S]*?\.delete\(\)/.test(deleteBody));
+ok("deleteSupporter scopes its delete with .eq(\"id\", id)", /\.delete\(\)\s*\.eq\("id",\s*id\)/.test(deleteBody));
+ok("deleteSupporter revalidates /supporters", /revalidatePath\("\/supporters"\)/.test(deleteBody));
+
+// bulkDeleteSupporters: genuinely accepts multiple ids via ONE .in() delete,
+// not a loop calling deleteSupporter (or a second .delete().eq()) once per
+// id. Documented choice (see the function's own comment in actions.ts): a
+// single `.in("id", ids)` statement is one round trip and one atomic
+// operation, matching this file's own batch-insert precedent
+// (importSupportersCsv's single `.insert(toInsert)` rather than one insert
+// per row) -- not a deliberate exception, the same pattern applied to delete.
+ok(
+  "bulkDeleteSupporters deletes with ONE .in(\"id\", ids) call, not a per-id loop",
+  /\.delete\(\)\s*\.in\("id",\s*ids\)/.test(bulkDeleteBody),
+);
+ok("bulkDeleteSupporters contains no loop over ids calling delete per-item", !/for\s*\([^)]*ids[^)]*\)/.test(bulkDeleteBody) && !/ids\.map/.test(bulkDeleteBody) && !/ids\.forEach/.test(bulkDeleteBody));
+ok("bulkDeleteSupporters does not call deleteSupporter internally (it is its own single-statement delete)", !/deleteSupporter\(/.test(bulkDeleteBody));
+ok("bulkDeleteSupporters revalidates /supporters", /revalidatePath\("\/supporters"\)/.test(bulkDeleteBody));
+
+// Neither delete path touches supporter_gifts or supporter_interactions
+// directly -- cascade is the database's job via the ON DELETE CASCADE
+// foreign keys migration 0078 already put on both child tables (asserted
+// independently in section 2 above, at "supporter_gifts.supporter_id
+// cascades from supporters" / "supporter_interactions.supporter_id cascades
+// from supporters").
+ok("deleteSupporter never references supporter_gifts", !/supporter_gifts/.test(deleteBody));
+ok("deleteSupporter never references supporter_interactions", !/supporter_interactions/.test(deleteBody));
+ok("bulkDeleteSupporters never references supporter_gifts", !/supporter_gifts/.test(bulkDeleteBody));
+ok("bulkDeleteSupporters never references supporter_interactions", !/supporter_interactions/.test(bulkDeleteBody));
+
+// The cascade those two assertions rely on is independently verified here
+// too (not merely assumed), against the migration text itself, so this
+// section stands on its own even if section 2's assertions above ever moved.
+const migrationSql = readFileSync(join(root, "supabase/migrations/0078_supporters.sql"), "utf8").toLowerCase();
+ok(
+  "verified: supporter_gifts.supporter_id has ON DELETE CASCADE back to supporters",
+  /supporter_id uuid not null references supporters \(id\) on delete cascade/.test(
+    migrationSql.slice(migrationSql.indexOf("create table supporter_gifts"), migrationSql.indexOf("create table supporter_interactions")),
+  ),
+);
+ok(
+  "verified: supporter_interactions.supporter_id has ON DELETE CASCADE back to supporters",
+  /supporter_id uuid not null references supporters \(id\) on delete cascade/.test(
+    migrationSql.slice(migrationSql.indexOf("create table supporter_interactions")),
+  ),
+);
+
+// UI: an edit control and a delete control exist on the detail panel, and a
+// row-selection checkbox plus a "Delete selected (N)" control exist on the
+// list -- both with an expand-then-confirm step for the destructive actions,
+// never an instant single-click delete.
+const workspaceSrc = readFileSync(join(root, "app/(dashboard)/supporters/supporters-workspace.tsx"), "utf8");
+ok("the detail panel composes updateSupporter (edit control)", /updateSupporter\(supporter\.id, formData\)/.test(workspaceSrc));
+ok("the detail panel composes deleteSupporter (delete control)", /deleteSupporter\(supporter\.id\)/.test(workspaceSrc));
+ok("the list composes bulkDeleteSupporters (bulk delete control)", /bulkDeleteSupporters\(ids\)/.test(workspaceSrc));
+// Expand-then-confirm, the ProspectOutcomePanel retraction model: the
+// FIRST click only opens a confirm step (setDeleteOpen(true) /
+// setBulkDeleteOpen(true)); the actual delete call is gated behind that
+// state, not reachable from the initial render's button.
+ok(
+  "single delete's visible button opens a confirm step first (setDeleteOpen(true)), it does not call deleteSupporter directly",
+  /onClick=\{\(\) => setDeleteOpen\(true\)\}/.test(workspaceSrc),
+);
+ok(
+  "deleteSupporter is only ever called from inside the confirm step's own handler, after deleteOpen is already true",
+  (() => {
+    const confirmStepStart = workspaceSrc.indexOf("onClick=\{\(\) => setDeleteOpen(true)\}");
+    const deleteCallIndex = workspaceSrc.indexOf("deleteSupporter(supporter.id)");
+    return confirmStepStart >= 0 && deleteCallIndex > confirmStepStart;
+  })(),
+);
+ok(
+  "bulk delete's visible button opens a confirm step first (setBulkDeleteOpen(true)), it does not call bulkDeleteSupporters directly",
+  /onClick=\{\(\) => setBulkDeleteOpen\(true\)\}/.test(workspaceSrc),
+);
+ok(
+  "bulkDeleteSupporters is only ever called from inside the confirm step's own handler, after bulkDeleteOpen is already true",
+  (() => {
+    const confirmStepStart = workspaceSrc.indexOf("onClick={() => setBulkDeleteOpen(true)}");
+    const deleteCallIndex = workspaceSrc.indexOf("bulkDeleteSupporters(ids)");
+    return confirmStepStart >= 0 && deleteCallIndex > confirmStepStart;
+  })(),
+);
+ok("both confirm steps have a Cancel path back out (setDeleteOpen(false) / setBulkDeleteOpen(false))", /setDeleteOpen\(false\)/.test(workspaceSrc) && /setBulkDeleteOpen\(false\)/.test(workspaceSrc));
+ok("the list renders a checkbox per row for bulk selection", /type="checkbox"/.test(workspaceSrc) && /checkedIds/.test(workspaceSrc));
+ok("a 'Delete selected' control only renders once at least one row is checked", /checkedIds\.size > 0/.test(workspaceSrc));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

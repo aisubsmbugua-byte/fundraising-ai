@@ -298,6 +298,36 @@ function normalizeSupporterName(s: string): string {
   return s.trim().toLowerCase();
 }
 
+// STATE item 84: a real import hit this. `parseCsv` (lib/candidates.ts)
+// already trims and lowercases every header, so "Projected Annual Amount"
+// arrives as the row key "projected annual amount" -- but this function
+// only ever read the literal `pledged_amount`/`pledged_frequency` keys, so
+// a real-world spreadsheet's natural column name was silently ignored and
+// every amount on a live import landed null. This is NOT a fuzzy matcher:
+// each alias below is a specific, stated string normalized the same way
+// (trim, lowercase, collapse internal whitespace to one space) and matched
+// exactly -- an unrecognized header is ignored, same as any other unknown
+// CSV column, never guessed at and never an error on its own.
+const PLEDGE_AMOUNT_ALIASES: Record<string, PledgeFrequency | null> = {
+  pledged_amount: null, // the canonical column; frequency comes from pledged_frequency if present
+  "projected annual amount": "annual",
+  "annual amount": "annual",
+  "annual pledge": "annual",
+  "projected monthly amount": "monthly",
+  "monthly amount": "monthly",
+  "monthly pledge": "monthly",
+};
+
+function normalizeHeaderKey(k: string): string {
+  return k.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Strips a leading $ and thousands commas before parsing -- "$2,000" is an
+// ordinary way a human exports a dollar amount, not a malformed number.
+function parseCurrency(raw: string): number {
+  return Number(raw.replace(/[$,]/g, "").trim());
+}
+
 export function parseSupporterCsvRow(
   row: Record<string, string>,
   known: readonly { name: string; email: string | null }[],
@@ -312,14 +342,28 @@ export function parseSupporterCsvRow(
   if (pledgedFrequencyRaw && !PLEDGE_FREQUENCIES.some((f) => f.value === pledgedFrequencyRaw)) {
     return { kind: "error" };
   }
-  const pledgedFrequency = (pledgedFrequencyRaw || null) as PledgeFrequency | null;
+  let pledgedFrequency = (pledgedFrequencyRaw || null) as PledgeFrequency | null;
 
   let pledgedAmount: number | null = null;
-  const pledgedAmountRaw = (row.pledged_amount ?? "").trim();
-  if (pledgedAmountRaw) {
-    const n = Number(pledgedAmountRaw);
+  let amountKey: string | null = null;
+  let impliedFrequency: PledgeFrequency | null = null;
+  for (const rawKey of Object.keys(row)) {
+    const normalized = normalizeHeaderKey(rawKey);
+    if (normalized in PLEDGE_AMOUNT_ALIASES && (row[rawKey] ?? "").trim()) {
+      amountKey = rawKey;
+      impliedFrequency = PLEDGE_AMOUNT_ALIASES[normalized];
+      break;
+    }
+  }
+  if (amountKey) {
+    const n = parseCurrency(row[amountKey]);
     if (!Number.isFinite(n) || n < 0) return { kind: "error" };
     pledgedAmount = n;
+    // The column's own name states the cadence (e.g. "Projected Annual
+    // Amount" means annual) -- that is a fact the header already carries,
+    // not an inference from the dollar figure. An explicit
+    // pledged_frequency column, if also present, is never overridden by it.
+    if (impliedFrequency && !pledgedFrequency) pledgedFrequency = impliedFrequency;
   }
 
   const email = (row.email ?? "").trim() || null;
