@@ -1,4 +1,4 @@
-// STATE item 80, ruling 0034 -- the supporter model. This file asserts four
+// STATE item 80, ruling 0034 -- the supporter model. This file asserts five
 // things, all offline (no DB, no API key):
 //
 //   1. The stewardship selection (lib/supporters.ts) is pure, so its
@@ -32,6 +32,23 @@
 //      that file's source, not by running it (that script needs a live
 //      database and real auth sessions; this one does not run it).
 //
+//   5. STATE item 81, ruling 0034 clause 4 -- CSV bulk import. parseCsv
+//      (lib/candidates.ts, reused unmodified) feeding parseSupporterCsvRow
+//      (lib/supporters.ts): a valid row imports; a row missing name is
+//      skipped and counted as an error; a row with an invalid source_type or
+//      an invalid pledged_frequency is skipped and counted as an error (the
+//      documented choice, matched to importCandidatesCsv's own precedent for
+//      an invalid channel -- the whole row is dropped, not imported with the
+//      bad field left null); a row with an unparseable or negative
+//      pledged_amount gets the same treatment; a row whose name or email
+//      already appears earlier in the file or in the "already in the
+//      database" list is skipped and counted as a duplicate, never folded
+//      into the error count. importSupportersCsv itself
+//      (app/(dashboard)/supporters/actions.ts) touches the database and is
+//      not exercised here, matching this suite's existing posture toward
+//      database-touching code (section 4 above does the same thing for
+//      scripts/test-tenant-isolation.ts).
+//
 // Usage: npx tsx scripts/test-supporters.ts
 
 import { readFileSync } from "node:fs";
@@ -41,6 +58,7 @@ import {
   selectSupporterStewardshipQueue,
   daysSinceSupporterTouch,
   supporterTierThresholdDays,
+  parseSupporterCsvRow,
   SUPPORTER_TIER_LIGHT_THRESHOLD_DAYS,
   SUPPORTER_TIER_STANDARD_THRESHOLD_DAYS,
   SUPPORTER_TIER_PRIORITY_THRESHOLD_DAYS,
@@ -51,6 +69,7 @@ import {
   type SupporterGift,
   type SupporterInteraction,
 } from "../lib/supporters";
+import { parseCsv } from "../lib/candidates";
 
 const root = join(__dirname, "..");
 let pass = 0;
@@ -365,6 +384,100 @@ ok("asserts supporter_gifts has no delete policy, even for the owning org", /sup
 ok("asserts the supporter_gifts org-match trigger refuses a cross-org gift", /supporter_gifts.*org-match trigger/.test(isolationSrc));
 ok("asserts the supporter_interactions org-match trigger refuses a cross-org interaction", /supporter_interactions.*org-match trigger/.test(isolationSrc));
 ok("purgeTestIdentities cleans up the three new tables before the org/profile/user delete (idempotent re-runs)", /from\("supporters"\)\.delete\(\)\.in\("organization_id", orgIds\)/.test(isolationSrc));
+
+// --- 5. CSV bulk import (STATE item 81, ruling 0034 clause 4) ------------
+
+section("CSV import: parseCsv + parseSupporterCsvRow, offline, no database");
+
+// A whole small CSV run through parseCsv (unmodified, the same function
+// importCandidatesCsv uses) and then parseSupporterCsvRow row by row, same
+// loop shape importSupportersCsv uses -- counts kept in three separate
+// buckets throughout, never blended (ruling 0021's discipline).
+const csvText = [
+  "name,email,phone,source_type,source_detail,pledged_amount,pledged_frequency,notes",
+  "Jane Doe,jane@example.com,555-1000,event,Fall Gala,25,monthly,Met at the gala",
+  ",missing@example.com,,event,,,,", // missing name
+  "Bad Source,bad@example.com,,carnival,,,,", // invalid source_type
+  "Bad Frequency,freq@example.com,,website,,10,weekly,", // invalid pledged_frequency
+  "Bad Amount,amt@example.com,,website,,not-a-number,monthly,", // unparseable pledged_amount
+  "Negative Amount,neg@example.com,,website,,-5,monthly,", // negative pledged_amount
+  "Jane Doe,someone-else@example.com,,website,,,,", // duplicate by name
+  "Second Person,jane@example.com,,website,,,,", // duplicate by email
+].join("\n");
+
+const csvRows = parseCsv(csvText);
+check("parseCsv reads 8 data rows from the 9-line file (1 header + 8 rows)", csvRows.length, 8);
+
+function runImport(rows: Record<string, string>[]) {
+  const known: { name: string; email: string | null }[] = [];
+  let imported = 0;
+  let errors = 0;
+  let duplicates = 0;
+  for (const row of rows) {
+    const outcome = parseSupporterCsvRow(row, known);
+    if (outcome.kind === "error") errors++;
+    else if (outcome.kind === "duplicate") duplicates++;
+    else {
+      known.push({ name: outcome.supporter.name, email: outcome.supporter.email });
+      imported++;
+    }
+  }
+  return { imported, errors, duplicates, total: rows.length };
+}
+
+const result = runImport(csvRows);
+// Denominators: 8 rows in, split imported(1) + errors(5) + duplicates(2) = 8.
+check("counts: imported", result.imported, 1);
+check("counts: errors", result.errors, 5);
+check("counts: duplicates", result.duplicates, 2);
+ok("counts cover every row with no overlap and no gap (imported + errors + duplicates = rows in)", result.imported + result.errors + result.duplicates === result.total, `${result.imported}+${result.errors}+${result.duplicates} != ${result.total}`);
+
+// The one valid row actually imports, with every field carried through.
+check("the valid row's outcome", parseSupporterCsvRow(csvRows[0], []), {
+  kind: "insert",
+  supporter: {
+    name: "Jane Doe",
+    email: "jane@example.com",
+    phone: "555-1000",
+    source_type: "event",
+    source_detail: "Fall Gala",
+    pledged_amount: 25,
+    pledged_frequency: "monthly",
+    notes: "Met at the gala",
+  },
+});
+
+// A row missing name is skipped and counted as an error, not silently
+// dropped (STATE item 81's acceptance criterion, in the exact words used).
+check("row missing name: skipped as an error (not silently dropped)", parseSupporterCsvRow({ name: "", email: "x@example.com" }, []), { kind: "error" });
+check("row with only whitespace for name: also an error", parseSupporterCsvRow({ name: "   " }, []), { kind: "error" });
+
+// Invalid source_type or pledged_frequency: documented choice -- the WHOLE
+// row is skipped and counted as an error, matched to importCandidatesCsv's
+// own precedent for an invalid channel (discovery/actions.ts:135). It is
+// NOT imported with the bad field left null.
+check("invalid source_type: whole row skipped as an error, not imported with source_type nulled", parseSupporterCsvRow({ name: "Bad Source", source_type: "carnival" }, []), { kind: "error" });
+check("invalid pledged_frequency: whole row skipped as an error, not imported with pledged_frequency nulled", parseSupporterCsvRow({ name: "Bad Freq", pledged_frequency: "weekly" }, []), { kind: "error" });
+check("unparseable pledged_amount: whole row skipped as an error", parseSupporterCsvRow({ name: "Bad Amount", pledged_amount: "not-a-number" }, []), { kind: "error" });
+check("negative pledged_amount: whole row skipped as an error", parseSupporterCsvRow({ name: "Negative", pledged_amount: "-5" }, []), { kind: "error" });
+
+// A blank source_type defaults to "other" (matches createSupporter's own
+// default) rather than erroring; a blank pledged_frequency is a legible "no
+// pledge on file" null, not an error either -- only an INVALID non-blank
+// value is an error.
+check("blank source_type defaults to other, does not error", parseSupporterCsvRow({ name: "No Source" }, []).kind, "insert");
+check("blank pledged_frequency is null, does not error", (parseSupporterCsvRow({ name: "No Pledge" }, []) as { kind: "insert"; supporter: { pledged_frequency: string | null } }).supporter.pledged_frequency, null);
+check("blank pledged_amount is null, does not error", (parseSupporterCsvRow({ name: "No Amount" }, []) as { kind: "insert"; supporter: { pledged_amount: number | null } }).supporter.pledged_amount, null);
+
+// Duplicate matching: exact name match (case/whitespace-insensitive), and
+// exact email match when both rows have one -- deliberately NOT isSameOrg's
+// substring-containment rule, which is calibrated for organization names and
+// would misfire on person names (see lib/supporters.ts's comment on
+// parseSupporterCsvRow for "Jon" / "Jonathan Smith").
+check("duplicate by exact name match (case/whitespace-insensitive)", parseSupporterCsvRow({ name: "  JANE DOE  " }, [{ name: "Jane Doe", email: null }]), { kind: "duplicate" });
+check("duplicate by exact email match, different name", parseSupporterCsvRow({ name: "Someone New", email: "JANE@EXAMPLE.COM" }, [{ name: "Jane Doe", email: "jane@example.com" }]), { kind: "duplicate" });
+check("NOT a duplicate: a short name merely contained in a longer one (the isSameOrg behavior this deliberately avoids)", parseSupporterCsvRow({ name: "Jon" }, [{ name: "Jonathan Smith", email: null }])?.kind, "insert");
+check("not a duplicate: different name, no email overlap", parseSupporterCsvRow({ name: "Totally Different" }, [{ name: "Jane Doe", email: "jane@example.com" }])?.kind, "insert");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

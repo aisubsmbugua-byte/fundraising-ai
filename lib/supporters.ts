@@ -242,3 +242,107 @@ export function selectSupporterStewardshipQueue(
     return a.supporter.name.localeCompare(b.supporter.name) || a.supporter.id.localeCompare(b.supporter.id);
   });
 }
+
+// ---------------------------------------------------------------------------
+// CSV bulk import (STATE item 81, ruling 0034 clause 4): the pure per-row
+// parse/validate/dedupe step behind importSupportersCsv
+// (app/(dashboard)/supporters/actions.ts). Factored out from the server
+// action itself -- which, like importCandidatesCsv
+// (app/(dashboard)/discovery/actions.ts), the pattern item 81 is required to
+// mirror, does real database reads and writes -- so the one thing that
+// actually needs proving (what makes a row get skipped, and which bucket it
+// lands in) is testable with no database. Same testability discipline this
+// file already follows above (classifySupporterTier and the stewardship
+// queue take `now` as a parameter for the identical reason).
+//
+// Required column: name. Optional: email, phone, source_type, source_detail,
+// pledged_amount, pledged_frequency, notes.
+//
+// Invalid-value choice, matched to importCandidatesCsv's OWN precedent for
+// an invalid channel, not invented fresh: discovery/actions.ts's
+// importCandidatesCsv skips the WHOLE row on an invalid channel --
+// `if (!name || !channel || !validChannels.has(channel))` -- it never
+// imports the row with the field left null. An invalid source_type or
+// pledged_frequency here gets the identical treatment: the row is skipped
+// and counted as an error, never imported with that field silently nulled.
+// An unparseable or negative pledged_amount is treated the same way, for the
+// same reason and for consistency with createSupporter's own rule that a
+// negative pledge is rejected, not silently zeroed.
+//
+// Duplicate matching deliberately does NOT reuse isSameOrg
+// (lib/candidate-intake.ts) even though importCandidatesCsv uses it for
+// candidates: isSameOrg's substring-containment rule is calibrated for
+// ORGANIZATION names, where "Maclellan Foundation" correctly matches "The
+// Maclellan Foundation". Applied to PERSON names it would misfire --
+// "Jon" is contained in "Jonathan Smith", two different people. A supporter
+// name match here is exact (trimmed, case-insensitive); email, when both
+// rows have one, is the second signal, also exact and case-insensitive.
+export type SupporterCsvOutcome =
+  | { kind: "error" }
+  | { kind: "duplicate" }
+  | {
+      kind: "insert";
+      supporter: {
+        name: string;
+        email: string | null;
+        phone: string | null;
+        source_type: SupporterSourceType;
+        source_detail: string | null;
+        pledged_amount: number | null;
+        pledged_frequency: PledgeFrequency | null;
+        notes: string | null;
+      };
+    };
+
+function normalizeSupporterName(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+export function parseSupporterCsvRow(
+  row: Record<string, string>,
+  known: readonly { name: string; email: string | null }[],
+): SupporterCsvOutcome {
+  const name = (row.name ?? "").trim();
+  if (!name) return { kind: "error" };
+
+  const sourceType = (row.source_type ?? "").trim() || "other";
+  if (!SOURCE_TYPES.some((s) => s.value === sourceType)) return { kind: "error" };
+
+  const pledgedFrequencyRaw = (row.pledged_frequency ?? "").trim();
+  if (pledgedFrequencyRaw && !PLEDGE_FREQUENCIES.some((f) => f.value === pledgedFrequencyRaw)) {
+    return { kind: "error" };
+  }
+  const pledgedFrequency = (pledgedFrequencyRaw || null) as PledgeFrequency | null;
+
+  let pledgedAmount: number | null = null;
+  const pledgedAmountRaw = (row.pledged_amount ?? "").trim();
+  if (pledgedAmountRaw) {
+    const n = Number(pledgedAmountRaw);
+    if (!Number.isFinite(n) || n < 0) return { kind: "error" };
+    pledgedAmount = n;
+  }
+
+  const email = (row.email ?? "").trim() || null;
+  const normalizedName = normalizeSupporterName(name);
+  const normalizedEmail = email ? email.toLowerCase() : null;
+  const isDuplicate = known.some((k) => {
+    if (normalizeSupporterName(k.name) === normalizedName) return true;
+    if (normalizedEmail && k.email && k.email.toLowerCase() === normalizedEmail) return true;
+    return false;
+  });
+  if (isDuplicate) return { kind: "duplicate" };
+
+  return {
+    kind: "insert",
+    supporter: {
+      name,
+      email,
+      phone: (row.phone ?? "").trim() || null,
+      source_type: sourceType as SupporterSourceType,
+      source_detail: (row.source_detail ?? "").trim() || null,
+      pledged_amount: pledgedAmount,
+      pledged_frequency: pledgedFrequency,
+      notes: (row.notes ?? "").trim() || null,
+    },
+  };
+}

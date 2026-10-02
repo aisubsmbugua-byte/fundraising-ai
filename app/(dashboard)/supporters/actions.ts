@@ -1,25 +1,30 @@
 "use server";
 
 // The Supporters page's write path (STATE item 80, ruling 0034). A supporter
-// is manually added (no import here -- that's item 81, separate); a gift is
-// logged into the append-only gift-history table ONLY (migration 0078 grants
-// insert+select, no update, no delete -- there is nothing to revise, a
+// is manually added or CSV-imported (item 81, ruling 0034 clause 4); a gift
+// is logged into the append-only gift-history table ONLY (migration 0078
+// grants insert+select, no update, no delete -- there is nothing to revise, a
 // correction is a new row); an interaction is logged the same way the
 // prospect-side one is, into the supporter's own table.
 //
 // Every action returns its failure rather than throwing it, matching
 // app/(dashboard)/network/actions.ts's convention -- Next redacts a thrown
 // message in a production build, so a returned { error } is the only way the
-// caller actually sees what went wrong. logSupporterInteraction is the one
-// exception: it mirrors logInteraction's (app/(dashboard)/revisit/actions.ts)
-// signature and throw-on-error behavior exactly, so the two are
-// interchangeable as components/LogInteractionForm.tsx's onLog prop.
+// caller actually sees what went wrong. logSupporterInteraction and
+// importSupportersCsv are the exceptions: the former mirrors logInteraction's
+// (app/(dashboard)/revisit/actions.ts) signature and throw-on-error behavior
+// exactly so the two are interchangeable as components/LogInteractionForm.tsx's
+// onLog prop; the latter mirrors importCandidatesCsv's
+// (app/(dashboard)/discovery/actions.ts) throw-then-redirect behavior exactly,
+// per ruling 0034 clause 4 and STATE item 81.
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import type { InteractionKind } from "@/lib/interactions";
-import { SOURCE_TYPES, PLEDGE_FREQUENCIES } from "@/lib/supporters";
+import { SOURCE_TYPES, PLEDGE_FREQUENCIES, parseSupporterCsvRow } from "@/lib/supporters";
+import { parseCsv } from "@/lib/candidates";
 
 type Result = { error: string } | { success: true; id: string };
 
@@ -136,4 +141,71 @@ export async function logSupporterInteraction(supporterId: string, kind: Interac
 
   revalidatePath("/supporters");
   revalidatePath("/revisit");
+}
+
+// CSV bulk import -- STATE item 81, ruling 0034 clause 4: "the existing
+// candidate CSV import (importCandidatesCsv) is the pattern to mirror
+// exactly." Mirrored field-for-field in structure against
+// app/(dashboard)/discovery/actions.ts's importCandidatesCsv: same parseCsv
+// (lib/candidates.ts), same per-row skip-and-count handling, same
+// throw-then-redirect flow (not the catch-and-return shape the rest of this
+// file uses), same skipped-vs-imported-vs-duplicate counting reported
+// separately in the redirect's query string. The per-row validate/dedupe
+// rule itself lives in lib/supporters.ts's parseSupporterCsvRow (pure, so
+// item 81's required tests can exercise it with no database) -- see that
+// function's own comment for the exact field contract and the documented
+// invalid-value and duplicate-matching choices.
+export async function importSupportersCsv(formData: FormData) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Choose a CSV file to upload");
+
+  const text = await file.text();
+  const rows = parseCsv(text);
+
+  // Every existing supporter's name and email, read once -- the same
+  // re-upload-safety importCandidatesCsv added for candidates (see its
+  // comment at the matching spot): a file re-uploaded after a correction, or
+  // listing the same person twice, must not double the list.
+  const { data: knownSupporters } = await supabase.from("supporters").select("name, email");
+  const known: { name: string; email: string | null }[] = [...(knownSupporters ?? [])];
+
+  const toInsert: Record<string, unknown>[] = [];
+  let errorCount = 0;
+  let duplicateCount = 0;
+
+  for (const row of rows) {
+    // Checked against rows already in the batch as well as rows already in
+    // the database, same reasoning as importCandidatesCsv's known-list: a
+    // file listing the same supporter twice is the ordinary case, and a
+    // batch insert cannot catch that on its own.
+    const outcome = parseSupporterCsvRow(row, known);
+    if (outcome.kind === "error") {
+      errorCount++;
+      continue;
+    }
+    if (outcome.kind === "duplicate") {
+      duplicateCount++;
+      continue;
+    }
+    known.push({ name: outcome.supporter.name, email: outcome.supporter.email });
+    toInsert.push({ ...outcome.supporter, created_by: user.id });
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("supporters").insert(toInsert);
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/supporters");
+  // Duplicates reported separately from errors, never blended into one
+  // number -- a skipped duplicate is the import working, a row that could
+  // not be read or validated is the import failing (ruling 0021's
+  // discipline; same comment importCandidatesCsv makes at this exact spot).
+  redirect(`/supporters/import?imported=${toInsert.length}&errors=${errorCount}&duplicates=${duplicateCount}`);
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, Mail, PhoneCall, Users as UsersIcon, MessageSquare, ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import { Plus, Upload, Mail, PhoneCall, Users as UsersIcon, MessageSquare, ArrowLeft } from "lucide-react";
 import { createSupporter, logSupporterGift, logSupporterInteraction } from "./actions";
 import {
   SOURCE_TYPES,
@@ -52,13 +53,21 @@ export default function SupportersWorkspace({
       <div className={`split-pane-list${mobileDetailOpen ? " detail-active" : ""}`} style={{ minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.sm }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>Supporters ({supporters.length})</h2>
-          <button
-            type="button"
-            onClick={() => setAddOpen((o) => !o)}
-            style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "6px 10px" }}
-          >
-            <Plus size={13} /> Add supporter
-          </button>
+          <div style={{ display: "flex", gap: spacing.xs }}>
+            <Link
+              href="/supporters/import"
+              style={{ ...buttonSecondary, display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "6px 10px", textDecoration: "none" }}
+            >
+              <Upload size={13} /> Import CSV
+            </Link>
+            <button
+              type="button"
+              onClick={() => setAddOpen((o) => !o)}
+              style={{ ...buttonPrimary, display: "flex", alignItems: "center", gap: 6, fontSize: 13, padding: "6px 10px" }}
+            >
+              <Plus size={13} /> Add supporter
+            </button>
+          </div>
         </div>
 
         {addOpen && (
