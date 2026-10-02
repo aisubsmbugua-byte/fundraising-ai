@@ -14,6 +14,8 @@ import {
   ArrowUp,
   Sparkles,
   Building2,
+  Heart,
+  DollarSign,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -26,6 +28,7 @@ import {
   type HealthStatus,
 } from "@/lib/prospects";
 import { countStrategiesReadyForReview } from "@/lib/strategy";
+import { totalForecastAmount, type Supporter } from "@/lib/supporters";
 import { loadOutcomeIndex, isClosedToWork } from "@/lib/prospect-outcomes";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import type { DiscoverySearchRun } from "@/lib/discovery-search";
@@ -72,6 +75,7 @@ export default async function DashboardPage() {
     { data: pendingCandidates },
     { data: rulesData },
     outcomeIndex,
+    { data: supporters },
   ] = await Promise.all([
     supabase.auth.getUser().then((r) => ({ data: r.data.user })),
     supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>(),
@@ -117,6 +121,12 @@ export default async function DashboardPage() {
     supabase.from("candidates").select("*").eq("status", "pending").returns<Candidate[]>(),
     supabase.from("screening_rules").select("*").eq("active", true),
     loadOutcomeIndex(supabase),
+    // STATE item 85: pledged_amount/pledged_frequency is all totalForecastAmount
+    // needs -- one query gives both the count (array length) and the sum, no
+    // separate head-count query.
+    supabase.from("supporters").select("pledged_amount, pledged_frequency").returns<
+      Pick<Supporter, "pledged_amount" | "pledged_frequency">[]
+    >(),
   ]);
 
   const firstName = (user?.email ?? "there").split("@")[0].replace(/[._]+/g, " ").trim();
@@ -149,6 +159,9 @@ export default async function DashboardPage() {
   const totalInPipeline = prospects?.length ?? 0;
   const totalPotential = (prospects ?? []).reduce((sum, p) => sum + (p.ask_amount ?? 0), 0);
   const maxStagePotential = Math.max(1, ...Array.from(potentialByStage.values()));
+
+  const totalSupporters = supporters?.length ?? 0;
+  const supporterForecast = totalForecastAmount(supporters ?? []);
 
   const rules = (rulesData ?? []) as ScreeningRule[];
   const recommended = (pendingCandidates ?? [])
@@ -295,6 +308,14 @@ export default async function DashboardPage() {
           sub="Due in the next 7 days"
         />
         <StatCard href="/prospects/review" icon={ClipboardCheck} label="Strategy to review" value={readyForReviewCount} sub="Awaiting review" />
+        <StatCard href="/supporters" icon={Heart} label="Supporters" value={totalSupporters} />
+        <StatCard
+          href="/supporters"
+          icon={DollarSign}
+          label="Supporter forecast"
+          value={formatAmountCompact(supporterForecast)}
+          sub="Projected annual giving, not yet collected"
+        />
       </div>
 
       <div className="responsive-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: spacing.xl, marginTop: spacing.xl, alignItems: "start" }}>
@@ -502,7 +523,7 @@ function StatCard({
   href: string;
   icon: LucideIcon;
   label: string;
-  value: number;
+  value: number | string;
   delta?: number;
   sub?: string;
 }) {

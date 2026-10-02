@@ -82,6 +82,8 @@ import {
   SUPPORTER_TIER_STANDARD_MIN_MONTHLY_EQUIVALENT,
   SUPPORTER_TIER_PRIORITY_MIN_MONTHLY_EQUIVALENT,
   SUPPORTER_TIER_PRIORITY_ONE_TIME_PLEDGE_THRESHOLD,
+  annualPledgeEquivalent,
+  totalForecastAmount,
   type Supporter,
   type SupporterGift,
   type SupporterInteraction,
@@ -168,6 +170,33 @@ check("one-time $300: standard (= $25.00/mo-equivalent exactly)", classifySuppor
 check("one-time $999: standard (carve-out is $1,000+, this is under it; $83.25/mo-equivalent)", classifySupporterTier(999, "one_time"), "standard");
 check("one-time $1,000: priority (carve-out, even though $83.33/mo-equivalent alone would read standard)", classifySupporterTier(1000, "one_time"), "priority");
 check("one-time $5,000: priority (carve-out)", classifySupporterTier(5000, "one_time"), "priority");
+
+// --- 1a-2. Forecast total (STATE item 85) --------------------------------
+
+section("annualPledgeEquivalent / totalForecastAmount (Dashboard forecast, STATE item 85)");
+
+check("monthly $100 annualizes to $1,200", annualPledgeEquivalent(100, "monthly"), 1200);
+check("annual $1,200 stays $1,200 (already a yearly figure)", annualPledgeEquivalent(1200, "annual"), 1200);
+check("one_time $500 stays $500 (a projection of this year's giving, not spread out)", annualPledgeEquivalent(500, "one_time"), 500);
+
+check(
+  "totalForecastAmount sums across mixed frequencies",
+  totalForecastAmount([
+    { pledged_amount: 100, pledged_frequency: "monthly" }, // -> 1200
+    { pledged_amount: 500, pledged_frequency: "annual" }, // -> 500
+    { pledged_amount: 250, pledged_frequency: "one_time" }, // -> 250
+  ]),
+  1950
+);
+check(
+  "a supporter with no pledge captured contributes 0, never null-propagates the sum",
+  totalForecastAmount([
+    { pledged_amount: null, pledged_frequency: null },
+    { pledged_amount: 100, pledged_frequency: "annual" },
+  ]),
+  100
+);
+check("totalForecastAmount of zero supporters is 0, not NaN or null", totalForecastAmount([]), 0);
 
 // --- 1b. Day-threshold boundaries, per tier, exactly/under/over ----------
 

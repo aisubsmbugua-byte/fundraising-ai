@@ -139,6 +139,31 @@ function monthlyEquivalent(amount: number, frequency: PledgeFrequency): number {
   return amount / 12;
 }
 
+// STATE item 85: the inverse direction of monthlyEquivalent above, exported
+// for display -- "how much is this pledge worth over a year" is the figure
+// a forecast total wants, and it is the owner's own vocabulary (their real
+// CSV header was literally "Projected Annual Amount"). Monthly pledges are
+// annualized (x12); annual and one-time pledges are already a yearly
+// figure as stated, same branching monthlyEquivalent uses, just not
+// inverted back down to a monthly unit afterward.
+export function annualPledgeEquivalent(amount: number, frequency: PledgeFrequency): number {
+  return frequency === "monthly" ? amount * 12 : amount;
+}
+
+// A pledge is what a supporter said, not what they've given (ruling 0034
+// clause 2) -- this is a forecast, not a count of money in hand. A
+// supporter with no pledge captured yet (either field null, matching
+// classifySupporterTier's same "light, not an error" treatment) contributes
+// 0, never propagates a null into the total.
+export function totalForecastAmount(
+  supporters: readonly Pick<Supporter, "pledged_amount" | "pledged_frequency">[],
+): number {
+  return supporters.reduce((sum, s) => {
+    if (s.pledged_amount == null || s.pledged_frequency == null) return sum;
+    return sum + annualPledgeEquivalent(s.pledged_amount, s.pledged_frequency);
+  }, 0);
+}
+
 // Pure: classifies a pledge into its tier. Exported so the UI can show which
 // tier a pledge WOULD land in while a form is being filled out, without
 // re-deriving the thresholds.
