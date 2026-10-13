@@ -54,7 +54,9 @@ import {
 import { loadApprovedIntelligence } from "@/lib/prospect-intelligence";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
 import type { Interaction } from "@/lib/interactions";
-import type { Card, CardRow, Result } from "./types";
+import { draftKindLabel } from "@/lib/drafts";
+import type { Card, CardRow, DraftReviewItem, Result } from "./types";
+import { draftFingerprint, normalizeIntel, normalizeStrategy, strategyFingerprint } from "./fingerprint";
 import { asEnum, asIntInRange, asOptionalBoundedString, asUuid, rejectUnknownKeys } from "./validate";
 
 const MS_PER_DAY = 86400000;
@@ -107,6 +109,18 @@ function readFailed(what: string): { ok: false; error: string } {
   // Not "zero results": a failed read is "not evaluated", and the model is
   // told so rather than shown an empty list it would read as a clean answer.
   return { ok: false, error: `Could not read ${what} just now, so no answer was produced for it.` };
+}
+
+// Every prospect's id and name, for the one question add_prospect asks before
+// it writes: is there already a prospect by this exact name? Paged like every
+// other whole-table read here; the comparison is done in code, never by
+// interpolating a model's text into a PostgREST filter.
+export async function listProspectNames(
+  supabase: SupabaseClient
+): Promise<{ ok: true; rows: { id: string; name: string }[] } | { ok: false }> {
+  const { data, error } = await selectAll(supabase, "prospects", "id, name");
+  if (error) return { ok: false };
+  return { ok: true, rows: ((data ?? []) as { id: string; name: string }[]).map((r) => ({ id: r.id, name: String(r.name) })) };
 }
 
 // --- Pure selectors (the offline-pinnable mirror of the pages) ---------------
@@ -677,6 +691,274 @@ export async function listRecentActivity(supabase: SupabaseClient): Promise<Read
     rows,
     total: rows.length,
     emptyText: "No searches or reviews yet.",
+  };
+  return { ok: true, modelResult, card };
+}
+
+// --- get_strategy_for_review (ruling 0038 clause 3) --------------------------
+//
+// The prospect's LATEST strategy run only -- the one the panel, the drafting
+// gate and the review count all treat as current -- with the proposed
+// strategy and funder intelligence IN FULL, and the fingerprint of exactly
+// that content. The card renders every field untruncated: what the user is
+// shown must be what a later approval is pinned to.
+//
+// Allowlist (ruling 0038 clause 5): the content the user is asking to act on,
+// nothing else of the row -- no findings (raw web text), no evidence ids, no
+// model name, no creator, no error text.
+
+export const STRATEGY_REVIEW_ALLOWLIST = [
+  "prospectId",
+  "prospectName",
+  "hasRun",
+  "runId",
+  "status",
+  "statusLabel",
+  "approved",
+  "canBeApproved",
+  "strategy",
+  "outreach_approach",
+  "ask_positioning",
+  "rationale",
+  "key_talking_points",
+  "evidence_to_highlight",
+  "organizationIntel",
+  "location",
+  "funder_type",
+  "geographic_focus",
+  "typical_grant_size",
+  "focus_areas",
+  "fingerprint",
+  "guidance",
+] as const;
+
+export type GetStrategyForReviewArgs = { prospectId: string };
+
+export function validateGetStrategyForReview(raw: Record<string, unknown>): Result<GetStrategyForReviewArgs> {
+  const unknown = rejectUnknownKeys(raw, ["prospect_id"]);
+  if (unknown) return { ok: false, error: unknown };
+  const id = asUuid(raw.prospect_id, "prospect_id");
+  if (!id.ok) return id;
+  return { ok: true, value: { prospectId: id.value } };
+}
+
+const STRATEGY_STATUS_LABELS: Record<string, string> = {
+  researching: "Being built",
+  analyzing: "Being built",
+  ready_for_review: "Waiting for review",
+  error: "Failed",
+};
+
+export async function getStrategyForReview(supabase: SupabaseClient, args: GetStrategyForReviewArgs): Promise<ReadOutcome> {
+  const { data: prospect, error: prospectError } = await supabase.from("prospects").select("id, name").eq("id", args.prospectId).maybeSingle();
+  if (prospectError) return readFailed("that prospect");
+  if (!prospect) return { ok: false, error: "No prospect with that id was found." };
+  const name = clip(String((prospect as { name: string }).name), MAX_NAME_CHARS);
+
+  const { data: runs, error } = await supabase
+    .from("strategy_runs")
+    .select("id, prospect_id, status, strategy, organization_intel, approved_strategy, created_at")
+    .eq("prospect_id", args.prospectId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) return readFailed("that prospect's strategy");
+  const run = ((runs ?? [])[0] ?? null) as {
+    id: string;
+    status: string;
+    strategy: unknown;
+    organization_intel: unknown;
+    approved_strategy: unknown;
+  } | null;
+  const href = `/prospects/${args.prospectId}`;
+
+  if (!run) {
+    const modelResult = { prospectId: args.prospectId, prospectName: name, hasRun: false, canBeApproved: false, guidance: "No strategy has been built for this prospect yet." };
+    const card: Card = {
+      kind: "strategy_review",
+      ability: "get_strategy_for_review",
+      title: `Strategy for ${name}`,
+      prospectId: args.prospectId,
+      prospectName: name,
+      hasRun: false,
+      runId: null,
+      status: null,
+      statusLabel: "No strategy yet",
+      approved: false,
+      fingerprint: null,
+      strategy: null,
+      organizationIntel: null,
+      href,
+    };
+    return { ok: true, modelResult, card };
+  }
+
+  const approved = run.approved_strategy !== null && run.approved_strategy !== undefined;
+  const statusLabel = approved ? "Approved" : (STRATEGY_STATUS_LABELS[run.status] ?? run.status);
+  const hasProposal = run.strategy !== null && run.strategy !== undefined && run.organization_intel !== null && run.organization_intel !== undefined;
+  const canBeApproved = run.status === "ready_for_review" && !approved && hasProposal;
+
+  // What is displayed: the approved text once approved (what is in force),
+  // otherwise the proposal. The fingerprint exists only for the version a gate
+  // could approve -- the proposal of a run that is waiting for review.
+  const shownStrategy = hasProposal || approved ? normalizeStrategy(approved ? run.approved_strategy : run.strategy) : null;
+  const shownIntel = hasProposal ? normalizeIntel(run.organization_intel) : null;
+  const fingerprint = canBeApproved ? strategyFingerprint(run.strategy, run.organization_intel) : null;
+
+  const modelResult: Record<string, unknown> = {
+    prospectId: args.prospectId,
+    prospectName: name,
+    hasRun: true,
+    runId: run.id,
+    status: run.status,
+    statusLabel,
+    approved,
+    canBeApproved,
+    strategy: shownStrategy,
+    organizationIntel: shownIntel,
+    fingerprint,
+    guidance: canBeApproved
+      ? "This strategy is shown to the user in full on a card. It can be approved only if the user sees it first and then says to approve it in a LATER message; pass this runId and fingerprint to approve_strategy then."
+      : approved
+        ? "This strategy has already been approved."
+        : "This strategy is not waiting for review, so it cannot be approved or pushed back on.",
+  };
+  const card: Card = {
+    kind: "strategy_review",
+    ability: "get_strategy_for_review",
+    title: `Strategy for ${name}`,
+    prospectId: args.prospectId,
+    prospectName: name,
+    hasRun: true,
+    runId: run.id,
+    status: run.status,
+    statusLabel,
+    approved,
+    fingerprint,
+    strategy: shownStrategy,
+    organizationIntel: shownIntel,
+    note: canBeApproved
+      ? "This is exactly what approving would approve. Say so in your next message to approve it, or give feedback to push back."
+      : undefined,
+    href,
+  };
+  return { ok: true, modelResult, card };
+}
+
+// --- get_drafts (ruling 0038 clause 3) ---------------------------------------
+//
+// A prospect's drafts -- kind, status, subject and the text -- IN FULL on the
+// card, each with the fingerprint of exactly that text. Allowlist: no
+// recipient, no contact email, no send-attempt data, no provider message id:
+// "has it been sent" is a single boolean, and the address it would go to is
+// never read.
+
+export const DRAFTS_ALLOWLIST = [
+  "prospectId",
+  "prospectName",
+  "total",
+  "shown",
+  "drafts",
+  "draftId",
+  "kind",
+  "kindLabel",
+  "status",
+  "sent",
+  "subject",
+  "content",
+  "contentOmittedForSize",
+  "fingerprint",
+  "guidance",
+] as const;
+
+export const MAX_DRAFTS_LISTED = 6;
+// The model is shown draft text up to this many characters in total; a draft
+// that does not fit is flagged, not cut -- a half-shown draft is how an edit
+// silently drops the rest. The CARD always carries the whole text.
+export const MODEL_DRAFT_CONTENT_BUDGET = 12000;
+
+export type GetDraftsArgs = { prospectId: string; draftId: string | null };
+
+export function validateGetDrafts(raw: Record<string, unknown>): Result<GetDraftsArgs> {
+  const unknown = rejectUnknownKeys(raw, ["prospect_id", "draft_id"]);
+  if (unknown) return { ok: false, error: unknown };
+  const id = asUuid(raw.prospect_id, "prospect_id");
+  if (!id.ok) return id;
+  let draftId: string | null = null;
+  if (raw.draft_id !== undefined && raw.draft_id !== null && raw.draft_id !== "") {
+    const d = asUuid(raw.draft_id, "draft_id");
+    if (!d.ok) return d;
+    draftId = d.value;
+  }
+  return { ok: true, value: { prospectId: id.value, draftId } };
+}
+
+export async function getDrafts(supabase: SupabaseClient, args: GetDraftsArgs): Promise<ReadOutcome> {
+  const { data: prospect, error: prospectError } = await supabase.from("prospects").select("id, name").eq("id", args.prospectId).maybeSingle();
+  if (prospectError) return readFailed("that prospect");
+  if (!prospect) return { ok: false, error: "No prospect with that id was found." };
+  const name = clip(String((prospect as { name: string }).name), MAX_NAME_CHARS);
+
+  let query = supabase
+    .from("drafts")
+    .select("id, prospect_id, kind, status, subject, content, sent_at, created_at")
+    .eq("prospect_id", args.prospectId);
+  if (args.draftId) query = query.eq("id", args.draftId);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(MAX_DRAFTS_LISTED + 1);
+  if (error) return readFailed("that prospect's drafts");
+  const rows = (data ?? []) as { id: string; kind: string; status: string; subject: string | null; content: string | null; sent_at: string | null }[];
+  const overflow = rows.length > MAX_DRAFTS_LISTED;
+  const shown = rows.slice(0, MAX_DRAFTS_LISTED);
+
+  const items: DraftReviewItem[] = shown.map((d) => {
+    const content = typeof d.content === "string" ? d.content : "";
+    return {
+      draftId: d.id,
+      kind: d.kind,
+      kindLabel: draftKindLabel(d.kind),
+      status: d.status,
+      sent: Boolean(d.sent_at),
+      subject: typeof d.subject === "string" ? d.subject : null,
+      content,
+      fingerprint: draftFingerprint({ kind: d.kind, subject: d.subject, content }),
+    };
+  });
+
+  let budget = MODEL_DRAFT_CONTENT_BUDGET;
+  const modelDrafts = items.map((d) => {
+    const fits = d.content.length <= budget;
+    if (fits) budget -= d.content.length;
+    return {
+      draftId: d.draftId,
+      kind: d.kind,
+      kindLabel: d.kindLabel,
+      status: d.status,
+      sent: d.sent,
+      subject: d.subject,
+      content: fits ? d.content : null,
+      contentOmittedForSize: !fits,
+      fingerprint: d.fingerprint,
+    };
+  });
+
+  const modelResult = {
+    prospectId: args.prospectId,
+    prospectName: name,
+    total: overflow ? shown.length + 1 : shown.length,
+    shown: shown.length,
+    drafts: modelDrafts,
+    guidance:
+      "Each draft is shown to the user in full on a card. A draft can be approved only if the user sees it first and then says to approve it in a LATER message; pass its draftId and fingerprint to approve_draft then. Approving does not deliver it to anyone.",
+  };
+  const card: Card = {
+    kind: "draft_review",
+    ability: "get_drafts",
+    title: `Drafts for ${name}`,
+    prospectId: args.prospectId,
+    prospectName: name,
+    drafts: items,
+    total: modelResult.total,
+    note: overflow ? `Showing the newest ${MAX_DRAFTS_LISTED}; there are more.` : undefined,
+    href: `/prospects/${args.prospectId}`,
   };
   return { ok: true, modelResult, card };
 }

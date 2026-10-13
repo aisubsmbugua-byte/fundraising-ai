@@ -6,7 +6,9 @@
 //   1. the name must be in the closed registry        else unknown_tool
 //   2. the argument string must be a JSON object      else invalid_arguments
 //   3. the ability's own validator must accept it     else validation
-//   4. only then does the handler run (a read, or a proposal insert)
+//   4. only then does the handler run (a read, a proposal insert, or -- for
+//      a command or gate -- the single call into runCommand, which does its
+//      own quote, cap, display and guard checks before anything executes)
 //   5. the handler's result is cut down to the ability's allowlist, at any
 //      depth, before the model ever sees it
 //
@@ -30,6 +32,9 @@ export type DispatchResult = {
   // The string put in the model's `tool` message.
   toolMessage: string;
   card?: Card;
+  // Further cards the same call produced (a revision's new strategy, a new
+  // draft), rendered by code from reads -- never from the model.
+  cards?: Card[];
   proposal?: ProposalView;
   // Keys the allowlist removed (empty in a correct handler). Logged, and
   // asserted empty by tests against deliberately contaminated fixtures.
@@ -94,6 +99,13 @@ export async function dispatchToolCall(
     // The detail stays in the server log; the model is told only that the
     // lookup failed, so a database error message never reaches the provider.
     console.error(`[assistant] tool ${ability.name} threw:`, err instanceof Error ? err.message : err);
+    if (ability.kind === "command" || ability.kind === "gate") {
+      return errorResult(
+        "handler_error",
+        "That action hit an unexpected error and may not have completed. Do not say it was done; tell the user to check the record before asking again.",
+        ability
+      );
+    }
     return errorResult("handler_error", "That lookup failed. Tell the user it could not be completed.", ability);
   }
 
@@ -108,5 +120,5 @@ export async function dispatchToolCall(
   if (toolMessage.length > MAX_TOOL_RESULT_CHARS) {
     return { ...errorResult("result_too_large", "That result was too large to use. Tell the user it could not be completed.", ability), strippedKeys: dropped };
   }
-  return { ok: true, toolMessage, card: outcome.card, proposal: outcome.proposal, strippedKeys: dropped, ability };
+  return { ok: true, toolMessage, card: outcome.card, cards: outcome.cards, proposal: outcome.proposal, strippedKeys: dropped, ability };
 }

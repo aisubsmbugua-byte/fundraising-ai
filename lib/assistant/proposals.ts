@@ -39,8 +39,8 @@ export const MAX_NEXT_ACTION_CHARS = 200;
 export const MAX_SUBJECT_NAME_CHARS = 120;
 
 const KIND_VALUES = INTERACTION_KINDS.map((k) => k.value) as readonly InteractionKind[];
-const EARLIEST_DATE = "2000-01-01";
-const LATEST_DUE_DATE = "2100-12-31";
+export const EARLIEST_DATE = "2000-01-01";
+export const LATEST_DUE_DATE = "2100-12-31";
 
 const MS_PER_DAY = 86400000;
 export function tomorrowIso(now: Date): string {

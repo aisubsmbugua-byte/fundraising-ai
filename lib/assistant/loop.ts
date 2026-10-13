@@ -13,9 +13,15 @@
 //                           prose).
 //   MAX_TOOL_CALLS_PER_STEP tool calls executed from one model reply.
 //
-// The route's `maxDuration` is 180 s. MAX_STEPS * PER_CALL_TIMEOUT_MS is
-// 150 s and TURN_DEADLINE_MS is 120 s, so the loop cannot outlive the route;
-// scripts/test-assistant.ts asserts the inequality against the route source.
+// The route's `maxDuration` is 300 s (ruling 0038 / STATE item 92: a revision,
+// a push-back or a draft generation is a model call of up to ~2 minutes, run
+// inside the turn). MAX_STEPS * PER_CALL_TIMEOUT_MS is 150 s, and
+// TURN_DEADLINE_MS is 240 s: no new model call is started after it, so the
+// last call ends by TURN_DEADLINE_MS + PER_CALL_TIMEOUT_MS = 270 s, leaving
+// 30 s for the writes after the loop. A long ability is refused at the choke
+// point BEFORE it starts if the deadline's remaining time is less than its
+// stated maximum plus a margin (command.ts, ctx.remainingMs below).
+// scripts/test-assistant.ts asserts the inequalities against the route source.
 //
 // The ledger row for this turn already exists: `aiRunId` is a required
 // argument, and the loop refuses to start without one, so "a model call with
@@ -23,9 +29,10 @@
 // (ruling 0026 clause 1). The caller owns finalization and calls it exactly
 // once.
 //
-// What this file never does: execute a change. Tool handlers either read or
-// insert a pending proposal. There is no import of executors.ts, any send
-// module, or any service-role client here (source-scanned).
+// What this file never does: execute a change itself. Tool handlers either
+// read, insert a pending proposal, or call runCommand. There is no import of
+// executors.ts, any entry point, any send module, or any service-role client
+// here (source-scanned).
 
 import { addUsage, type UsageAccumulator } from "@/lib/ai-runs";
 import { toolDefinitions } from "./abilities";
@@ -35,8 +42,12 @@ import type { Ability, Card, ProposalView, ToolContext } from "./types";
 
 export const MAX_STEPS = 5;
 export const PER_CALL_TIMEOUT_MS = 30_000;
-export const TURN_DEADLINE_MS = 120_000;
+export const TURN_DEADLINE_MS = 240_000;
 export const MAX_TOOL_CALLS_PER_STEP = 4;
+// A model call is not started with less than this left: a call handed a
+// millisecond would fail by construction -- after the turn may already have
+// executed a command -- and report an error for work that was done.
+export const MIN_CALL_BUDGET_MS = 5_000;
 // How many past text messages are sent with a new question. Raw tool results
 // from earlier turns are never resent.
 export const HISTORY_MESSAGE_CAP = 12;
@@ -108,6 +119,11 @@ export async function runAssistantLoop(input: {
   const limits: Limits = { ...DEFAULT_LIMITS, ...(input.limits ?? {}) };
   const clock = input.clock ?? Date.now;
   const startedAt = clock();
+  // The turn's own remaining time, for the abilities that need to know (a
+  // long ability refuses before it starts if it cannot finish). Set here, not
+  // by the caller, so it is always measured against THIS loop's clock and
+  // deadline.
+  input.ctx.remainingMs = () => Math.max(0, limits.deadlineMs - (clock() - startedAt));
   const defs: ProviderToolDefinition[] = input.abilities
     ? input.abilities.map((a) => ({ name: a.name, description: a.description, parameters: a.parameters as unknown as Record<string, unknown> }))
     : toolDefinitions();
@@ -130,7 +146,8 @@ export async function runAssistantLoop(input: {
 
   for (let step = 1; step <= limits.maxSteps; step++) {
     const elapsed = clock() - startedAt;
-    if (elapsed >= limits.deadlineMs) {
+    const left = limits.deadlineMs - elapsed;
+    if (left <= 0 || left < Math.min(MIN_CALL_BUDGET_MS, limits.deadlineMs)) {
       stopReason = "deadline";
       break;
     }
@@ -186,6 +203,7 @@ export async function runAssistantLoop(input: {
       const result = await dispatchToolCall(call, input.ctx, lookup);
       if (!result.ok) toolErrors++;
       if (result.card) cards.push(result.card);
+      if (result.cards) cards.push(...result.cards);
       if (result.proposal) proposals.push(result.proposal);
       transcript.push({ role: "tool", tool_call_id: call.id, content: result.toolMessage });
     }

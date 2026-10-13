@@ -6,7 +6,15 @@
 // A turn is ONE fetch from the client, which waits for the answer; there is no
 // polling loop. `maxDuration` is this route's own time budget -- the loop's
 // constants (lib/assistant/loop.ts) are chosen so a turn cannot outlive it:
-// MAX_STEPS x PER_CALL_TIMEOUT_MS is 150 s, TURN_DEADLINE_MS is 120 s.
+// MAX_STEPS x PER_CALL_TIMEOUT_MS is 150 s, TURN_DEADLINE_MS is 240 s, and the
+// last model call can end at TURN_DEADLINE_MS + PER_CALL_TIMEOUT_MS = 270 s.
+//
+// 300 s (STATE item 92, ruling 0038): a command can be a model call of up to
+// ~2 minutes run inside the turn (revising a draft, pushing back on a
+// strategy, drafting outreach). The cron route declares 280 and the prospect,
+// discovery-search and admin-research pages declare 450, so 300 is inside
+// what this project already deploys with. A long ability refuses before it
+// starts when the turn cannot finish it (lib/assistant/command.ts).
 //
 // The literal below must stay a literal (Next reads it statically);
 // scripts/test-assistant.ts asserts the loop's worst case fits inside it.
@@ -17,7 +25,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { handleAssistantTurn } from "@/lib/assistant/turn";
 
-export const maxDuration = 180;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // A request body larger than any legal turn is refused before it is parsed.

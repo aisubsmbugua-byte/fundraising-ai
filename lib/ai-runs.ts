@@ -73,6 +73,11 @@ export const AI_RUN_OPERATIONS = [
   // conversational turn is a different unit from a one-shot operation, so it
   // is its own operation; its price is the owner's decision (STATE item 88).
   "assistant_turn",
+  // Pushing back on a proposed strategy with a person's feedback (STATE item
+  // 93, ruling 0038) is its own operation: one forced-tool model call with no
+  // web search, a different unit from the strategy run (search + analysis)
+  // that decision 0006 prices, and from a draft revision.
+  "strategy_revise",
 ] as const;
 export type AiRunOperation = (typeof AI_RUN_OPERATIONS)[number];
 

@@ -13,7 +13,9 @@
 // migration 0078 (supporters, supporter_gifts, supporter_interactions), and on
 // the ruling-0037 assistant tables added in migration 0080 (assistant_threads,
 // assistant_messages, assistant_proposals -- which additionally need a
-// SAME-ORG teammate, because a thread is personal to the user it acts as), in
+// SAME-ORG teammate, because a thread is personal to the user it acts as), and
+// the ruling-0038 command record added in migration 0081
+// (assistant_command_events -- append-only, born before the effect), in
 // both directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
@@ -48,6 +50,7 @@
 //
 // Usage: npx tsx --env-file=.env.local scripts/test-tenant-isolation.ts
 
+import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -1659,6 +1662,115 @@ async function main() {
       check("A dismissed proposal can never be executed -- not even by the service role", !!executeDismissedError);
       const { data: propDelete } = await clientA.from("assistant_proposals").delete().eq("id", propA!.id).select("id");
       check("assistant_proposals has no delete policy -- even the author's DELETE affects 0 rows", (propDelete?.length ?? 0) === 0);
+
+      // --- Assistant command record (migration 0081, ruling 0038) ---
+      // An append-only event log: a `started` row born before a command's
+      // effect, a terminal row (executed | failed) after, and a lone `refused`
+      // row for a command stopped before its effect. Insert and select only,
+      // both scoped by organization AND author; a trigger rejects every
+      // update for every role; a second trigger checks the cross-table facts
+      // (thread, user message and assistant turn in the same organization and
+      // thread, the author owns the thread, a command is recorded only by a
+      // RUNNING turn, a terminal row follows its own started row). NOT
+      // EVALUATED when the table does not exist. WRITTEN, NOT EXECUTED by the
+      // build space: it needs a live database with 0081 applied.
+      const { error: commandProbeError } = await admin.from("assistant_command_events").select("id").limit(1);
+      if (commandProbeError && (commandProbeError.code === "42P01" || commandProbeError.code === "PGRST205")) {
+        notEvaluated.push("assistant_command_events -- migration 0081 is not applied to this database, so its assertions did not run");
+        console.log("\nNOT EVALUATED: assistant_command_events (migration 0081 not applied). Apply 0081 and re-run; this is not a pass.\n");
+      } else {
+        const runningCmd = await newRunning();
+        const base = (over: Record<string, unknown> = {}) => ({
+          command_id: randomUUID(),
+          event: "started",
+          origin: "command",
+          thread_id: threadA.id,
+          user_message_id: userMsg!.id,
+          assistant_message_id: runningCmd,
+          ability: "set_prospect_ask_amount",
+          subject_table: "prospects",
+          subject_id: prospectA.id,
+          payload: { prospect_id: prospectA.id, ask_amount: 1 },
+          quote: "[test] set the ask to one dollar",
+          previous: { ask_amount: null },
+          ...over,
+        });
+
+        const started = base();
+        const { data: startedRow, error: startedError } = await clientA.from("assistant_command_events").insert(started).select("id, organization_id, created_by").single();
+        check("The author CAN record a `started` command row (organization and author defaulted from the session)", !startedError && !!startedRow);
+
+        const { data: readB } = await clientB.from("assistant_command_events").select("id").eq("id", startedRow!.id);
+        check("Org B cannot SELECT Org A's command record by id", (readB?.length ?? 0) === 0);
+        const { data: readA2 } = await clientA2.from("assistant_command_events").select("id").eq("id", startedRow!.id);
+        check("A same-org teammate cannot SELECT another member's command record (personal, like the thread)", (readA2?.length ?? 0) === 0);
+        const { data: readOwn } = await clientA.from("assistant_command_events").select("id").eq("id", startedRow!.id);
+        check("The author CAN read their own command record", (readOwn?.length ?? 0) === 1);
+
+        const { error: crossOrgError } = await clientB.from("assistant_command_events").insert(base());
+        check("Org B cannot INSERT a command row against Org A's thread and messages (org-match trigger)", !!crossOrgError);
+        const { error: crossAuthorError } = await clientA2.from("assistant_command_events").insert(base());
+        check("A same-org teammate cannot INSERT a command row into another member's thread (author-match trigger)", !!crossAuthorError);
+
+        // Append-only.
+        const { data: updRows } = await clientA.from("assistant_command_events").update({ quote: "[test] rewritten" }).eq("id", startedRow!.id).select("id");
+        check("assistant_command_events has no update policy -- even the author's UPDATE affects 0 rows", (updRows?.length ?? 0) === 0);
+        const { error: adminUpdateError } = await admin.from("assistant_command_events").update({ quote: "[test] rewritten" }).eq("id", startedRow!.id);
+        check("... and the service role's UPDATE is rejected by the append-only trigger", !!adminUpdateError);
+        const { data: delRows } = await clientA.from("assistant_command_events").delete().eq("id", startedRow!.id).select("id");
+        check("assistant_command_events has no delete policy -- even the author's DELETE affects 0 rows", (delRows?.length ?? 0) === 0);
+
+        // The started/terminal pairing.
+        const terminal = (over: Record<string, unknown> = {}) => ({
+          ...started,
+          event: "executed",
+          previous: null,
+          result: { prospectId: prospectA.id },
+          ...over,
+        });
+        const { error: executedError } = await clientA.from("assistant_command_events").insert(terminal());
+        check("A terminal `executed` row CAN follow its own started row", !executedError);
+        const { error: secondTerminalError } = await clientA.from("assistant_command_events").insert(terminal({ event: "failed", result: null, error_note: "[test]" }));
+        check("A second terminal row for the same command is refused (one outcome per command)", !!secondTerminalError);
+        const { error: secondStartError } = await clientA.from("assistant_command_events").insert(started);
+        check("A second `started` row for the same command is refused", !!secondStartError);
+
+        const orphan = base();
+        const { error: orphanError } = await clientA.from("assistant_command_events").insert({ ...orphan, event: "executed", previous: null, result: { x: 1 } });
+        check("An `executed` row with no started row is refused (trigger)", !!orphanError);
+        const { error: refusedAloneError } = await clientA
+          .from("assistant_command_events")
+          .insert({ ...base(), event: "refused", previous: null, result: { code: "quote_not_found" }, error_note: "[test] the quoted words are not in the message" });
+        check("A command refused before its effect is ONE `refused` row, with no started row", !refusedAloneError);
+
+        const mismatch = base();
+        await clientA.from("assistant_command_events").insert(mismatch);
+        const { error: mismatchError } = await clientA
+          .from("assistant_command_events")
+          .insert({ ...mismatch, event: "executed", ability: "add_prospect", previous: null, result: { x: 1 } });
+        check("A terminal row that names a different ability than its started row is refused (trigger)", !!mismatchError);
+
+        // Shape and vocabulary.
+        const { error: badAbilityError } = await clientA.from("assistant_command_events").insert(base({ ability: "send_email" }));
+        check("An ability outside the closed list cannot be stored (check constraint)", !!badAbilityError);
+        const { error: noQuoteError } = await clientA.from("assistant_command_events").insert(base({ quote: null }));
+        check("A command row with no quotation cannot be stored (check constraint)", !!noQuoteError);
+        const { error: startedWithResultError } = await clientA.from("assistant_command_events").insert(base({ result: { done: true } }));
+        check("A `started` row that already carries an outcome cannot be stored (check constraint)", !!startedWithResultError);
+        const { error: failedNoNoteError } = await clientA.from("assistant_command_events").insert(base({ event: "failed", previous: null }));
+        check("A `failed` row with no reason cannot be stored (check constraint)", !!failedNoNoteError);
+        const { error: clickNoRestoresError } = await clientA
+          .from("assistant_command_events")
+          .insert(base({ origin: "click", quote: null, ability: "restore_draft_text", subject_table: "drafts", subject_id: randomUUID() }));
+        check("A click-driven row that names no command it restores cannot be stored (check constraint)", !!clickNoRestoresError);
+
+        // A command is recorded only by a RUNNING turn.
+        const { error: finishedTurnError } = await clientA.from("assistant_command_events").insert(base({ assistant_message_id: runningA }));
+        check("A command cannot be recorded against an assistant turn that has finished (running-turn trigger)", !!finishedTurnError);
+        // The user message must be a user message.
+        const { error: wrongRoleError } = await clientA.from("assistant_command_events").insert(base({ user_message_id: runningCmd }));
+        check("The authorizing message must be a USER message (trigger)", !!wrongRoleError);
+      }
     }
   } finally {
     cleanupProblems = await purgeTestIdentities("teardown");

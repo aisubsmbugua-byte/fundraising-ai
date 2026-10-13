@@ -10,6 +10,7 @@ import { hasStatedPeriod } from "@/lib/research";
 import { searchFunderWeb } from "@/lib/ai/funder-search";
 import { buildProfileSummary } from "@/lib/channel-match";
 import type { Strategy, OrganizationIntel, StrategyRun } from "@/lib/strategy";
+import { MAX_STRATEGY_FEEDBACK_CHARS, shapeStrategyResult } from "@/lib/strategy";
 import type { OrgProfile } from "@/lib/organization";
 import { beginRun, finalizeRun, newUsage, addUsage, addResponseUsage } from "@/lib/ai-runs";
 
@@ -478,4 +479,309 @@ export async function approveStrategy(
   if (prospectError) throw new Error(prospectError.message);
 
   revalidatePath(`/prospects/${prospectId}`);
+}
+
+// STATE item 93 (ruling 0038): push back on a proposed strategy. A strategy
+// could until now only be approved (as edited in the browser) or regenerated
+// with no input; this revises the PROPOSAL with a person's feedback and lands
+// the result, unapproved, as a NEW run -- the original proposal and every
+// revision stay as history, and the panel's existing latest-run behaviour
+// shows the newest.
+//
+// Modelled on reviseDraftWithFeedback (draft-actions.ts) for the refusal
+// discipline and on runStrategy's second, no-web-search call for the model
+// call. Everything is re-derived server-side from the run row; nothing the
+// caller says about status is trusted.
+//
+// Refusal order -- ALL before the ledger birth and before any insert, so a
+// refused revision leaves no row of any kind:
+//   1. not signed in           -> redirect, as the neighbouring actions do
+//   2. run not found / visible
+//   3. run not ready_for_review
+//   4. run already approved
+//   5. run is not the prospect's latest
+//   6. feedback empty, or over MAX_STRATEGY_FEEDBACK_CHARS
+//   7. prospect not strategy-ready (strategyReadiness)
+//
+// Then: a NEW strategy_runs row (status 'analyzing', started_at set so the
+// panel's mount effect -- which fires only for an unstarted 'researching'
+// row -- cannot start a second run on it), the ledger row (operation
+// strategy_revise, born before the model call), ONE forced-tool model call
+// with no web search, shape validation, and the result written to the new
+// row as ready_for_review. The old row is never written.
+//
+// RETURNS, never throws, for everything after the sign-in check (production
+// redacts thrown server-action messages).
+export async function reviseStrategyWithFeedback(
+  runId: string,
+  feedback: string
+): Promise<{ ok: true; runId: string } | { error: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Outside the redirect above (which must propagate) nothing may throw: an
+  // unexpected failure anywhere below is a returned message.
+  try {
+    return await reviseStrategyCore(supabase, user.id, runId, feedback);
+  } catch (err) {
+    console.error("[strategy_revise] unexpected failure:", err instanceof Error ? err.message : err);
+    return { error: "The strategy revision hit an unexpected error. Check the prospect's Strategy tab to see whether anything was started." };
+  }
+}
+
+async function reviseStrategyCore(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  runId: string,
+  feedback: string
+): Promise<{ ok: true; runId: string } | { error: string }> {
+  const { data: run, error: runError } = await supabase
+    .from("strategy_runs")
+    .select("id, prospect_id, status, strategy, organization_intel, approved_strategy, findings, evidence_item_ids")
+    .eq("id", runId)
+    .maybeSingle();
+  if (runError) return { error: "That strategy could not be read just now. Nothing was changed." };
+  if (!run) return { error: "That strategy run could not be found." };
+  if (run.status !== "ready_for_review") {
+    return { error: "This strategy is not waiting for review (it is still being built, or it failed), so there is nothing to push back on yet." };
+  }
+  if (run.approved_strategy) {
+    return { error: "This strategy has already been approved, so it is locked. Pushing back applies only to a strategy that is still waiting for review." };
+  }
+  const prospectId = run.prospect_id as string;
+
+  // Latest-run-wins is how the panel, the drafting gate and the review count
+  // all read a prospect's runs; a revision of an older run would resurrect it.
+  const { data: latest, error: latestError } = await supabase
+    .from("strategy_runs")
+    .select("id")
+    .eq("prospect_id", prospectId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestError) return { error: "That prospect's strategies could not be read just now. Nothing was changed." };
+  if (!latest || latest.id !== run.id) {
+    return { error: "This is not the prospect's latest strategy, so it cannot be pushed back on. Open the newest one instead." };
+  }
+
+  const trimmedFeedback = (feedback ?? "").trim();
+  if (!trimmedFeedback) return { error: "Write the feedback the strategy should address before revising it." };
+  if (trimmedFeedback.length > MAX_STRATEGY_FEEDBACK_CHARS) {
+    return { error: `Keep the feedback under ${MAX_STRATEGY_FEEDBACK_CHARS} characters.` };
+  }
+
+  const readiness = await strategyReadiness(supabase, prospectId);
+  if (!readiness.ready) return { error: readiness.reason ?? "A strategy cannot be revised for this prospect right now." };
+  if (!run.strategy || !run.organization_intel) {
+    return { error: "This run holds no proposed strategy to revise. Nothing was changed." };
+  }
+
+  // Everything the revision reads, loaded before the insert so a failed read
+  // leaves no row behind.
+  const [{ data: prospect }, { data: profile }, { data: evidenceRows }, approved] = await Promise.all([
+    supabase.from("prospects").select("*").eq("id", prospectId).single(),
+    supabase.from("org_profile").select("*").limit(1).maybeSingle<OrgProfile>(),
+    supabase.from("evidence_items").select("id, title, description, type").not("verified_at", "is", null).eq("permission", "approved"),
+    loadApprovedIntelligence(supabase, prospectId),
+  ]);
+  if (!prospect) return { error: "That prospect could not be found." };
+  // strategyReadiness said ready a moment ago; this is the same loader, so a
+  // null here is a race with a research change, and it is refused the same way.
+  if (!approved) return { error: "There is no confirmed research to build a strategy from any more. Nothing was changed." };
+  const evidencePool = evidenceRows ?? [];
+  const evidencePoolIds = new Set(evidencePool.map((e) => e.id as string));
+
+  const currentStrategy = run.strategy as Strategy;
+  const currentIntel = run.organization_intel as OrganizationIntel;
+  const existingEvidenceIds = (Array.isArray(run.evidence_item_ids) ? (run.evidence_item_ids as string[]) : []).filter((id) => evidencePoolIds.has(id));
+
+  // The same two blocks runStrategy builds (confirmed vs advisory), so a
+  // revision is grounded in exactly what the original was.
+  const line = (c: ApprovedClaim) =>
+    `- ${c.claim}${hasStatedPeriod(c.reportingPeriod) ? ` (${c.reportingPeriod})` : ""}${c.limitation ? ` [${c.limitation}]` : ""}${
+      c.humanOverride ? ` [accepted by a reviewer despite limited evidence${c.overrideNote ? `: ${c.overrideNote}` : ""}]` : ""
+    }`;
+  const confirmed = approved.claims.filter((c) => !c.advisory);
+  const advisory = approved.claims.filter((c) => c.advisory);
+  const approvedBlock = [
+    confirmed.length
+      ? `\nConfirmed intelligence about this funder (checked against sources and human-approved):\n${confirmed.map(line).join("\n")}\n`
+      : "",
+    advisory.length
+      ? `\nUnconfirmed context (NOT verified and NOT approved -- use only to shape framing and tone. Never state any of this to the funder as fact, never size an ask from it, and never treat it as an eligibility rule):\n${advisory.map(line).join("\n")}\n`
+      : "",
+  ].join("");
+
+  // The revision is a new row; the original is not touched. started_at is set
+  // now so the panel's mount effect (unstarted 'researching' rows only) can
+  // never run a second strategy on it.
+  const startedAt = new Date().toISOString();
+  const { data: newRun, error: insertError } = await supabase
+    .from("strategy_runs")
+    .insert({
+      prospect_id: prospectId,
+      status: "analyzing",
+      status_message: "Revising the strategy with your feedback...",
+      started_at: startedAt,
+      created_by: userId,
+      findings: run.findings,
+      evidence_item_ids: existingEvidenceIds,
+      // The approved intelligence this revision actually read (usually the
+      // same run the original used; recorded as read, not as copied).
+      approved_intelligence_run_id: approved.researchRunId,
+    })
+    .select("id")
+    .single();
+  if (insertError || !newRun) return { error: "The revision could not be started. Nothing was changed." };
+  const newRunId = newRun.id as string;
+
+  const usage = newUsage();
+  let aiRunId: string | null = null;
+
+  async function failRun(note: string, outcome: "failed" | "empty") {
+    if (aiRunId) {
+      await finalizeRun(supabase, aiRunId, {
+        outcome,
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        errorNote: note,
+      });
+    }
+    await supabase
+      .from("strategy_runs")
+      .update({ status: "error", status_message: "Revision failed", error_message: note })
+      .eq("id", newRunId);
+  }
+
+  try {
+    // Birth before the model call (ruling 0026 clause 1). A throw here lands
+    // in the catch: the new row goes to error and no model is called.
+    aiRunId = await beginRun(supabase, { operation: "strategy_revise", sourceTable: "strategy_runs", sourceId: newRunId });
+
+    const response = await anthropic.messages.create(
+      {
+        model: DRAFT_MODEL,
+        max_tokens: 2000,
+        tools: [
+          {
+            name: "submit_strategy_revision",
+            description: "Submit the revised funder intelligence and strategy for this prospect.",
+            input_schema: {
+              type: "object",
+              properties: {
+                organization_intel: {
+                  type: "object",
+                  description:
+                    "Structured facts about the funder, supported by the confirmed intelligence. Use an empty string / empty array for anything not determinable -- do not guess.",
+                  properties: {
+                    location: { type: "string" },
+                    funder_type: { type: "string" },
+                    geographic_focus: { type: "string" },
+                    typical_grant_size: { type: "string" },
+                    focus_areas: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["location", "funder_type", "geographic_focus", "typical_grant_size", "focus_areas"],
+                },
+                strategy: {
+                  type: "object",
+                  properties: {
+                    outreach_approach: { type: "string", description: "How to make first contact and build the relationship" },
+                    ask_positioning: { type: "string", description: "How to position the proposal/grant/ask" },
+                    rationale: { type: "string", description: "Why this approach, grounded in the confirmed intelligence and the nonprofit's profile" },
+                    key_talking_points: { type: "array", items: { type: "string" }, description: "3-5 concrete, reusable talking points" },
+                    evidence_to_highlight: { type: "array", items: { type: "string" }, description: "What kinds of proof points would resonate with this funder" },
+                  },
+                  required: ["outreach_approach", "ask_positioning", "rationale", "key_talking_points", "evidence_to_highlight"],
+                },
+                evidence_used: {
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "IDs (from the Available evidence list) of the evidence items that genuinely fit the revised strategy. Only ids from that list -- never invent one. Empty if none fit.",
+                },
+              },
+              required: ["organization_intel", "strategy"],
+            },
+          },
+        ],
+        tool_choice: { type: "tool", name: "submit_strategy_revision" },
+        messages: [
+          {
+            role: "user",
+            content: `Revise the proposed strategy for "${prospect.name}" to address the human's feedback. Keep whatever the feedback does not ask to change.
+
+Grounding rule -- this applies to the revision exactly as it did to the original, and feedback is never license to loosen it: assert nothing about the funder that the confirmed intelligence below does not support. If the feedback states a fact about the funder that is not in the confirmed intelligence, do not write it into organization_intel and do not present it as a fact; treat it as the reviewer's instruction about approach, and where it matters say in the rationale that it came from the reviewer and is unconfirmed. Do not invent an ask amount, an outcome, a figure or an evidence id.
+${approvedBlock}
+Research findings (as originally gathered):
+${run.findings || "(no findings)"}
+
+Nonprofit profile:
+${profile ? buildProfileSummary(profile) : "(no profile data)"}
+
+Available evidence (verified, approved for use -- cite by id in evidence_used if relevant; list every id the revised strategy should cite):
+${
+  evidencePool.length > 0
+    ? evidencePool.map((e) => `- ${e.id}: [${e.type}] ${e.title} -- ${e.description}`).join("\n")
+    : "(no verified evidence available yet)"
+}
+
+Current proposed funder intelligence (what a human reviewed and asked to change):
+${JSON.stringify(currentIntel, null, 2)}
+
+Current proposed strategy (what a human reviewed and asked to change):
+${JSON.stringify(currentStrategy, null, 2)}
+
+Human feedback to address:
+${trimmedFeedback}`,
+          },
+        ],
+      },
+      { timeout: 60_000 }
+    );
+
+    addResponseUsage(usage, response);
+
+    const toolUse = response.content.find((block) => block.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") throw new Error("AI did not return a structured result. Try again.");
+
+    const shaped = shapeStrategyResult(toolUse.input, prospect, evidencePoolIds);
+    if (!shaped.hasSubstance) {
+      const note = "The revision came back with nothing in it, so it was not kept. Try again with clearer feedback.";
+      await failRun(note, "empty");
+      return { error: note };
+    }
+
+    const { error: updateError } = await supabase
+      .from("strategy_runs")
+      .update({
+        status: "ready_for_review",
+        status_message: null,
+        strategy: shaped.strategy,
+        organization_intel: shaped.intel,
+        model: DRAFT_MODEL,
+        evidence_item_ids: shaped.evidenceItemIds ?? existingEvidenceIds,
+      })
+      .eq("id", newRunId);
+    if (updateError) throw new Error(updateError.message);
+
+    await finalizeRun(supabase, aiRunId, {
+      outcome: "completed",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+
+    revalidatePath(`/prospects/${prospectId}`);
+    return { ok: true, runId: newRunId };
+  } catch (err) {
+    // Null token counts mean no response ever arrived -- a fact, not a zero.
+    const note = err instanceof Error && err.message ? err.message : "The strategy revision failed.";
+    await failRun(note, "failed");
+    revalidatePath(`/prospects/${prospectId}`);
+    return { error: note };
+  }
 }

@@ -17,8 +17,11 @@
 //  10. the run is finalized once, then the message is finalized once
 //
 // Nothing here throws to the caller: every failure is a returned status and
-// body. Nothing here imports executors.ts -- a turn can read and propose, and
-// that is all.
+// body. Nothing here imports executors.ts (the click-approval path). A turn
+// can read, propose, and -- on the user's own words, through the single choke
+// point in command.ts -- execute commands (ruling 0038). The entry points a
+// command calls are resolved lazily, by dynamic import of
+// command-entrypoints.ts, only when a command actually reaches its effect.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { beginRun, finalizeRun, newUsage } from "@/lib/ai-runs";
@@ -27,7 +30,7 @@ import { resolveAssistantAccess, isMissingRelation, SETUP_PENDING_MESSAGE } from
 import { callProvider, type FetchLike } from "./provider";
 import { runAssistantLoop, type HistoryMessage, type Limits, type ProviderCaller, type LoopOutput, HISTORY_MESSAGE_CAP } from "./loop";
 import { buildSystemPrompt } from "./prompt";
-import type { Card, ProposalView, ToolContext } from "./types";
+import type { Card, CommandEntryPoints, ProposalView, ToolContext } from "./types";
 import { isUuid } from "./validate";
 
 export const MAX_USER_MESSAGE_CHARS = 2000;
@@ -44,6 +47,9 @@ export type TurnDeps = {
   env?: Env;
   now?: () => Date;
   fetchImpl?: FetchLike;
+  // Test seam: replaces the real entry points a command calls (the default is
+  // resolved lazily from command-entrypoints.ts).
+  entryPoints?: CommandEntryPoints;
   // Test seams: replace the provider call / the loop's clock and limits.
   call?: ProviderCaller;
   clock?: () => number;
@@ -228,6 +234,17 @@ export async function handleAssistantTurn(input: TurnInput, deps: TurnDeps = {})
         messageId: assistantMessageId,
         now: now(),
         proposalsCreated: 0,
+        // Command mode (ruling 0038). The user's message is held HERE, from
+        // the row this turn just wrote -- the quotation check runs against it
+        // and against nothing the model supplies.
+        userMessage: message,
+        userMessageId,
+        userMessageAt: stamp,
+        commandsRun: 0,
+        // Fail closed until the loop installs the real clock-based figure.
+        remainingMs: () => 0,
+        loadEntryPoints: async () =>
+          deps.entryPoints ?? (await import("./command-entrypoints")).DEFAULT_COMMAND_ENTRY_POINTS,
       };
       const call: ProviderCaller =
         deps.call ??
@@ -263,7 +280,7 @@ export async function handleAssistantTurn(input: TurnInput, deps: TurnDeps = {})
         responseModel: usage.model,
         errorNote: note,
       });
-      return refusal(500, "internal", "The assistant hit an unexpected error. Nothing was changed except any proposals already shown.", {
+      return refusal(500, "internal", "The assistant hit an unexpected error. If it had already done something in this message, check the record itself before asking again.", {
         threadId,
         userMessageId,
         messageId: assistantMessageId,
@@ -304,7 +321,7 @@ export async function handleAssistantTurn(input: TurnInput, deps: TurnDeps = {})
         body: {
           ok: false,
           code: "provider_error",
-          error: `${out.providerError?.message ?? "The assistant could not answer."} Nothing was changed except any proposals already shown below. Try again.`,
+          error: `${out.providerError?.message ?? "The assistant could not answer."} Anything it had already done in this message is shown in the cards below. Try again.`,
           threadId,
           userMessageId,
           message: messageBody,

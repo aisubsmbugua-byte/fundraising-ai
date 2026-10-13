@@ -15,7 +15,14 @@
 // lib/assistant/decide.ts, where it is exercised offline; the executor is
 // injected from HERE so that this file is the sole importer of executors.ts.
 //
-// Both actions RETURN their failure rather than throw it -- Next redacts a
+// restoreCommandPrevious (STATE item 92, ruling 0038 clause 5) is likewise a
+// USER decision -- the Restore button on a command-result card -- and not a
+// command: the model has no tool that reaches it. It puts back the text a
+// draft edit or revision replaced; the guards live in lib/assistant/restore.ts
+// and the one entry point it calls (updateDraft, the same function the page's
+// editor uses) is injected from here.
+//
+// Every action RETURNS its failure rather than throw it -- Next redacts a
 // thrown message in a production build (see network-actions.ts).
 
 import { revalidatePath } from "next/cache";
@@ -23,6 +30,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { resolveAssistantAccess } from "@/lib/assistant/access";
 import { executeProposal } from "@/lib/assistant/executors";
+import { restoreCommandPreviousCore, type RestoreResult } from "@/lib/assistant/restore";
+import { updateDraft } from "@/app/(dashboard)/prospects/[id]/draft-actions";
 import { approveProposalCore, dismissProposalCore, type DecideResult } from "@/lib/assistant/decide";
 import { isUuid } from "@/lib/assistant/validate";
 
@@ -59,5 +68,20 @@ export async function dismissProposal(proposalId: string): Promise<DecideResult>
     return result;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not dismiss that proposal." };
+  }
+}
+
+export async function restoreCommandPrevious(commandId: string): Promise<RestoreResult> {
+  try {
+    if (!isUuid(commandId)) return { error: "That action could not be found." };
+    const user = await requireUser();
+    const supabase = createClient();
+    const access = await resolveAssistantAccess(supabase, user.id);
+    if (!access.enabled) return { error: "The assistant is not switched on for your organization." };
+    const result = await restoreCommandPreviousCore({ supabase, userId: user.id, commandId, updateDraft });
+    revalidatePath("/assistant");
+    return result;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not restore that text." };
   }
 }

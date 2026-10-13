@@ -444,6 +444,48 @@ ok(
   );
 }
 
+// STATE item 93 (ruling 0038): pushing back on a strategy is its own metered
+// operation -- one forced-tool, no-web-search model call that is neither a
+// strategy run (search + analysis) nor a draft revision (decision 0006 prices
+// per operation) -- born before its model call, finalized on every path, and
+// preceded by every refusal.
+ok(
+  "strategy revision is a DISTINCT operation in AI_RUN_OPERATIONS (decision 0006 prices per operation; it is neither a strategy run nor a draft revision)",
+  AI_RUN_OPERATIONS.includes("strategy_revise") && AI_RUN_OPERATIONS.includes("strategy") && AI_RUN_OPERATIONS.includes("proposal_revise")
+);
+{
+  const text = readFileSync(join(root, "app/(dashboard)/prospects/[id]/strategy-actions.ts"), "utf8");
+  const start = text.indexOf("export async function reviseStrategyWithFeedback");
+  const slice = start >= 0 ? text.slice(start) : "";
+  const birthAt = slice.indexOf('operation: "strategy_revise"');
+  const callAt = slice.indexOf("await anthropic.messages.create");
+  const firstInsertAt = slice.indexOf(".insert(");
+  const refusalsEnd = slice.indexOf("await strategyReadiness(");
+  ok(
+    "reviseStrategyWithFeedback: its OWN birth row (operation strategy_revise) precedes its own model call",
+    start >= 0 && birthAt >= 0 && callAt > birthAt,
+    `slice start ${start}, birth at ${birthAt}, call at ${callAt}`
+  );
+  ok(
+    "reviseStrategyWithFeedback: every refusal (through the readiness check) precedes the first insert, and so the ledger birth and the model call",
+    refusalsEnd >= 0 && firstInsertAt > refusalsEnd && birthAt > firstInsertAt,
+    `refusals end ${refusalsEnd}, first insert ${firstInsertAt}, birth ${birthAt}`
+  );
+  ok(
+    "reviseStrategyWithFeedback finalizes its run on every path (completed in the try; empty and failed through the one failure writer, which finalizes the run)",
+    /outcome: "completed"/.test(slice) &&
+      /failRun\(note, "empty"\)/.test(slice) &&
+      /failRun\(note, "failed"\)/.test(slice) &&
+      /async function failRun[\s\S]*?finalizeRun\(supabase, aiRunId/.test(slice) &&
+      (slice.match(/finalizeRun\(/g) ?? []).length >= 2,
+    `finalizeRun occurrences: ${(slice.match(/finalizeRun\(/g) ?? []).length}`
+  );
+  ok(
+    "reviseStrategyWithFeedback makes exactly one model call and offers no web search tool",
+    (slice.match(/await anthropic\.messages\.create/g) ?? []).length === 1 && !/web_search|searchFunderWeb/.test(slice)
+  );
+}
+
 // STATE item 87: an assistant turn is ONE ledger row covering its model calls
 // (tokens aggregated), born before the loop, pointing at the turn's own
 // assistant_messages row, and finalized exactly once on every path.
