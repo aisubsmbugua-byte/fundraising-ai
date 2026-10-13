@@ -1,7 +1,7 @@
 ---
 id: 0037
 title: An assistant acts as the signed-in user, reads and prepares freely, and acts only on a human's approval of exactly what it will do
-status: settled
+status: superseded
 provenance: verbatim
 supersedes:
 date: 2026-10-13
