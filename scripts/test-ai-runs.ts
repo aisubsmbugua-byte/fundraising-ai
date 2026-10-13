@@ -313,10 +313,67 @@ ok(
   `found: ${modelCallers.join(", ")}`
 );
 
+// STATE item 87 (ruling 0037 clause 4): the assistant's provider is NOT the
+// Anthropic SDK, so its call shape (a fetch to a chat-completions endpoint,
+// in lib/assistant/provider.ts) is invisible to the `.messages.create(` scan
+// above. The closed set is therefore extended with that shape, additively --
+// nothing in the Anthropic assertions above is relaxed. The provider file is
+// the only file that may speak to the endpoint, and its only call site
+// (lib/assistant/turn.ts) is an instrumented operation file: it writes the
+// birth row, via beginRun, before the first model call.
+const PROVIDER_FILES = ["lib/assistant/provider.ts"];
+const PROVIDER_CALL_SITES = ["lib/assistant/provider.ts", "lib/assistant/turn.ts"].sort();
+const PROVIDER_INSTRUMENTED_FILES = ["lib/assistant/turn.ts"];
+const providerSpeakers = sourceFiles
+  .filter((f) => /chat\/completions/.test(readFileSync(f, "utf8")))
+  .map((f) => relative(root, f))
+  .sort();
+ok(
+  "the set of files that name a chat-completions endpoint is exactly the assistant's provider module -- a second provider file must join the ledger or fail here",
+  JSON.stringify(providerSpeakers) === JSON.stringify([...PROVIDER_FILES].sort()),
+  `found: ${providerSpeakers.join(", ")}`
+);
+const providerCallSites = sourceFiles
+  .filter((f) => /\bcallProvider\s*\(/.test(readFileSync(f, "utf8")))
+  .map((f) => relative(root, f))
+  .sort();
+ok(
+  "callProvider is defined in the provider module and called from exactly one other file, which is an instrumented operation file",
+  JSON.stringify(providerCallSites) === JSON.stringify(PROVIDER_CALL_SITES) && PROVIDER_INSTRUMENTED_FILES.every((f) => providerCallSites.includes(f)),
+  `found: ${providerCallSites.join(", ")}`
+);
+{
+  const loopImporters = sourceFiles
+    .filter((f) => /from\s+"\.\/loop"|from\s+"@\/lib\/assistant\/loop"/.test(readFileSync(f, "utf8")))
+    .map((f) => relative(root, f))
+    .sort();
+  ok(
+    "the assistant's tool loop (which drives the provider) is imported only by the instrumented turn file",
+    JSON.stringify(loopImporters) === JSON.stringify(["lib/assistant/turn.ts"]),
+    `found: ${loopImporters.join(", ")}`
+  );
+  const baseUrlHolders = sourceFiles
+    .filter((f) => /api\.meta\.ai/.test(readFileSync(f, "utf8")))
+    .map((f) => relative(root, f))
+    .sort();
+  ok(
+    "the provider's default endpoint address is named only in lib/assistant/config.ts",
+    JSON.stringify(baseUrlHolders) === JSON.stringify(["lib/assistant/config.ts"]),
+    `found: ${baseUrlHolders.join(", ")}`
+  );
+}
+
 // The helper-calling operations too: research-actions.ts holds runResearch
 // and verifyRunClaims, which reach the model through the helpers.
-const OPERATION_FILES = [...INSTRUMENTED_FILES, "app/(dashboard)/prospects/[id]/research-actions.ts"];
-const MODEL_CALL_TOKENS = ["await anthropic.messages.create", "await searchFunderWeb(", "await extractResearchClaims(", "await verifyResearchClaims("];
+const OPERATION_FILES = [...INSTRUMENTED_FILES, "app/(dashboard)/prospects/[id]/research-actions.ts", ...PROVIDER_INSTRUMENTED_FILES];
+const MODEL_CALL_TOKENS = [
+  "await anthropic.messages.create",
+  "await searchFunderWeb(",
+  "await extractResearchClaims(",
+  "await verifyResearchClaims(",
+  // The assistant's loop is the only code that reaches the provider.
+  "await runAssistantLoop(",
+];
 
 for (const file of OPERATION_FILES) {
   const text = readFileSync(join(root, file), "utf8");
@@ -386,6 +443,34 @@ ok(
     `probe at ${probeAt}, beginRun at ${beginAt}`
   );
 }
+
+// STATE item 87: an assistant turn is ONE ledger row covering its model calls
+// (tokens aggregated), born before the loop, pointing at the turn's own
+// assistant_messages row, and finalized exactly once on every path.
+{
+  const text = readFileSync(join(root, "lib/assistant/turn.ts"), "utf8");
+  const birthAt = text.indexOf('operation: "assistant_turn"');
+  const loopAt = text.indexOf("await runAssistantLoop(");
+  ok(
+    "assistant turn: its OWN birth row (operation assistant_turn) precedes the loop that makes every model call",
+    birthAt >= 0 && loopAt > birthAt,
+    `birth at ${birthAt}, loop at ${loopAt}`
+  );
+  ok(
+    "assistant turn: the run row points at the turn's own record (source_table assistant_messages)",
+    /sourceTable:\s*"assistant_messages"/.test(text) && /sourceId:\s*assistantMessageId/.test(text)
+  );
+  ok(
+    "assistant turn: the run is finalized on the loop-threw path and on the normal path, and nowhere else (two finalizeRun call sites)",
+    (text.match(/await finalizeRun\(/g) ?? []).length === 2,
+    `finalizeRun occurrences: ${(text.match(/await finalizeRun\(/g) ?? []).length}`
+  );
+  ok(
+    "assistant turn: the assistant's message row is born before the run is born, so a killed turn still names its provider and model",
+    text.indexOf('role: "assistant", status: "running"') >= 0 && text.indexOf('role: "assistant", status: "running"') < birthAt
+  );
+}
+ok("AI_RUN_OPERATIONS carries assistant_turn as its own operation (decision 0006 prices per operation)", AI_RUN_OPERATIONS.includes("assistant_turn"));
 
 // Every operation name in the union is actually written by some call site,
 // and no call site writes a name outside the union (the union is the only

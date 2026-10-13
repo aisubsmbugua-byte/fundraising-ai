@@ -10,8 +10,11 @@
 // itself (which carries the send facts since 0069), on the ruling-0033
 // network tables added in migration 0077 (network_connections,
 // network_path_suggestions), and on the ruling-0034 supporter tables added in
-// migration 0078 (supporters, supporter_gifts, supporter_interactions), in both
-// directions, using two REAL authenticated `authenticated`-role
+// migration 0078 (supporters, supporter_gifts, supporter_interactions), and on
+// the ruling-0037 assistant tables added in migration 0080 (assistant_threads,
+// assistant_messages, assistant_proposals -- which additionally need a
+// SAME-ORG teammate, because a thread is personal to the user it acts as), in
+// both directions, using two REAL authenticated `authenticated`-role
 // sessions -- not the service-role client, which bypasses RLS entirely
 // and would prove nothing. Sessions are minted the same way
 // middleware.ts's DISABLE_AUTH bypass mints kanjii's dev session
@@ -59,6 +62,10 @@ const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshTok
 
 const EMAIL_A = "isolation-test-a@fundraising-ai-test.local";
 const EMAIL_B = "isolation-test-b@fundraising-ai-test.local";
+// A same-org teammate of A, created only inside the assistant section (0080):
+// a thread is personal to its author, so "another member of the SAME org
+// cannot read it" is a different fact from "another org cannot".
+const EMAIL_A2 = "isolation-test-a2@fundraising-ai-test.local";
 const ORG_A_NAME = "Isolation Test Org A";
 const ORG_B_NAME = "Isolation Test Org B";
 
@@ -66,7 +73,7 @@ const ORG_B_NAME = "Isolation Test Org B";
 // deleted, and they are matched by equality, never by `like`/`ilike` -- a
 // pattern could match a real organization or a real person's account.
 const TEST_ORG_NAMES = [ORG_A_NAME, ORG_B_NAME];
-const TEST_EMAILS = [EMAIL_A, EMAIL_B];
+const TEST_EMAILS = [EMAIL_A, EMAIL_B, EMAIL_A2];
 
 let passCount = 0;
 let failCount = 0;
@@ -206,6 +213,19 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
     const { error: supportersError } = await admin.from("supporters").delete().in("organization_id", orgIds);
     if (supportersError && supportersError.code !== "42P01" && supportersError.code !== "PGRST205") {
       problems.push(`[${phase}] deleting supporters in test orgs failed: ${supportersError.message}`);
+    }
+
+    // assistant_threads (0080, ruling 0037) references organizations and
+    // auth.users with NO cascade, so surviving rows would block the profile,
+    // auth-user and org deletes below. assistant_messages and
+    // assistant_proposals both cascade FROM assistant_threads, so this one
+    // delete clears all three new tables. (The service role bypasses RLS,
+    // which has no delete policy on any of them -- the only reason this
+    // cleanup can work.) 42P01/PGRST205 tolerated: migration 0080 not applied
+    // yet, and the assistant section below reports itself NOT EVALUATED.
+    const { error: assistantError } = await admin.from("assistant_threads").delete().in("organization_id", orgIds);
+    if (assistantError && assistantError.code !== "42P01" && assistantError.code !== "PGRST205") {
+      problems.push(`[${phase}] deleting assistant_threads in test orgs failed: ${assistantError.message}`);
     }
 
     const { data: prospects, error: prospectsError } = await admin
@@ -1417,6 +1437,228 @@ async function main() {
       check("Org A CAN delete its own prospect", (deletedProspectForGift?.length ?? 0) === 1);
       const { data: prospectGiftCascaded } = await admin.from("prospect_gifts").select("id").eq("id", prospectGiftToCascade!.id);
       check("Deleting a prospect deletes its gift history (foreign key cascade)", (prospectGiftCascaded?.length ?? 0) === 0);
+    }
+
+    // --- Assistant (migration 0080, ruling 0037) ---
+    // Three tables, all scoped by organization AND author: a thread is
+    // personal to the user the assistant acts as. No delete policy on any of
+    // them. messages: insert + select + update-while-running, with a trigger
+    // pinning the birth columns and permitting running -> terminal once.
+    // proposals: insert (pending, unclaimed) + select + update-while-pending,
+    // with a trigger pinning payload/action/subject/summary/expiry and
+    // permitting only claim -> execute|fail, or dismiss, each once. Both
+    // org-match triggers are exercised by cross-org and cross-author INSERTs
+    // that must be REFUSED. Real authenticated sessions, never the service
+    // role, for every isolation assertion; the service role is used only to
+    // prove the triggers hold even for it. NOT-EVALUATED when the tables do
+    // not exist (42P01 / PGRST205). WRITTEN, NOT EXECUTED by the build space:
+    // it needs a live database with 0080 applied.
+    const { error: assistantProbeError } = await admin.from("assistant_threads").select("id").limit(1);
+    if (assistantProbeError && (assistantProbeError.code === "42P01" || assistantProbeError.code === "PGRST205")) {
+      notEvaluated.push("assistant_threads / assistant_messages / assistant_proposals -- migration 0080 is not applied to this database, so their assertions did not run");
+      console.log("\nNOT EVALUATED: assistant tables (migration 0080 not applied). Apply 0080 and re-run; this is not a pass.\n");
+    } else {
+      // The same-org teammate. Created here, not in setup, so a database
+      // without 0080 never gains the extra identity.
+      const { data: a2User, error: a2UserError } = await admin.auth.admin.createUser({ email: EMAIL_A2, email_confirm: true });
+      if (a2UserError || !a2User.user) throw new Error(`Failed to create ${EMAIL_A2}: ${a2UserError?.message}`);
+      const { error: a2ProfileError } = await admin
+        .from("profiles")
+        .insert({ id: a2User.user.id, organization_id: a.orgId, is_superadmin: false, email: EMAIL_A2 });
+      if (a2ProfileError) throw new Error(`Failed to create profile for ${EMAIL_A2}: ${a2ProfileError.message}`);
+      const clientA2 = await sessionClientFor(EMAIL_A2);
+
+      const { data: threadA, error: threadAError } = await clientA.from("assistant_threads").insert({ title: "[test] Org A thread" }).select("id").single();
+      if (threadAError || !threadA) throw new Error(`Org A thread insert failed: ${threadAError?.message}`);
+
+      const { data: threadReadB } = await clientB.from("assistant_threads").select("id").eq("id", threadA.id);
+      check("Org B cannot SELECT Org A's assistant_threads row by id", (threadReadB?.length ?? 0) === 0);
+      const { data: threadReadA2 } = await clientA2.from("assistant_threads").select("id").eq("id", threadA.id);
+      check("A teammate in the SAME org cannot SELECT Org A's user's thread (a thread is personal to its author)", (threadReadA2?.length ?? 0) === 0);
+      const { data: threadOwnRead } = await clientA.from("assistant_threads").select("id").eq("id", threadA.id);
+      check("The author CAN read their own thread", (threadOwnRead?.length ?? 0) === 1);
+      const { data: threadUpdate } = await clientA.from("assistant_threads").update({ title: "[test] renamed" }).eq("id", threadA.id).select("id");
+      check("assistant_threads has no update policy -- even the author's UPDATE affects 0 rows", (threadUpdate?.length ?? 0) === 0);
+      const { data: threadDelete } = await clientA.from("assistant_threads").delete().eq("id", threadA.id).select("id");
+      check("assistant_threads has no delete policy -- even the author's DELETE affects 0 rows", (threadDelete?.length ?? 0) === 0);
+
+      // Messages.
+      const { error: crossMessageError } = await clientB
+        .from("assistant_messages")
+        .insert({ thread_id: threadA.id, role: "user", status: "completed", content: "[test] cross-org", finalized_at: new Date().toISOString() });
+      check("Org B cannot INSERT an assistant_messages row into Org A's thread (org-match trigger)", !!crossMessageError);
+      const { error: crossAuthorError } = await clientA2
+        .from("assistant_messages")
+        .insert({ thread_id: threadA.id, role: "user", status: "completed", content: "[test] teammate", finalized_at: new Date().toISOString() });
+      check("A same-org teammate cannot INSERT a message into another member's thread (author-match trigger)", !!crossAuthorError);
+
+      const { data: userMsg, error: userMsgError } = await clientA
+        .from("assistant_messages")
+        .insert({ thread_id: threadA.id, role: "user", status: "completed", content: "[test] hello", finalized_at: new Date().toISOString() })
+        .select("id")
+        .single();
+      check("The author CAN write a user message (born completed)", !userMsgError && !!userMsg);
+      const { data: userMsgUpdate } = await clientA.from("assistant_messages").update({ content: "[test] edited" }).eq("id", userMsg!.id).select("id");
+      check("A completed message cannot be updated by anyone (update policy reaches only running rows)", (userMsgUpdate?.length ?? 0) === 0);
+
+      const { error: noProviderError } = await clientA
+        .from("assistant_messages")
+        .insert({ thread_id: threadA.id, role: "assistant", status: "running" });
+      check("An assistant message that names no provider and model cannot be born (check constraint)", !!noProviderError);
+      const { error: bornDoneError } = await clientA
+        .from("assistant_messages")
+        .insert({ thread_id: threadA.id, role: "assistant", status: "completed", provider: "meta-model-api", model: "m", finalized_at: new Date().toISOString() });
+      check("An assistant message cannot be born already completed (insert policy admits running only)", !!bornDoneError);
+
+      const newRunning = async () => {
+        const { data, error } = await clientA
+          .from("assistant_messages")
+          .insert({ thread_id: threadA.id, role: "assistant", status: "running", provider: "meta-model-api", model: "muse-spark-1.1" })
+          .select("id")
+          .single();
+        if (error || !data) throw new Error(`Org A running assistant message insert failed: ${error?.message}`);
+        return data.id as string;
+      };
+      const runningA = await newRunning();
+      const { data: msgReadB } = await clientB.from("assistant_messages").select("id").eq("id", runningA);
+      check("Org B cannot SELECT Org A's assistant_messages row by id", (msgReadB?.length ?? 0) === 0);
+      const { data: msgUpdateB } = await clientB.from("assistant_messages").update({ status: "failed", finalized_at: new Date().toISOString() }).eq("id", runningA).select("id");
+      check("Org B's UPDATE of Org A's running message affects 0 rows", (msgUpdateB?.length ?? 0) === 0);
+
+      const { error: pinError } = await clientA
+        .from("assistant_messages")
+        .update({ model: "something-else", status: "completed", finalized_at: new Date().toISOString() })
+        .eq("id", runningA);
+      check("A finalization cannot rewrite the model the turn was addressed to (birth columns pinned by trigger)", !!pinError);
+      const { error: stayRunningError } = await clientA.from("assistant_messages").update({ content: "[test] still running" }).eq("id", runningA);
+      check("An update that does not write a terminal status is refused (running -> terminal is the only transition)", !!stayRunningError);
+
+      const { data: finalized, error: finalizeError } = await clientA
+        .from("assistant_messages")
+        .update({ status: "completed", content: "[test] answer", finalized_at: new Date().toISOString(), input_tokens: 10, output_tokens: 2 })
+        .eq("id", runningA)
+        .select("id");
+      check("The author CAN finalize their running message once", !finalizeError && (finalized?.length ?? 0) === 1);
+      const { data: refinalized } = await clientA.from("assistant_messages").update({ status: "failed", finalized_at: new Date().toISOString() }).eq("id", runningA).select("id");
+      check("A finalized message cannot be finalized again through a session (policy)", (refinalized?.length ?? 0) === 0);
+      const { error: adminRewriteError } = await admin.from("assistant_messages").update({ content: "[test] rewritten" }).eq("id", runningA);
+      check("... nor by the service role (terminal-once trigger holds for every role)", !!adminRewriteError);
+      const { data: msgDelete } = await clientA.from("assistant_messages").delete().eq("id", runningA).select("id");
+      check("assistant_messages has no delete policy -- even the author's DELETE affects 0 rows", (msgDelete?.length ?? 0) === 0);
+
+      // Proposals.
+      const runningForProposals = await newRunning();
+      const propBase = {
+        thread_id: threadA.id,
+        message_id: runningForProposals,
+        action_key: "log_prospect_interaction",
+        payload: { prospect_id: prospectA.id, subject_name: "[test]", kind: "call", summary: "[test]", occurred_at: "2026-09-01" },
+        subject_table: "prospects",
+        subject_id: prospectA.id,
+        summary: "[test] Log a call",
+      };
+      const { data: propA, error: propAError } = await clientA.from("assistant_proposals").insert(propBase).select("id, status, expires_at, claimed_at").single();
+      check("The author CAN record a pending proposal (defaults: pending, unclaimed, expires in the future)", !propAError && !!propA && propA.status === "pending" && propA.claimed_at === null && new Date(propA.expires_at as string).getTime() > Date.now());
+
+      const { data: propReadB } = await clientB.from("assistant_proposals").select("id").eq("id", propA!.id);
+      check("Org B cannot SELECT Org A's assistant_proposals row by id", (propReadB?.length ?? 0) === 0);
+      const { data: propReadA2 } = await clientA2.from("assistant_proposals").select("id").eq("id", propA!.id);
+      check("A same-org teammate cannot SELECT another member's proposal", (propReadA2?.length ?? 0) === 0);
+      const { data: propUpdateB } = await clientB.from("assistant_proposals").update({ status: "dismissed", decided_at: new Date().toISOString() }).eq("id", propA!.id).select("id");
+      check("Org B's UPDATE of Org A's proposal affects 0 rows", (propUpdateB?.length ?? 0) === 0);
+      const { data: propUpdateA2 } = await clientA2.from("assistant_proposals").update({ claimed_at: new Date().toISOString() }).eq("id", propA!.id).select("id");
+      check("A same-org teammate cannot claim another member's proposal (affects 0 rows)", (propUpdateA2?.length ?? 0) === 0);
+
+      const { error: crossPropError } = await clientB.from("assistant_proposals").insert(propBase);
+      check("Org B cannot INSERT a proposal against Org A's thread and message (org-match trigger)", !!crossPropError);
+      const { error: bornExecutedError } = await clientA.from("assistant_proposals").insert({ ...propBase, status: "executed", decided_at: new Date().toISOString(), claimed_at: new Date().toISOString() });
+      check("A proposal cannot be born already executed (insert policy admits pending and unclaimed only)", !!bornExecutedError);
+      const { error: bornClaimedError } = await clientA.from("assistant_proposals").insert({ ...propBase, claimed_at: new Date().toISOString() });
+      check("A proposal cannot be born already claimed", !!bornClaimedError);
+      const { error: badActionError } = await clientA.from("assistant_proposals").insert({ ...propBase, action_key: "send_email" });
+      check("An action outside the closed list cannot be stored (check constraint)", !!badActionError);
+      const { error: badSubjectError } = await clientA.from("assistant_proposals").insert({ ...propBase, subject_table: "supporters" });
+      check("An action and a subject table that do not belong together cannot be stored (check constraint)", !!badSubjectError);
+      const { error: doneMessageError } = await clientA.from("assistant_proposals").insert({ ...propBase, message_id: runningA });
+      check("A proposal cannot be attached to a message whose turn has finished (running-turn trigger)", !!doneMessageError);
+
+      // What was proposed is fixed at birth.
+      const { error: payloadError } = await clientA.from("assistant_proposals").update({ payload: { prospect_id: prospectA.id, kind: "note" } }).eq("id", propA!.id);
+      check("A proposal's payload cannot be rewritten after birth (trigger)", !!payloadError);
+      const { error: summaryError } = await clientA.from("assistant_proposals").update({ summary: "[test] a different summary" }).eq("id", propA!.id);
+      check("A proposal's summary cannot be rewritten after birth (trigger)", !!summaryError);
+      const { error: expiryError } = await clientA
+        .from("assistant_proposals")
+        .update({ expires_at: new Date(Date.now() + 7 * 86400000).toISOString() })
+        .eq("id", propA!.id);
+      check("A proposal's expiry cannot be extended after birth (trigger)", !!expiryError);
+      const { error: executeUnclaimedError } = await clientA
+        .from("assistant_proposals")
+        .update({ status: "executed", decided_at: new Date().toISOString() })
+        .eq("id", propA!.id);
+      check("A proposal cannot be marked executed without its approval being claimed first (trigger + check)", !!executeUnclaimedError);
+      const { error: expireEarlyError } = await clientA
+        .from("assistant_proposals")
+        .update({ status: "expired", decided_at: new Date().toISOString() })
+        .eq("id", propA!.id);
+      check("A proposal cannot be marked expired before its expiry (trigger)", !!expireEarlyError);
+
+      // Claim, then decide -- each once.
+      const { data: claimedRows, error: claimError } = await clientA
+        .from("assistant_proposals")
+        .update({ claimed_at: new Date().toISOString() })
+        .eq("id", propA!.id)
+        .eq("status", "pending")
+        .is("claimed_at", null)
+        .select("id");
+      check("The author CAN claim a pending, unclaimed proposal's approval (exactly one row)", !claimError && (claimedRows?.length ?? 0) === 1);
+      const { data: reclaimRows } = await clientA
+        .from("assistant_proposals")
+        .update({ claimed_at: new Date().toISOString() })
+        .eq("id", propA!.id)
+        .eq("status", "pending")
+        .is("claimed_at", null)
+        .select("id");
+      check("A second claim of the same proposal wins nothing (the WHERE the approve action uses matches 0 rows)", (reclaimRows?.length ?? 0) === 0);
+      const { error: dismissClaimedError } = await clientA
+        .from("assistant_proposals")
+        .update({ status: "dismissed", decided_at: new Date().toISOString() })
+        .eq("id", propA!.id);
+      check("A proposal whose approval has started cannot be dismissed (trigger + check)", !!dismissClaimedError);
+      const { data: executedRows, error: executedError } = await clientA
+        .from("assistant_proposals")
+        .update({ status: "executed", decided_at: new Date().toISOString(), result: { entryPoint: "logInteraction" } })
+        .eq("id", propA!.id)
+        .eq("status", "pending")
+        .select("id");
+      check("The author CAN record a claimed proposal as executed, once", !executedError && (executedRows?.length ?? 0) === 1);
+      const { data: againRows } = await clientA
+        .from("assistant_proposals")
+        .update({ status: "failed", decided_at: new Date().toISOString(), error_note: "[test]" })
+        .eq("id", propA!.id)
+        .eq("status", "pending")
+        .select("id");
+      check("An executed proposal cannot be decided again through a session (policy reaches pending only)", (againRows?.length ?? 0) === 0);
+      const { error: adminDecidedError } = await admin.from("assistant_proposals").update({ status: "failed", error_note: "[test] rewritten" }).eq("id", propA!.id);
+      check("... nor by the service role (decided-once trigger holds for every role)", !!adminDecidedError);
+
+      // The dismiss path on a fresh proposal.
+      const { data: propD } = await clientA.from("assistant_proposals").insert(propBase).select("id").single();
+      const { data: dismissedRows, error: dismissError } = await clientA
+        .from("assistant_proposals")
+        .update({ status: "dismissed", decided_at: new Date().toISOString() })
+        .eq("id", propD!.id)
+        .eq("status", "pending")
+        .is("claimed_at", null)
+        .select("id");
+      check("The author CAN dismiss an unclaimed pending proposal", !dismissError && (dismissedRows?.length ?? 0) === 1);
+      const { error: executeDismissedError } = await admin
+        .from("assistant_proposals")
+        .update({ status: "executed", claimed_at: new Date().toISOString(), decided_at: new Date().toISOString() })
+        .eq("id", propD!.id);
+      check("A dismissed proposal can never be executed -- not even by the service role", !!executeDismissedError);
+      const { data: propDelete } = await clientA.from("assistant_proposals").delete().eq("id", propA!.id).select("id");
+      check("assistant_proposals has no delete policy -- even the author's DELETE affects 0 rows", (propDelete?.length ?? 0) === 0);
     }
   } finally {
     cleanupProblems = await purgeTestIdentities("teardown");

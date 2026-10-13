@@ -116,6 +116,7 @@ plus a policy scoped by it — the pattern is in `0033_multi_tenant_rls.sql`, an
 | Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (server-only) | In use — database, auth, storage |
 | Anthropic | `ANTHROPIC_API_KEY` (server-only) | In use — discovery search, research, strategy, drafting, channel match |
 | ProPublica | none (public) | In use — 990 registry lookups |
+| Meta Model API (Muse Spark) | `MODEL_API_KEY` (server-only), optional `MODEL_API_BASE_URL`, `ASSISTANT_MODEL`; per-org switch `ASSISTANT_ENABLED_ORG_IDS` | Built, off by default (STATE item 87, ruling 0037) — the in-platform assistant. Called only from `lib/assistant/provider.ts`; each turn is one `assistant_turn` row in the run ledger. Receives names, stages, dates and confirmed research facts; never email addresses, phone numbers, notes or interaction text. First live call not yet verified: run `scripts/assistant-smoke.ts` once the key exists. |
 
 ### Email
 

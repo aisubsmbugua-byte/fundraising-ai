@@ -67,6 +67,12 @@ export const AI_RUN_OPERATIONS = [
   // 6) is its own metered operation: decision 0006 prices per operation, and
   // it is neither a draft nor a strategy.
   "network_paths",
+  // One assistant turn (STATE item 87, ruling 0037 clause 4): a user message
+  // answered by up to a few model calls and tool results is ONE run, tokens
+  // aggregated, joined to its assistant_messages row via source_id. A
+  // conversational turn is a different unit from a one-shot operation, so it
+  // is its own operation; its price is the owner's decision (STATE item 88).
+  "assistant_turn",
 ] as const;
 export type AiRunOperation = (typeof AI_RUN_OPERATIONS)[number];
 

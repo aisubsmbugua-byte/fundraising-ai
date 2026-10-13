@@ -4,6 +4,7 @@ import { countStrategiesReadyForReview } from "@/lib/strategy";
 import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import { loadOutcomeIndex, isClosedToWork, isRevisitDue } from "@/lib/prospect-outcomes";
 import { colors } from "@/lib/ui";
+import { resolveAssistantAccess } from "@/lib/assistant/access";
 import Sidebar from "@/components/Sidebar";
 
 export default async function DashboardLayout({
@@ -55,6 +56,12 @@ export default async function DashboardLayout({
     return h === "due_soon" || h === "stalled";
   }).length;
 
+  // STATE item 87: the Assistant nav item is shown only when the assistant is
+  // enabled for this user's organization (ASSISTANT_ENABLED_ORG_IDS). The
+  // check short-circuits to "no" without a query when no organization is
+  // enabled anywhere.
+  const assistantAccess = await resolveAssistantAccess(supabase, user.id);
+
   // Order follows the actual workflow: overview, then setup, then the
   // funnel itself (source -> stage strategy -> active pursuit), then
   // supporting/reference items last. Prospects is no longer its own
@@ -70,6 +77,9 @@ export default async function DashboardLayout({
     // Supporters numbers weren't found under a label that didn't say
     // "Dashboard."
     { href: "/dashboard", label: "Dashboard", badge: 0, icon: "layout-dashboard" },
+    // STATE item 87, ruling 0036: the label names what the page is. Only
+    // present for organizations the assistant is switched on for.
+    ...(assistantAccess.enabled ? [{ href: "/assistant", label: "Assistant", badge: 0, icon: "sparkles" }] : []),
     { href: "/organization", label: "Org Profile", badge: 0, icon: "building2" },
     { href: "/discovery", label: "Donor Finder", badge: pendingCandidateCount ?? 0, icon: "search" },
     { href: "/prospects/review", label: "Strategy review", badge: readyForReviewCount, icon: "clipboard-check" },

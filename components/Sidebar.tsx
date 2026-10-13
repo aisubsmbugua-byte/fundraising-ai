@@ -17,6 +17,7 @@ import {
   Settings as SettingsIcon,
   Network,
   Heart,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { colors, radiusSm, radiusPill } from "@/lib/ui";
@@ -39,6 +40,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   settings: SettingsIcon,
   network: Network,
   heart: Heart,
+  // STATE item 87: the Assistant nav item.
+  sparkles: Sparkles,
 };
 
 type NavItem = { href: string; label: string; badge: number; icon: string };
