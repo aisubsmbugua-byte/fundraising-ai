@@ -21,6 +21,19 @@
 //   cd "/Users/kanjii/Developer/Fundraising Ai Build/fundraising-ai"
 //   npx tsx --env-file=.env.local scripts/assistant-smoke.ts
 //
+// FULL-LIST MODE (STATE item 97). The one-tool check above proves the wire
+// works; it does not prove the provider accepts the assistant's real 23-tool
+// list or picks sensible tools from it. Pass --full and a message:
+//
+//   npx tsx --env-file=.env.local scripts/assistant-smoke.ts --full "What's going on?"
+//
+// It offers the REAL tool definitions and the REAL system prompt, makes ONE
+// call, and prints which tool(s) the model chose with their arguments. It
+// EXECUTES NOTHING: no database, no ledger row, no entry point. For a command
+// ability it also reports whether the model's authorizing_quote would pass the
+// platform's own quote check against the message you typed. Sends no
+// organization data: the only content is the sentence you give it.
+//
 // Reads MODEL_API_KEY (required), MODEL_API_BASE_URL and ASSISTANT_MODEL
 // (optional; defaults in lib/assistant/config.ts). With no key it says so and
 // exits 2 without making any request. Exit 0: the call succeeded and was
@@ -30,8 +43,69 @@
 import { readProviderConfig } from "../lib/assistant/config";
 import { callProvider, buildRequest } from "../lib/assistant/provider";
 import { parseArgumentsJson } from "../lib/assistant/validate";
+import { toolDefinitions } from "../lib/assistant/abilities";
+import { buildSystemPrompt } from "../lib/assistant/prompt";
+import { verifyQuote } from "../lib/assistant/command";
+
+async function fullMode(message: string) {
+  const cfg = readProviderConfig(process.env);
+  if (!cfg.ok) {
+    console.error("MODEL_API_KEY is not set (or the base URL is unusable). Nothing was sent.");
+    process.exit(2);
+  }
+  const tools = toolDefinitions();
+  const input = {
+    messages: [
+      { role: "system" as const, content: buildSystemPrompt(new Date()) },
+      { role: "user" as const, content: message },
+    ],
+    tools,
+    maxTokens: 1200,
+  };
+  console.log(`model requested: ${cfg.config.model}`);
+  console.log(`tools offered:   ${tools.length}`);
+  console.log(`message:         ${JSON.stringify(message)}\n`);
+  const started = Date.now();
+  const res = await callProvider(cfg.config, input, { timeoutMs: 60_000 });
+  const ms = Date.now() - started;
+  if (!res.ok) {
+    console.error(`FAILED after ${ms}ms: ${res.error.kind}${res.error.status ? ` (HTTP ${res.error.status})` : ""}`);
+    console.error(`  ${res.error.detail}`);
+    process.exit(1);
+  }
+  const r = res.result;
+  console.log(`OK in ${ms}ms  usage: ${r.usage ? `${r.usage.inputTokens} in / ${r.usage.outputTokens} out` : "(none)"}  finish: ${r.finishReason ?? "(none)"}`);
+  console.log(`text: ${r.content.trim() === "" ? "(none)" : JSON.stringify(r.content.trim().slice(0, 400))}`);
+  if (r.toolCalls.length === 0) {
+    console.log("tool calls: none (the model answered in text)");
+    return;
+  }
+  console.log(`tool calls: ${r.toolCalls.length}  (NOT executed)`);
+  for (const call of r.toolCalls) {
+    const parsed = parseArgumentsJson(call.argumentsRaw);
+    console.log(`  - ${call.name}`);
+    if (!parsed.ok) {
+      console.log(`    arguments did not parse: ${parsed.error}`);
+      continue;
+    }
+    console.log(`    arguments: ${JSON.stringify(parsed.value)}`);
+    if ("authorizing_quote" in parsed.value) {
+      const v = verifyQuote(parsed.value.authorizing_quote, message);
+      console.log(`    quote check against your message: ${v.ok ? `PASS (as typed: ${JSON.stringify(v.wordsAsTyped)})` : `REFUSED (${v.code})`}`);
+    }
+  }
+}
 
 async function main() {
+  const argv = process.argv.slice(2);
+  if (argv[0] === "--full") {
+    const message = argv.slice(1).join(" ").trim();
+    if (!message) {
+      console.error('Give a message, e.g. --full "What\'s going on?"');
+      process.exit(2);
+    }
+    return fullMode(message);
+  }
   const cfg = readProviderConfig(process.env);
   if (!cfg.ok) {
     if (cfg.reason === "missing_key") {
