@@ -1748,8 +1748,8 @@ async function main() {
     const files = readdirSync(join(root, "supabase/migrations")).filter((f) => /^\d{4}_/.test(f)).sort();
     const mine = files.find((f) => /^0080_/.test(f))!;
     ok(
-      "migration 0080 is still the assistant's, and 0081 (assistant_commands) follows it directly as the highest",
-      !!mine && mine === "0080_assistant.sql" && files[files.length - 1] === "0081_assistant_commands.sql" && files[files.length - 2] === mine,
+      "migration 0080 is still the assistant's, and 0081 (assistant_commands) follows it directly (STATE item 98 added 0082 after it; the highest is no longer 0081)",
+      !!mine && mine === "0080_assistant.sql" && files.indexOf("0081_assistant_commands.sql") === files.indexOf(mine) + 1,
       files.slice(-3).join(", ")
     );
     const sql = read(`supabase/migrations/${mine}`);
@@ -3196,8 +3196,16 @@ async function commandModeSections() {
     const app = walk(join(root, "app")).map(rel);
     const everyFile = [...lib, ...app];
     const importersOf = (re: RegExp) => everyFile.filter((f) => importSpecifiers(code(f)).some((s) => re.test(s))).sort();
-    ok("command-exec.ts is imported by exactly one file: the choke point (command.ts)", JSON.stringify(importersOf(/(^|\/)command-exec$/)) === JSON.stringify(["lib/assistant/command.ts"]), importersOf(/command-exec$/).join(", "));
-    ok("command-entrypoints.ts is imported by exactly one file, and only lazily: turn.ts, by dynamic import", JSON.stringify(importersOf(/command-entrypoints$/)) === JSON.stringify(["lib/assistant/turn.ts"]) && /await import\("\.\/command-entrypoints"\)/.test(code("lib/assistant/turn.ts")) && !/^import .*command-entrypoints/m.test(code("lib/assistant/turn.ts")));
+    // STATE item 98 (ruling 0039): the external-agent connector REUSES the executors by import. The set is closed and named: the assistant's choke
+    // point, plus the connector's act choke point (act.ts), its request-for-approval tool (approvals.ts, which only ever calls the gates' `prepare`)
+    // and the owner's approval click (approve-exec.ts). scripts/test-agent.ts asserts which of those may reach an effect.
+    ok("command-exec.ts is imported by exactly four files: the assistant's choke point (command.ts) and the connector's act.ts, approvals.ts and approve-exec.ts", JSON.stringify(importersOf(/(^|\/)command-exec$/)) === JSON.stringify(["lib/agent/act.ts", "lib/agent/approvals.ts", "lib/agent/approve-exec.ts", "lib/assistant/command.ts"]), importersOf(/command-exec$/).join(", "));
+    // STATE item 98: the connector's two loaders (act-entrypoints.ts hands the act path the same wiring with BOTH gate actions stubbed to throw;
+    // approve-entrypoints.ts hands the owner's approval click the real one) are the other two importers, and both import it lazily too.
+    ok("command-entrypoints.ts is imported by exactly three files, each only lazily by dynamic import: turn.ts and the connector's act-entrypoints.ts and approve-entrypoints.ts",
+      JSON.stringify(importersOf(/command-entrypoints$/)) === JSON.stringify(["lib/agent/act-entrypoints.ts", "lib/agent/approve-entrypoints.ts", "lib/assistant/turn.ts"]) &&
+        /await import\("\.\/command-entrypoints"\)/.test(code("lib/assistant/turn.ts")) && !/^import .*command-entrypoints/m.test(code("lib/assistant/turn.ts")) &&
+        ["lib/agent/act-entrypoints.ts", "lib/agent/approve-entrypoints.ts"].every((f) => /await import\("@\/lib\/assistant\/command-entrypoints"\)/.test(code(f)) && !/^import .*command-entrypoints/m.test(code(f))));
     ok("the audit writer (audit.ts) is imported only by the choke point and the click-driven restore", JSON.stringify(importersOf(/(^|\/)audit$/)) === JSON.stringify(["lib/assistant/command.ts", "lib/assistant/restore.ts"]), importersOf(/audit$/).join(", "));
     ok("executors.ts (the click-approval path) is still imported by exactly one file", JSON.stringify(importersOf(/assistant\/executors$|^\.\/executors$/).filter((f) => f !== "lib/assistant/executors.ts")) === JSON.stringify(["app/(dashboard)/assistant/actions.ts"]));
     ok("restore.ts and command.ts and command-exec.ts import no server action (entry points arrive injected)", ["lib/assistant/restore.ts", "lib/assistant/command.ts", "lib/assistant/command-exec.ts", "lib/assistant/command-defs.ts", "lib/assistant/audit.ts", "lib/assistant/fingerprint.ts"].every((f) => importSpecifiers(code(f)).every((s) => !s.startsWith("@/app/"))));

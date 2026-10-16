@@ -329,7 +329,14 @@ async function outcome(opts: StubOpts) {
   ok("lib/supabase/client.ts is untouched", clientNow === clientAtHead);
   const serverNow = read("lib/supabase/server.ts");
   const serverAtHead = readAtHead("lib/supabase/server.ts");
-  ok("lib/supabase/server.ts is untouched", serverNow === serverAtHead);
+  // STATE item 98 (ruling 0039 clause 2, item 2b) authorizes ONE additive change to this file: a request-scoped override the external-agent
+  // connector enters (scripts/test-agent.ts pins it). The cookie-reading factory this item scoped around must still be exactly what it was: the
+  // HEAD version's function, renamed createCookieClient and called by createClient() when no override is entered, must appear verbatim.
+  const headFactory = serverAtHead.slice(serverAtHead.indexOf("export function createClient() {"));
+  ok(
+    "lib/supabase/server.ts is untouched, except for item 98's request-scoped override (the cookie-reading factory is verbatim)",
+    serverNow === serverAtHead || (headFactory.length > 100 && serverNow.includes(headFactory.replace("export function createClient() {", "function createCookieClient() {")))
+  );
   ok(
     "no server-role/secret key referenced anywhere in the new client page (hard rule 5)",
     !/service_role|SERVICE_ROLE/.test(completeSigninPage)

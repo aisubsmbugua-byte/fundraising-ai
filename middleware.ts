@@ -46,6 +46,9 @@ export async function middleware(request: NextRequest) {
       "/organization",
       "/contacts",
       "/admin",
+      // STATE item 98: the approval page an agent's link opens, and the
+      // Connect Muse page under /settings (already covered above).
+      "/approve",
     ].some((p) => request.nextUrl.pathname.startsWith(p));
 
   if (isDashboard && !user && process.env.DISABLE_AUTH === "true") {

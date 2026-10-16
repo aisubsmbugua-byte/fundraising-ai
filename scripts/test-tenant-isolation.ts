@@ -50,7 +50,7 @@
 //
 // Usage: npx tsx --env-file=.env.local scripts/test-tenant-isolation.ts
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -216,6 +216,20 @@ async function purgeTestIdentities(phase: string): Promise<string[]> {
     const { error: supportersError } = await admin.from("supporters").delete().in("organization_id", orgIds);
     if (supportersError && supportersError.code !== "42P01" && supportersError.code !== "PGRST205") {
       problems.push(`[${phase}] deleting supporters in test orgs failed: ${supportersError.message}`);
+    }
+
+    // The external-agent tables (0082, ruling 0039) reference organizations,
+    // auth.users and each other with NO cascade, so surviving rows would block
+    // the profile, auth-user and org deletes below. Children first: the call
+    // log and the approval requests name a token. (The service role bypasses
+    // RLS, which has no delete policy on any of them -- the only reason this
+    // cleanup can work.) 42P01/PGRST205 tolerated: migration 0082 not applied
+    // yet, and the agent section below reports itself NOT EVALUATED.
+    for (const table of ["agent_call_log", "agent_approval_requests", "agent_tokens"]) {
+      const { error: agentCleanupError } = await admin.from(table).delete().in("organization_id", orgIds);
+      if (agentCleanupError && agentCleanupError.code !== "42P01" && agentCleanupError.code !== "PGRST205") {
+        problems.push(`[${phase}] deleting ${table} in test orgs failed: ${agentCleanupError.message}`);
+      }
     }
 
     // assistant_threads (0080, ruling 0037) references organizations and
@@ -1770,6 +1784,195 @@ async function main() {
         // The user message must be a user message.
         const { error: wrongRoleError } = await clientA.from("assistant_command_events").insert(base({ user_message_id: runningCmd }));
         check("The authorizing message must be a USER message (trigger)", !!wrongRoleError);
+      }
+
+      // --- External agent delegation (migration 0082, ruling 0039) ---
+      // Three tables (agent_tokens, agent_call_log, agent_approval_requests)
+      // and one function callable without a session (verify_agent_token). All
+      // three tables are scoped by organization AND user; none has a delete
+      // policy; the call log is append-only for every role; a signed-in user
+      // may update only revoked_at on a token and only used_at on a request.
+      // Real authenticated sessions for every isolation assertion; the
+      // service role only to prove the triggers hold even for it, and the
+      // anon key for the function. NOT EVALUATED when the tables do not exist.
+      // WRITTEN, NOT EXECUTED by the build space: it needs a live database
+      // with 0082 applied (and 0080, for the same-org teammate above).
+      const { error: agentProbeError } = await admin.from("agent_tokens").select("id").limit(1);
+      if (agentProbeError && (agentProbeError.code === "42P01" || agentProbeError.code === "PGRST205")) {
+        notEvaluated.push("agent_tokens / agent_call_log / agent_approval_requests / verify_agent_token -- migration 0082 is not applied to this database, so their assertions did not run");
+        console.log("\nNOT EVALUATED: agent delegation tables (migration 0082 not applied). Apply 0082 and re-run; this is not a pass.\n");
+      } else {
+        const sha = (t: string) => createHash("sha256").update(t, "utf8").digest("hex");
+        const inDays = (d: number) => new Date(Date.now() + d * 86400000).toISOString();
+        const tokenRow = (over: Record<string, unknown> = {}) => ({
+          name: "[test] token",
+          token_hash: sha(randomUUID()),
+          token_prefix: "fai_test",
+          scope: "act",
+          expires_at: inDays(30),
+          ...over,
+        });
+
+        // tokens: isolation
+        const liveSecret = `fai_${randomUUID()}`;
+        const { data: tokA, error: tokAError } = await clientA.from("agent_tokens").insert(tokenRow({ token_hash: sha(liveSecret) })).select("id, organization_id, user_id, revoked_at").single();
+        check("A user CAN create their own agent token (organization and user defaulted from the session)", !tokAError && tokA?.organization_id === a.orgId && tokA?.user_id === a.userId && tokA?.revoked_at === null);
+        const { data: tokReadB } = await clientB.from("agent_tokens").select("id").eq("id", tokA!.id);
+        check("Org B cannot SELECT Org A's agent token by id", (tokReadB?.length ?? 0) === 0);
+        const { data: tokReadA2 } = await clientA2.from("agent_tokens").select("id").eq("id", tokA!.id);
+        check("A same-org teammate cannot SELECT another member's agent token (personal)", (tokReadA2?.length ?? 0) === 0);
+        const { data: tokOwn } = await clientA.from("agent_tokens").select("id").eq("id", tokA!.id);
+        check("The owner CAN read their own agent token", (tokOwn?.length ?? 0) === 1);
+        const { error: tokForgeUser } = await clientA2.from("agent_tokens").insert(tokenRow({ user_id: a.userId }));
+        check("A teammate cannot INSERT a token in another member's name (RLS: user_id = auth.uid())", !!tokForgeUser);
+        const { error: tokForgeOrg } = await clientB.from("agent_tokens").insert(tokenRow({ organization_id: a.orgId }));
+        check("Org B cannot INSERT a token into Org A (RLS: organization_id = my_organization_id())", !!tokForgeOrg);
+        // tokens: birth shape
+        const bornBad: [string, Record<string, unknown>][] = [
+          ["already revoked", { revoked_at: new Date().toISOString() }],
+          ["already used", { last_used_at: new Date().toISOString() }],
+          ["already expired", { expires_at: inDays(-1) }],
+          ["expiring in over a year", { expires_at: inDays(400) }],
+          ["of scope 'admin'", { scope: "admin" }],
+          ["with a hash that is not 64 hex characters", { token_hash: "not-a-hash" }],
+          ["with a blank name", { name: "   " }],
+        ];
+        for (const [label, over] of bornBad) {
+          const { error } = await clientA.from("agent_tokens").insert(tokenRow(over));
+          check(`A token ${label} cannot be created`, !!error);
+        }
+        // tokens: only revoked_at changes, once, by its owner
+        for (const [label, patch] of [["name", { name: "[test] renamed" }], ["scope", { scope: "read" }], ["expiry", { expires_at: inDays(300) }], ["hash", { token_hash: sha("x") }], ["last_used_at", { last_used_at: new Date().toISOString() }]] as [string, Record<string, unknown>][]) {
+          const { data, error } = await clientA.from("agent_tokens").update(patch).eq("id", tokA!.id).select("id");
+          check(`The owner cannot change a token's ${label} (column grant / trigger)`, !!error || (data?.length ?? 0) === 0);
+        }
+        const { error: adminHashError } = await admin.from("agent_tokens").update({ token_hash: sha("y") }).eq("id", tokA!.id);
+        check("... and not even the service role can change a token's hash (trigger)", !!adminHashError);
+        const { data: revokeB } = await clientB.from("agent_tokens").update({ revoked_at: new Date().toISOString() }).eq("id", tokA!.id).select("id");
+        const { data: revokeA2 } = await clientA2.from("agent_tokens").update({ revoked_at: new Date().toISOString() }).eq("id", tokA!.id).select("id");
+        check("Neither Org B nor a same-org teammate can revoke another user's token (0 rows)", (revokeB?.length ?? 0) === 0 && (revokeA2?.length ?? 0) === 0);
+        const { data: tokDelete } = await clientA.from("agent_tokens").delete().eq("id", tokA!.id).select("id");
+        check("agent_tokens has no delete policy -- even the owner's DELETE affects 0 rows", (tokDelete?.length ?? 0) === 0);
+
+        // verify_agent_token: callable without a session
+        const anon = createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false, autoRefreshToken: false } });
+        const { data: okRows, error: okError } = await anon.rpc("verify_agent_token", { p_hash: sha(liveSecret) });
+        check("verify_agent_token returns the owner, organization and scope for a live token -- with NO session (anon key)", !okError && Array.isArray(okRows) && okRows.length === 1 && okRows[0].user_id === a.userId && okRows[0].organization_id === a.orgId && okRows[0].scope === "act" && okRows[0].token_id === tokA!.id);
+        const { data: stamped } = await admin.from("agent_tokens").select("last_used_at").eq("id", tokA!.id).single();
+        check("... and it stamps last_used_at", !!stamped?.last_used_at);
+        const { data: missRows, error: missError } = await anon.rpc("verify_agent_token", { p_hash: sha(randomUUID()) });
+        check("verify_agent_token returns NO row for an unknown hash (and no error that says why)", !missError && Array.isArray(missRows) && missRows.length === 0);
+        const { data: anonSelect } = await anon.from("agent_tokens").select("id").limit(5);
+        check("the anon role cannot read agent_tokens directly", (anonSelect?.length ?? 0) === 0);
+        const { data: anonLog } = await anon.from("agent_call_log").select("id").limit(5);
+        check("the anon role cannot read agent_call_log or agent_approval_requests", (anonLog?.length ?? 0) === 0 && ((await anon.from("agent_approval_requests").select("id").limit(5)).data?.length ?? 0) === 0);
+
+        // a read token, a second act token, an about-to-expire token
+        const readSecret = `fai_${randomUUID()}`;
+        const { data: tokRead } = await clientA.from("agent_tokens").insert(tokenRow({ scope: "read", token_hash: sha(readSecret) })).select("id").single();
+        const shortSecret = `fai_${randomUUID()}`;
+        const { data: tokShort } = await clientA.from("agent_tokens").insert(tokenRow({ token_hash: sha(shortSecret), expires_at: new Date(Date.now() + 2500).toISOString() })).select("id").single();
+        const revokedSecret = `fai_${randomUUID()}`;
+        const { data: tokRevoked } = await clientA.from("agent_tokens").insert(tokenRow({ token_hash: sha(revokedSecret) })).select("id").single();
+        const { data: revokedRows, error: revokeError } = await clientA.from("agent_tokens").update({ revoked_at: new Date().toISOString() }).eq("id", tokRevoked!.id).select("id");
+        check("The owner CAN revoke their own token (revoked_at only)", !revokeError && (revokedRows?.length ?? 0) === 1);
+        const { data: unrevoke, error: unrevokeError } = await clientA.from("agent_tokens").update({ revoked_at: null }).eq("id", tokRevoked!.id).select("id");
+        check("A revoked token cannot be un-revoked (trigger)", !!unrevokeError || (unrevoke?.length ?? 0) === 0);
+        const { data: revokedVerify } = await anon.rpc("verify_agent_token", { p_hash: sha(revokedSecret) });
+        check("verify_agent_token returns no row for a REVOKED token -- revocation bites on the very next call", Array.isArray(revokedVerify) && revokedVerify.length === 0);
+        const { data: readVerify } = await anon.rpc("verify_agent_token", { p_hash: sha(readSecret) });
+        check("verify_agent_token reports a read token's scope as read", Array.isArray(readVerify) && readVerify[0]?.scope === "read");
+
+        // call log
+        const callBase = (over: Record<string, unknown> = {}) => ({
+          call_id: randomUUID(), token_id: tokA!.id, event: "started", origin: "agent", access: "write", tool: "set_prospect_ask_amount",
+          arguments: { prospect_id: prospectA.id, ask_amount: 1 }, agent_statement: "[test] the agent says the owner asked", subject_table: "prospects", subject_id: prospectA.id, previous: { ask_amount: null }, ...over,
+        });
+        const callStarted = callBase();
+        const { data: logRow, error: logError } = await clientA.from("agent_call_log").insert(callStarted).select("id, organization_id, user_id").single();
+        check("The owner's session CAN record a `started` agent write (organization and user defaulted)", !logError && logRow?.organization_id === a.orgId && logRow?.user_id === a.userId);
+        const { data: logReadB } = await clientB.from("agent_call_log").select("id").eq("id", logRow!.id);
+        const { data: logReadA2 } = await clientA2.from("agent_call_log").select("id").eq("id", logRow!.id);
+        check("Neither Org B nor a same-org teammate can SELECT another user's call record", (logReadB?.length ?? 0) === 0 && (logReadA2?.length ?? 0) === 0);
+        const { error: logCrossOrg } = await clientB.from("agent_call_log").insert(callBase());
+        const { error: logCrossUser } = await clientA2.from("agent_call_log").insert(callBase());
+        check("Org B / a teammate cannot INSERT a call row that names Org A's / another user's token (RLS + match trigger)", !!logCrossOrg && !!logCrossUser);
+        const { data: logUpd } = await clientA.from("agent_call_log").update({ error_note: "[test]" }).eq("id", logRow!.id).select("id");
+        const { error: logAdminUpd } = await admin.from("agent_call_log").update({ error_note: "[test]" }).eq("id", logRow!.id);
+        check("agent_call_log is append-only: the owner's UPDATE affects 0 rows and the service role's is rejected by the trigger", (logUpd?.length ?? 0) === 0 && !!logAdminUpd);
+        const { data: logDel } = await clientA.from("agent_call_log").delete().eq("id", logRow!.id).select("id");
+        check("agent_call_log has no delete policy -- even the owner's DELETE affects 0 rows", (logDel?.length ?? 0) === 0);
+        const terminalOf = (over: Record<string, unknown> = {}) => ({ ...callStarted, event: "executed", previous: null, result: { summary: "[test]" }, duration_ms: 12, ...over });
+        const { error: termError } = await clientA.from("agent_call_log").insert(terminalOf());
+        check("A terminal `executed` row CAN follow its own started row (with a duration)", !termError);
+        const { error: term2 } = await clientA.from("agent_call_log").insert(terminalOf({ event: "failed", result: null, error_note: "[test]" }));
+        const { error: start2 } = await clientA.from("agent_call_log").insert(callStarted);
+        check("A second terminal row, or a second `started` row, for the same call is refused", !!term2 && !!start2);
+        const { error: orphan } = await clientA.from("agent_call_log").insert(callBase({ event: "executed", previous: null, result: { x: 1 } }));
+        check("An `executed` write with no started row is refused (trigger)", !!orphan);
+        const { error: refusedAlone } = await clientA.from("agent_call_log").insert(callBase({ event: "refused", previous: null, result: { code: "scope" }, error_note: "[test] refused" }));
+        check("A write refused before its effect is ONE `refused` row with no started row", !refusedAlone);
+        const { error: readOne } = await clientA.from("agent_call_log").insert(callBase({ access: "read", tool: "whoami", event: "executed", previous: null, result: { bytes: 5 }, subject_table: null, subject_id: null, arguments: {} }));
+        check("A read is ONE terminal row", !readOne);
+        const { error: readStarted } = await clientA.from("agent_call_log").insert(callBase({ access: "read", tool: "whoami", subject_table: null, subject_id: null, previous: null, arguments: {} }));
+        check("A read cannot be `started` (check constraint)", !!readStarted);
+        const { error: readTokenWrite } = await clientA.from("agent_call_log").insert(callBase({ token_id: tokRead!.id }));
+        check("A READ-scope token cannot start a write -- the database refuses it, whatever the application does", !!readTokenWrite);
+        const { error: revokedTokenWrite } = await clientA.from("agent_call_log").insert(callBase({ token_id: tokRevoked!.id }));
+        check("A REVOKED token cannot start a write", !!revokedTokenWrite);
+        const { error: agentApprove } = await clientA.from("agent_call_log").insert(callBase({ tool: "approve_strategy", subject_table: "strategy_runs" }));
+        check("An agent-origin row can never be an approval (check constraint) -- a gate is not decided on an agent's call", !!agentApprove);
+        const { error: clickApprove } = await clientA.from("agent_call_log").insert(callBase({ origin: "user_click", tool: "approve_strategy", subject_table: "strategy_runs", agent_statement: null }));
+        check("A user's click CAN be recorded as an approval (the record of the owner's decision)", !clickApprove);
+        const { error: badTool } = await clientA.from("agent_call_log").insert(callBase({ tool: "send_email" }));
+        check("A tool outside the closed list cannot be stored (check constraint)", !!badTool);
+        const { error: clickRestoreNoRef } = await clientA.from("agent_call_log").insert(callBase({ origin: "user_click", tool: "restore_draft_text", agent_statement: null }));
+        check("A restore that names no call it restores cannot be stored (check constraint)", !!clickRestoreNoRef);
+
+        // approval requests
+        const reqBase = (over: Record<string, unknown> = {}) => ({
+          token_id: tokA!.id, kind: "strategy", subject_id: randomUUID(), prospect_id: prospectA.id, fingerprint: sha("content"), summary: "[test] approve a strategy", expires_at: inDays(0.0104), ...over,
+        });
+        const { data: req, error: reqError } = await clientA.from("agent_approval_requests").insert(reqBase()).select("id, organization_id, user_id, used_at").single();
+        check("The owner's session CAN create an approval request from an act token (organization and user defaulted, unused)", !reqError && req?.organization_id === a.orgId && req?.user_id === a.userId && req?.used_at === null);
+        const { data: reqReadB } = await clientB.from("agent_approval_requests").select("id").eq("id", req!.id);
+        const { data: reqReadA2 } = await clientA2.from("agent_approval_requests").select("id").eq("id", req!.id);
+        check("Neither Org B nor a same-org teammate can SELECT another user's approval request", (reqReadB?.length ?? 0) === 0 && (reqReadA2?.length ?? 0) === 0);
+        const { data: reqUseB } = await clientB.from("agent_approval_requests").update({ used_at: new Date().toISOString() }).eq("id", req!.id).select("id");
+        const { data: reqUseA2 } = await clientA2.from("agent_approval_requests").update({ used_at: new Date().toISOString() }).eq("id", req!.id).select("id");
+        check("... and cannot consume it (0 rows)", (reqUseB?.length ?? 0) === 0 && (reqUseA2?.length ?? 0) === 0);
+        const { error: reqRead } = await clientA.from("agent_approval_requests").insert(reqBase({ token_id: tokRead!.id }));
+        check("A READ-scope token cannot be the source of an approval request (trigger)", !!reqRead);
+        const { error: reqRevoked } = await clientA.from("agent_approval_requests").insert(reqBase({ token_id: tokRevoked!.id }));
+        check("A revoked token cannot ask for an approval link", !!reqRevoked);
+        const { error: reqLong } = await clientA.from("agent_approval_requests").insert(reqBase({ expires_at: inDays(2) }));
+        const { error: reqPast } = await clientA.from("agent_approval_requests").insert(reqBase({ expires_at: inDays(-1) }));
+        check("An approval request cannot outlive the hour or be born expired", !!reqLong && !!reqPast);
+        const { error: reqUsedBorn } = await clientA.from("agent_approval_requests").insert(reqBase({ used_at: new Date().toISOString() }));
+        check("An approval request cannot be born used", !!reqUsedBorn);
+        const { error: reqBadFp } = await clientA.from("agent_approval_requests").insert(reqBase({ fingerprint: "nope" }));
+        const { error: reqBadKind } = await clientA.from("agent_approval_requests").insert(reqBase({ kind: "claim" }));
+        check("A bad fingerprint or a kind other than strategy|draft cannot be stored", !!reqBadFp && !!reqBadKind);
+        const { data: reqEdit, error: reqEditError } = await clientA.from("agent_approval_requests").update({ fingerprint: sha("other") }).eq("id", req!.id).select("id");
+        check("The owner cannot change what a request is bound to (column grant / trigger)", !!reqEditError || (reqEdit?.length ?? 0) === 0);
+        const { error: reqAdminEdit } = await admin.from("agent_approval_requests").update({ fingerprint: sha("other") }).eq("id", req!.id);
+        check("... not even the service role (trigger)", !!reqAdminEdit);
+        const { data: reqUsed, error: reqUsedError } = await clientA.from("agent_approval_requests").update({ used_at: new Date().toISOString() }).eq("id", req!.id).is("used_at", null).select("id");
+        check("The owner CAN consume their request once (the atomic conditional update)", !reqUsedError && (reqUsed?.length ?? 0) === 1);
+        const { data: reqUsedAgain, error: reqUsedAgainError } = await clientA.from("agent_approval_requests").update({ used_at: new Date().toISOString() }).eq("id", req!.id).is("used_at", null).select("id");
+        check("A second consume updates 0 rows -- single use, enforced in the database", !reqUsedAgainError && (reqUsedAgain?.length ?? 0) === 0);
+        const { error: reqUnuse } = await admin.from("agent_approval_requests").update({ used_at: null }).eq("id", req!.id);
+        check("A used request can never be made unused again (trigger, even for the service role)", !!reqUnuse);
+        const { data: reqDel } = await clientA.from("agent_approval_requests").delete().eq("id", req!.id).select("id");
+        check("agent_approval_requests has no delete policy -- even the owner's DELETE affects 0 rows", (reqDel?.length ?? 0) === 0);
+
+        // time: an expired token and an expired request (a short real wait)
+        const { data: shortReq } = await clientA.from("agent_approval_requests").insert(reqBase({ expires_at: new Date(Date.now() + 2500).toISOString() })).select("id").single();
+        await new Promise((r) => setTimeout(r, 3200));
+        const { data: expiredVerify } = await anon.rpc("verify_agent_token", { p_hash: sha(shortSecret) });
+        check("verify_agent_token returns no row once the token has EXPIRED", Array.isArray(expiredVerify) && expiredVerify.length === 0 && !!tokShort);
+        const { error: expiredUse } = await clientA.from("agent_approval_requests").update({ used_at: new Date().toISOString() }).eq("id", shortReq!.id);
+        check("An expired approval request cannot be consumed (trigger)", !!expiredUse);
       }
     }
   } finally {
