@@ -1,5 +1,5 @@
 // Named bounds for the external-agent connector (STATE item 98, ruling 0039).
-// Every figure the rest of lib/agent, the Connect Muse page and the tests
+// Every figure the rest of lib/agent, the Connect COS page and the tests
 // refer to lives here, so a reader of one place sees them all and a test can
 // assert them against the places that depend on them.
 
@@ -32,7 +32,7 @@ export const TOKEN_PREFIX = "fai_";
 export const TOKEN_RANDOM_BYTES = 32;
 export const TOKEN_DISPLAY_PREFIX_CHARS = 8;
 export const TOKEN_NAME_MAX_CHARS = 80;
-// The Connect Muse page offers these; the default is the first marked default.
+// The Connect COS page offers these; the default is the first marked default.
 export const TOKEN_EXPIRY_CHOICES_DAYS = [30, 90, 180, 365] as const;
 export const TOKEN_DEFAULT_EXPIRY_DAYS = 90;
 export const TOKEN_MAX_EXPIRY_DAYS = 365;

@@ -1,3 +1,14 @@
+# Connecting COS (and other assistants such as Muse)
+
+The page under Settings is called **Connect COS**. COS is the owner's Chief of Staff in the Kanjii Mbugua Command Center, and
+it uses this connector (read-only) for its Advancement department. The same address and token also work for any other
+assistant that can add a remote connector, such as the owner's desktop Muse; the Muse steps below still apply to it.
+
+To connect COS: make a token under Settings -> Connect COS (name it "COS", choose "look things up only"), then paste it into the
+Command Center's sidebar under **Advancement · Fundraising AI**. Never paste it into a chat message.
+
+---
+
 # Connecting Muse
 
 How to connect the owner's desktop Muse agent to Fundraising AI (STATE item 98,
@@ -14,7 +25,7 @@ The platform hosts an MCP server at
 address -- a redirect in front of it makes some clients drop the
 `Authorization` header. It speaks stateless JSON-RPC over streamable HTTP and
 authenticates with a bearer token the owner creates under
-**Settings -> Connect Muse**. OAuth is not built.
+**Settings -> Connect COS**. OAuth is not built.
 
 An agent can look things up and make everyday changes as the token's user, within
 the token's scope. It can never approve a strategy or a draft: it can ask for a
@@ -24,7 +35,7 @@ pipeline steps, delete, record a gift, or change who a message goes to.
 
 ## Steps
 
-1. **Create a token.** Settings -> Connect Muse. Name it, choose "look things up
+1. **Create a token.** Settings -> Connect COS. Name it, choose "look things up
    only" or "look up and make everyday changes", choose how long it lasts
    (default 90 days). Copy it: it is shown once.
 2. **Tell Muse the address.** In Muse: Settings -> Connectors -> Add custom
@@ -48,7 +59,7 @@ pipeline steps, delete, record a gift, or change who a message goes to.
 - *"setup pending"* -- migration `0082` has not been applied in the Supabase SQL
   editor yet.
 - A long action (`push_back_on_strategy`) runs for about a minute inside one
-  call. If Muse gives up first, check Connect Muse -> Recent calls: a call with
+  call. If Muse gives up first, check Connect COS -> Recent calls: a call with
   "no outcome recorded" did not finish, and nothing is assumed about it.
 - Revoking a token takes effect on its very next call.
 

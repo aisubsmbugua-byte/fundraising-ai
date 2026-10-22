@@ -1,7 +1,7 @@
 // Making and revoking a delegate token (STATE item 98, ruling 0039 clause 1).
 //
 // These run as the signed-in user through their own cookie client, from the
-// Connect Muse page's server actions -- the only place a token can be made.
+// Connect COS page's server actions -- the only place a token can be made.
 // The token is generated here, its SHA-256 hash is the only thing handed to
 // storage, and the token itself is returned to the caller exactly once.
 

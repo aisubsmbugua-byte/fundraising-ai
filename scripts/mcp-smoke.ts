@@ -37,7 +37,7 @@ if (!url) {
   process.exit(2);
 }
 if (!token) {
-  console.error("MCP_TOKEN is not set. Create a token under Settings -> Connect Muse. Nothing was sent.");
+  console.error("MCP_TOKEN is not set. Create a token under Settings -> Connect COS. Nothing was sent.");
   process.exit(2);
 }
 

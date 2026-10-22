@@ -1,4 +1,4 @@
-// The Connect Muse page's call list (STATE item 98): one line per call, built
+// The Connect COS page's call list (STATE item 98): one line per call, built
 // by code from agent_call_log rows. A write's two rows (started, terminal)
 // become one line showing its outcome; a started row with no terminal row is
 // shown as such -- "no outcome recorded" is the honest state of a killed call,

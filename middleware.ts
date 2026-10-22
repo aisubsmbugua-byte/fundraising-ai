@@ -47,7 +47,7 @@ export async function middleware(request: NextRequest) {
       "/contacts",
       "/admin",
       // STATE item 98: the approval page an agent's link opens, and the
-      // Connect Muse page under /settings (already covered above).
+      // Connect COS page under /settings (already covered above).
       "/approve",
     ].some((p) => request.nextUrl.pathname.startsWith(p));
 

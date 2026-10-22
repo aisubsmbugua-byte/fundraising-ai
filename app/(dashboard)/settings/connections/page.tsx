@@ -14,7 +14,7 @@ const CALLS_SHOWN = 60;
 // STATE item 98, ruling 0039. The only place a delegate token can be made, and
 // where the owner sees what their agent has done. It states plainly where the
 // data goes and what each scope can see (clause 5).
-export default async function ConnectMusePage() {
+export default async function ConnectCosPage() {
   const supabase = createClient();
   const {
     data: { user },
@@ -45,9 +45,9 @@ export default async function ConnectMusePage() {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <h1 style={{ fontSize: typeScale.pageTitle }}>Connect Muse</h1>
+      <h1 style={{ fontSize: typeScale.pageTitle }}>Connect COS</h1>
       <p style={{ color: colors.textMuted, fontSize: 14, marginTop: spacing.xs }}>
-        Let your own desktop agent (Meta&apos;s Muse) report on where fundraising stands and carry out your everyday decisions. It acts as you, with a token you create here, that you can revoke at any time.
+        Let your Chief of Staff (COS, in the Kanjii Mbugua Command Center) report on where fundraising stands. It acts as you, with a token you create here, that you can revoke at any time. Another assistant, such as Meta&apos;s Muse, can use the same connection; its steps are at the end of this page.
       </p>
 
       {pending && (
@@ -66,16 +66,26 @@ export default async function ConnectMusePage() {
           This is the final address, with no redirect in front of it -- use it exactly. Authentication is a bearer token (<code>Authorization: Bearer &lt;token&gt;</code>).
         </p>
         <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, display: "grid", gap: spacing.xs }}>
-          <li>Create a token below and copy it. Start with &quot;look things up only&quot; until you trust the setup.</li>
-          <li>In Muse, open Settings, then Connectors, then Add custom connector. (Or ask Muse in a chat to add a connector with transport &quot;remote streamable HTTP&quot;, the address above, and authentication &quot;bearer token&quot;.)</li>
-          <li>Give Muse the token through its secure credential prompt. Never paste the token into a chat message.</li>
-          <li>Check it: ask Muse to call <code>whoami</code>, then to list the connector&apos;s tools.</li>
-          <li>In Muse&apos;s permissions for this connector, choose to ask before it takes actions.</li>
-          <li>After you change the token or its scope, ask Muse to refresh the connector.</li>
+          <li>Create a token below and copy it. Name it &quot;COS&quot; and start with &quot;look things up only&quot; until you trust the setup.</li>
+          <li>In the Command Center, open <strong>Advancement · Fundraising AI</strong> in the sidebar and paste the token there. It checks the token with this app before saving it. Never paste the token into a chat message.</li>
+          <li>Check it: ask COS &quot;How is VWI fundraising going?&quot;</li>
+          <li>If you change the token or its scope here, press <strong>Check connection</strong> in the Command Center. Revoking a token here takes effect on its very next use.</li>
         </ol>
       </div>
 
       <ConnectionsPanel tokens={tokens} calls={calls} />
+
+      <div style={{ ...sectionStyle, marginTop: spacing.xl }}>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Another assistant, for example Meta&apos;s Muse</h2>
+        <p style={{ margin: 0, fontSize: 14 }}>The same address and token work for any assistant that can add a remote connector. For Meta&apos;s Muse:</p>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, display: "grid", gap: spacing.xs }}>
+          <li>In Muse, open Settings, then Connectors, then Add custom connector. (Or ask Muse in a chat to add a connector with transport &quot;remote streamable HTTP&quot;, the address above, and authentication &quot;bearer token&quot;.)</li>
+          <li>Give Muse the token through its secure credential prompt. Never paste the token into a chat message.</li>
+          <li>Check it: ask Muse to call <code>whoami</code>, then to list the connector&apos;s tools.</li>
+          <li>In Muse&apos;s permissions for this connector, choose to ask before it takes actions.</li>
+          <li>After you change the token or its scope, ask Muse to refresh the connector. Whatever Muse asks for goes to Meta. Meta holds what it receives under its own terms.</li>
+        </ol>
+      </div>
 
       <div style={{ ...sectionStyle, marginTop: spacing.xl }}>
         <h2 style={{ margin: 0, fontSize: 17 }}>Where the data goes, and what each choice can see</h2>
@@ -89,7 +99,7 @@ export default async function ConnectMusePage() {
           Neither can see email addresses, phone numbers, notes or the text of logged interactions. Neither can approve anything: approving a strategy or a draft happens only when you open a link, read the full content here, and click. Neither can deliver anything to a funder, move a prospect between steps, delete anything, record a gift, or change who a message goes to.
         </p>
         <p style={{ margin: 0, fontSize: 14 }}>
-          <strong>What leaves the platform:</strong> whatever the agent asks for, within the lists above, goes to Meta&apos;s Muse. Meta holds what it receives under its own terms, which this platform does not read and cannot enforce. Do not connect an agent you would not trust with that information.
+          <strong>What leaves the platform:</strong> whatever the assistant asks for, within the lists above, goes to the assistant you connect. For COS that is the Command Center, whose AI model (OpenAI) processes it like any message you send COS. Each provider holds what it receives under its own terms, which this platform does not read and cannot enforce. Do not connect an assistant you would not trust with that information.
         </p>
         <p style={{ margin: 0, fontSize: 13, color: colors.textMuted }}>
           A changing call is limited per token (20 changes an hour; 120 calls in ten minutes), is recorded before it takes effect, and text it replaces can be restored from the list above. The platform cannot see what you say to the agent, so an agent&apos;s call is recorded as the agent&apos;s, not as your instruction.

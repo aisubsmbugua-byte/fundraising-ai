@@ -47,7 +47,7 @@ import { WRITE_CAP, WRITE_WINDOW_MS } from "./limits";
 import type { ToolOutcome, ToolRunContext } from "./types";
 
 export const READ_TOKEN_REFUSAL =
-  "This token's scope is read: it can only look things up, so this was not done. To let the agent make changes, create a read-and-act token under Settings → Connect Muse and update the connector with it.";
+  "This token's scope is read: it can only look things up, so this was not done. To let the agent make changes, create a read-and-act token under Settings → Connect COS and update the connector with it.";
 
 export type ActDeps = {
   // The closed table of executors this module may run. Defaults to the
@@ -231,7 +231,7 @@ export async function runAgentAct(toolName: string, rawArgs: Record<string, unkn
     ...fieldsText("What it is now:", effect.fields),
     ...fieldsText("What it replaced:", effect.replaced),
     ...(effect.href ? [`Open it: ${ctx.origin}${effect.href}`] : []),
-    ...(effect.restorable ? ["The owner can put the earlier text back from Settings → Connect Muse."] : []),
+    ...(effect.restorable ? ["The owner can put the earlier text back from Settings → Connect COS."] : []),
     ...(effect.warning ? [`Note: ${effect.warning}`] : []),
     ...(recorded ? [] : ["Note: the record of this call could not be completed; the change itself was made."]),
   ];

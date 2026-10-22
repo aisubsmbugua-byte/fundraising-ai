@@ -3,7 +3,7 @@
 //
 // A plain route handler: Muse connects from Meta's cloud, so this endpoint is
 // public HTTPS and authenticates every request itself with a bearer token the
-// owner created under Settings -> Connect Muse (middleware.ts leaves /api/*
+// owner created under Settings -> Connect COS (middleware.ts leaves /api/*
 // alone, as it does /api/assistant/turn). Stateless JSON-RPC over streamable
 // HTTP: POST only; GET and DELETE answer 405.
 //

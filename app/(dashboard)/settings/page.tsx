@@ -141,9 +141,9 @@ export default async function SettingsPage() {
               <Plug size={18} />
             </span>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Connect Muse</div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Connect COS</div>
               <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
-                Let your own desktop agent report and carry out everyday decisions -- never approvals.
+                Let your Chief of Staff (COS) report on where fundraising stands -- never approvals.
               </div>
             </div>
           </div>

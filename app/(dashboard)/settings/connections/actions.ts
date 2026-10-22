@@ -1,6 +1,6 @@
 "use server";
 
-// Connect Muse: making and revoking a token, and restoring text an agent
+// Connect COS: making and revoking a token, and restoring text an agent
 // replaced (STATE item 98, ruling 0039). All three run as the signed-in user
 // through their own cookie client; this page is the only place a token can be
 // made. Each returns its failure rather than throwing it (Next redacts a thrown

@@ -2,7 +2,7 @@
 // "text a write replaced can be restored by the user's click").
 //
 // A USER decision, not an agent call: it runs only from the Restore button on
-// the Connect Muse page's call list (app/(dashboard)/settings/connections/
+// the Connect COS page's call list (app/(dashboard)/settings/connections/
 // actions.ts), never from a tool. It reuses nothing from the assistant's
 // restore.ts because that one reads the assistant's own thread-bound record;
 // this one reads agent_call_log, but keeps every one of its guards:

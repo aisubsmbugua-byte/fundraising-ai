@@ -37,9 +37,9 @@ export type AuthFailure = {
 export type AuthResult = { ok: true; principal: Principal } | AuthFailure;
 
 export const TOKEN_REQUIRED_MESSAGE =
-  "An access token is required. Send it as 'Authorization: Bearer <token>'. Create one under Settings → Connect Muse.";
+  "An access token is required. Send it as 'Authorization: Bearer <token>'. Create one under Settings → Connect COS.";
 export const TOKEN_INVALID_MESSAGE =
-  "This access token is not valid: it is unknown, has been revoked, or has expired. Create a new one under Settings → Connect Muse and update the connector with it.";
+  "This access token is not valid: it is unknown, has been revoked, or has expired. Create a new one under Settings → Connect COS and update the connector with it.";
 
 export async function authenticate(authorization: string | null, rpc: VerifyRpc, now: Date = new Date()): Promise<AuthResult> {
   const parsed = parseBearer(authorization);
