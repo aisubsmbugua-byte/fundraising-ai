@@ -1,7 +1,7 @@
 ---
 id: 0033
 title: A network path is a proposal grounded in two captured facts — a person a human recorded and a funder-side fact a human approved
-status: settled
+status: superseded
 provenance: verbatim
 supersedes:
 date: 2026-09-25
