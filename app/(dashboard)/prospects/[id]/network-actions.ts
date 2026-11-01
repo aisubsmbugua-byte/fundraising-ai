@@ -1,6 +1,7 @@
 "use server";
 
-// Network paths (STATE item 76, ruling 0033): "Who can open this door".
+// Network paths (STATE items 76 and 103, rulings 0033 and 0040): "Who can open
+// this door".
 //
 // The general invariant: a path is a proposal grounded in two captured facts --
 // a connection a human recorded and a funder-side claim a human approved --
@@ -24,15 +25,30 @@ import { beginRun, finalizeRun, newUsage, addResponseUsage } from "@/lib/ai-runs
 import {
   NETWORK_PATHS_TOOL,
   buildNetworkPathPrompt,
-  connectionCapRefusal,
   selectAnchorClaims,
   validateNetworkPaths,
-  type NetworkConnection,
 } from "@/lib/network";
+import { emptyShortlistMessage, pathsOutcomeMessage, shortlistConnections } from "@/lib/network-shortlist";
+import { loadAllConnections } from "@/lib/network-store";
 
+// Every success states how many people were considered of how many are
+// recorded and by what rule (ruling 0040 clause 7). `examined` is false only
+// when narrowing left nobody, in which case the model was not asked.
 export type FindPathsResult =
   | { error: string }
-  | { success: true; stored: number; alreadyKnown: number; discarded: number };
+  | {
+      success: true;
+      stored: number;
+      alreadyKnown: number;
+      discarded: number;
+      considered: number;
+      totalRecorded: number;
+      narrowed: boolean;
+      matched: number | null;
+      rule: string;
+      examined: boolean;
+      message: string;
+    };
 
 export async function findNetworkPaths(prospectId: string): Promise<FindPathsResult> {
   try {
@@ -63,22 +79,42 @@ export async function findNetworkPaths(prospectId: string): Promise<FindPathsRes
       };
     }
 
-    const { data: connectionRows, error: connectionsError, count: connectionCount } = await supabase
-      .from("network_connections")
-      .select("*", { count: "exact" })
-      .order("updated_at", { ascending: false });
-    if (connectionsError) return { error: "Could not read your network just now, so no paths were looked for." };
-    const connections = (connectionRows ?? []) as NetworkConnection[];
-    // Over the v1 cap the request is refused, never truncated (item 77). The
-    // exact count is used so the message is right even past the row limit.
-    const capRefusal = connectionCapRefusal(connectionCount ?? connections.length);
-    if (capRefusal) return { error: capRefusal };
-    if (connections.length === 0) {
+    // EVERY recorded person, read in pages past the database's 1000-row response
+    // limit against the exact total (a short read is an error, not a smaller
+    // network). Then the stated narrowing rule (ruling 0040 clause 7): a network
+    // no larger than one look can consider is passed through whole and unchanged;
+    // a larger one is cut to a shortlist by lib/network-shortlist.ts, and the
+    // result says so. There is no refusal and no silent truncation.
+    const loaded = await loadAllConnections(supabase);
+    if (!loaded.ok) return { error: "Could not read your network just now, so no paths were looked for." };
+    if (loaded.total === 0) {
       return { error: "You have not recorded anyone you know yet. Add people on the Network page, then look for paths." };
     }
+    const shortlist = shortlistConnections(loaded.connections, anchorClaims);
+    const connections = shortlist.considered;
+    if (connections.length === 0) {
+      // Nobody shares a distinctive word with this funder's approved facts. This
+      // is NOT an AI operation: no model call, no ledger birth -- it returns
+      // before beginRun, like every other refusal above.
+      return {
+        success: true,
+        stored: 0,
+        alreadyKnown: 0,
+        discarded: 0,
+        considered: 0,
+        totalRecorded: shortlist.totalRecorded,
+        narrowed: shortlist.narrowed,
+        matched: shortlist.matched,
+        rule: shortlist.rule,
+        examined: false,
+        message: emptyShortlistMessage(shortlist),
+      };
+    }
 
-    // The pools. Both are the exact lists handed to the model; every id the
-    // model returns is validated against them below.
+    // The pools. Both are the exact lists handed to the model -- the CONSIDERED
+    // people, not everyone recorded; every id the model returns is validated
+    // against them below, so a path citing someone who was not shortlisted is
+    // discarded like any other id outside the pool.
     const connectionIds = new Set(connections.map((c) => c.id));
     const claimIds = new Set(anchorClaims.map((c) => c.claimId));
 
@@ -154,7 +190,20 @@ export async function findNetworkPaths(prospectId: string): Promise<FindPathsRes
       });
 
       revalidatePath(`/prospects/${prospectId}`);
-      return { success: true, stored: fresh.length, alreadyKnown: kept.length - fresh.length, discarded: discarded.length };
+      const alreadyKnown = kept.length - fresh.length;
+      return {
+        success: true,
+        stored: fresh.length,
+        alreadyKnown,
+        discarded: discarded.length,
+        considered: connections.length,
+        totalRecorded: shortlist.totalRecorded,
+        narrowed: shortlist.narrowed,
+        matched: shortlist.matched,
+        rule: shortlist.rule,
+        examined: true,
+        message: pathsOutcomeMessage({ stored: fresh.length, alreadyKnown, shortlist }),
+      };
     } catch (err) {
       await finalizeRun(supabase, aiRunId, {
         outcome: "failed",

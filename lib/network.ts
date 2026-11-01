@@ -1,4 +1,4 @@
-// Network paths (STATE item 76, ruling 0033).
+// Network paths (STATE items 76 and 103, rulings 0033 and 0040).
 //
 // The general invariant: a network path is a PROPOSAL grounded in two captured
 // facts, each referenced by id and never retyped -- a person a human recorded
@@ -36,6 +36,14 @@ export type PathStatus = (typeof PATH_STATUSES)[number];
 // connection is entered.
 export const NETWORK_DISCLOSURE =
   "What you record here is shared with the AI service to find introductions. Nothing is ever sent to the people you list. Avoid recording sensitive personal details in notes.";
+
+// Ruling 0040 clause 3, shown wherever a file of people is imported. It is the
+// capture disclosure above, unweakened and word for word, plus what an import
+// adds: what is shared when paths are looked for, that contact details in a
+// file are not imported, and that nothing is sent to the people listed.
+export const NETWORK_IMPORT_DISCLOSURE =
+  NETWORK_DISCLOSURE +
+  " When paths are looked for, the names, affiliations, how-you-know-them text and notes of the people being considered are shared with the AI service. Notes are free text, so keep sensitive details out of them. Contact details in your file (email addresses, phone numbers, street addresses, web or social links) are never imported or stored, and importing contacts no one.";
 
 export type NetworkConnection = {
   id: string;
@@ -80,17 +88,10 @@ export function selectAnchorClaims(claims: readonly ApprovedClaim[]): ApprovedCl
   return claims.filter((c) => NETWORK_ANCHOR_CLAIM_KEYS.includes(c.claimKey) && c.humanDecided);
 }
 
-// v1 default: the most recorded connections one path-finding call considers.
-// Over it, the request is REFUSED -- never truncated, because silently choosing
-// which people the model sees is the defect shape ruling 0033 exists to avoid.
-export const NETWORK_PATHS_MAX_CONNECTIONS = 150;
-
-// The plain refusal for an over-cap network, or null when the count is allowed
-// (exactly the cap is allowed). Pure, so the boundary is testable by running it.
-export function connectionCapRefusal(recorded: number): string | null {
-  if (recorded <= NETWORK_PATHS_MAX_CONNECTIONS) return null;
-  return `You have ${recorded} people recorded, and v1 considers up to ${NETWORK_PATHS_MAX_CONNECTIONS} at once. Remove the entries that are not relevant on the Network page, then look for paths again.`;
-}
+// Ruling 0040 clause 7 replaced item 77's refusal above a fixed number of
+// people with a stated narrowing rule: see lib/network-shortlist.ts
+// (NETWORK_PATHS_MAX_CONSIDERED and shortlistConnections). There is no refusal
+// and no silent truncation here any more.
 
 // The human-readable label for the fact a path anchors to. For a named person
 // the claim text IS the name and role ("Jane Doe, Executive Director"), so the

@@ -1,4 +1,5 @@
-// STATE item 76 -- network capture v1 (ruling 0033). Offline: migration 0077's
+// STATE item 76 -- network capture v1 (ruling 0033), as amended by item 103
+// (ruling 0040: import, narrowing instead of refusal). Offline: migration 0077's
 // statics, the pure rules in lib/network.ts run for real, and source scans of
 // the actions and pages. No database and no API key.
 //
@@ -17,13 +18,25 @@ import {
   CONNECTION_STRENGTHS,
   NETWORK_ANCHOR_CLAIM_KEYS,
   NETWORK_DISCLOSURE,
-  NETWORK_PATHS_MAX_CONNECTIONS,
-  connectionCapRefusal,
   NETWORK_PATHS_TOOL,
   buildNetworkPathPrompt,
   selectAnchorClaims,
   validateNetworkPaths,
 } from "../lib/network";
+import {
+  GENERIC_WORDS,
+  MIN_SHARED_WORD_LENGTH,
+  NETWORK_PATHS_MAX_CONSIDERED,
+  WHOLE_NAME_BONUS,
+  consideredSentence,
+  distinctiveWords,
+  emptyShortlistMessage,
+  pathsOutcomeMessage,
+  shortlistConnections,
+  shortlistRuleSentence,
+  tokenize,
+} from "../lib/network-shortlist";
+import { FakeNetDb, ORG_ID, USER_ID, makeStubber } from "./network-test-support";
 import { AI_RUN_OPERATIONS } from "../lib/ai-runs";
 import type { ApprovedClaim } from "../lib/prospect-intelligence";
 
@@ -174,8 +187,33 @@ ok("an advisory claim no human decided is NOT an anchor; one a human decided is"
 ok("the anchor key list is EXACTLY people.key_contacts and funding.recent_grants", JSON.stringify([...NETWORK_ANCHOR_CLAIM_KEYS]) === JSON.stringify(["people.key_contacts", "funding.recent_grants"]));
 ok("invitation mechanism and denominational restriction are not anchors, even human-decided", !anchors.includes("c-invitation") && !anchors.includes("c-denom"));
 ok("a claim with humanDecided false is excluded regardless of key or advisory flag", !anchors.includes("c-grants-undecided") && !anchors.includes("c-people-advisory-undecided") && selectAnchorClaims([claim({ claimId: "u", claimKey: "people.key_contacts", advisory: false, humanDecided: false })]).length === 0);
-ok("the humanDecided requirement is unconditional in the function, not carried by the key list", /&&\s*c\.humanDecided\s*\)/.test(stripComments(read("lib/network.ts"))) && !/advisory/.test(stripComments(read("lib/network.ts")).slice(stripComments(read("lib/network.ts")).indexOf("export function selectAnchorClaims"), stripComments(read("lib/network.ts")).indexOf("export const NETWORK_PATHS_MAX_CONNECTIONS"))));
-ok("the cap is 150; 150 connections are accepted, 151 refused with the count and the limit in plain words", NETWORK_PATHS_MAX_CONNECTIONS === 150 && connectionCapRefusal(150) === null && connectionCapRefusal(0) === null && /151/.test(connectionCapRefusal(151) ?? "") && /150/.test(connectionCapRefusal(151) ?? "") && /remove/i.test(connectionCapRefusal(151) ?? ""));
+ok("the humanDecided requirement is unconditional in the function, not carried by the key list", /&&\s*c\.humanDecided\s*\)/.test(stripComments(read("lib/network.ts"))) && !/advisory/.test(stripComments(read("lib/network.ts")).slice(stripComments(read("lib/network.ts")).indexOf("export function selectAnchorClaims"), stripComments(read("lib/network.ts")).indexOf("export function anchorKindLabel"))));
+{
+  // Successor to "the cap is 150; 150 connections are accepted, 151 refused with the
+  // count and the limit in plain words" (item 77's refusal, replaced by ruling 0040
+  // clause 7): the limit is still 150, 150 people are considered whole, and 151 are
+  // narrowed -- and the sentence states the counts and the limit instead of refusing.
+  const mk = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `p-${String(i).padStart(4, "0")}`,
+      person_name: `Person ${i}`,
+      affiliation: i === 0 ? "Riverbend Ministries" : null,
+      how_known: null,
+      notes: null,
+      created_at: `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
+    }));
+  const claimsForLimit = [{ claim: "Riverbend Ministries received a grant." }];
+  const at150 = shortlistConnections(mk(150), claimsForLimit);
+  const at151 = shortlistConnections(mk(151), claimsForLimit);
+  ok(
+    "the limit is NETWORK_PATHS_MAX_CONSIDERED = 150; exactly 150 people are all considered (narrowed false), 151 are narrowed (narrowed true) -- no refusal at either",
+    NETWORK_PATHS_MAX_CONSIDERED === 150 && at150.narrowed === false && at150.considered.length === 150 && at151.narrowed === true && at151.totalRecorded === 151
+  );
+  ok(
+    "the narrowed sentence states X of Y and the limit in plain words (it replaces the old refusal's count-and-limit message)",
+    /Considered 1 of 151 recorded people/.test(consideredSentence(at151)) && /150/.test(consideredSentence(at151)) && /not examined/.test(consideredSentence(at151))
+  );
+}
 ok("no approved claims naming anybody yields an empty pool (the action then refuses without a model call)", selectAnchorClaims(pool.filter((c) => c.claimId === "c-money" || c.claimId === "c-deadline")).length === 0);
 
 section("lib/network.ts: validateNetworkPaths -- an id outside the pool is discarded, never kept");
@@ -242,22 +280,35 @@ const decideStart = actions.indexOf("export async function decideNetworkPath");
 const find = actions.slice(findStart, decideStart);
 const decide = actions.slice(decideStart);
 {
-  const capAt = find.indexOf("connectionCapRefusal(");
+  // Successor to "the cap refusal precedes beginRun and the model call, and returns
+  // rather than truncating" (item 77): the REFUSAL is gone (ruling 0040 clause 7);
+  // what must still hold is that the read of everyone, the shortlist and the
+  // empty-shortlist return all precede beginRun and the model call, and that the
+  // action neither refuses on size nor slices the network itself (the stated rule
+  // in lib/network-shortlist.ts is the only thing that narrows).
+  const loadAt = find.indexOf("await loadAllConnections(");
+  const shortlistAt = find.indexOf("shortlistConnections(");
+  const emptyAt = find.indexOf("connections.length === 0");
   const beginAt = find.indexOf("await beginRun(");
   const modelAt = find.indexOf("anthropic.messages.create");
-  ok("the cap refusal precedes beginRun and the model call, and returns rather than truncating", capAt > 0 && capAt < beginAt && beginAt < modelAt && /if \(capRefusal\) return/.test(find) && !/\.slice\(|\.limit\(|\.range\(/.test(find));
+  ok(
+    "the full read, the shortlist and the empty-shortlist return all precede beginRun and the model call",
+    loadAt > 0 && loadAt < shortlistAt && shortlistAt < emptyAt && emptyAt < beginAt && beginAt < modelAt,
+    `${loadAt}/${shortlistAt}/${emptyAt}/${beginAt}/${modelAt}`
+  );
+  ok("there is no size refusal and no slicing in the action: connectionCapRefusal is gone and nothing here slices, limits or ranges the network", !/connectionCapRefusal|capRefusal/.test(actions) && !/\.slice\(|\.limit\(|\.range\(/.test(find));
 }
 ok("both actions found", findStart > 0 && decideStart > findStart);
 ok("research is read ONLY through loadApprovedIntelligence; research_claims is never queried here", find.includes("loadApprovedIntelligence(") && !/from\("research_claims"\)/.test(actions) && !/from\("research_runs"\)/.test(actions));
 const at = (needle: string) => find.indexOf(needle);
 const refuseIntel = at("if (!approved)");
 const refuseAnchors = at("anchorClaims.length === 0");
-const refuseConns = at("connections.length === 0");
+const refuseConns = at("loaded.total === 0");
 const born = at("await beginRun(");
 const called = at("await anthropic.messages.create");
 ok("every refusal (unresolved intelligence, no naming claims, no connections) precedes the ledger birth", refuseIntel > 0 && refuseAnchors > refuseIntel && refuseConns > refuseAnchors && born > refuseConns, `${refuseIntel}/${refuseAnchors}/${refuseConns}/${born}`);
 ok("the run is BORN before the model call", born > 0 && called > born, `${born} vs ${called}`);
-ok("each refusal returns an error (no throw) before any model call", /if \(!approved\) \{\s*return \{\s*error:/.test(find) && /anchorClaims\.length === 0\) \{\s*return \{\s*error:/.test(find) && /connections\.length === 0\) \{\s*return \{ error:/.test(find));
+ok("each refusal returns an error (no throw) before any model call", /if \(!approved\) \{\s*return \{\s*error:/.test(find) && /anchorClaims\.length === 0\) \{\s*return \{\s*error:/.test(find) && /loaded\.total === 0\) \{\s*return \{ error:/.test(find));
 ok("the operation is the LITERAL string network_paths, not a ternary", /operation: "network_paths"/.test(find) && !/operation:\s*[^"\s]/.test(find));
 ok("network_paths is in AI_RUN_OPERATIONS", (AI_RUN_OPERATIONS as readonly string[]).includes("network_paths"));
 ok("finalizeRun runs on success and on failure", (find.match(/finalizeRun\(/g) ?? []).length >= 2 && /outcome: "failed"/.test(find));
@@ -311,5 +362,286 @@ section("lib/prospect-intelligence.ts: the loader now carries claim ids");
 const intel = read("lib/prospect-intelligence.ts");
 ok("both ApprovedClaim push sites carry claimId and humanDecided", (intel.match(/claimId: c\.id as string,/g) ?? []).length === 2 && (intel.match(/humanDecided: !!decision,/g) ?? []).length === 2);
 
-console.log(`\n${pass} passed, ${fail} failed.`);
-process.exit(fail > 0 ? 1 : 0);
+// ===========================================================================
+// STATE item 103 -- narrowing instead of refusing (ruling 0040 clause 7)
+// ===========================================================================
+
+type P = { id: string; person_name: string; affiliation: string | null; how_known: string | null; notes: string | null; created_at: string };
+const uuidOf = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const iso = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString();
+const person = (i: number, over: Partial<P> = {}): P => ({ id: uuidOf(i + 1), person_name: `Filler ${i}`, affiliation: "Plain Org", how_known: null, notes: null, created_at: iso(i), ...over });
+const fillers = (from: number, n: number): P[] => Array.from({ length: n }, (_, k) => person(from + k));
+const ids = (ps: readonly { id: string }[]) => ps.map((p) => p.id);
+const factClaims = [{ claim: "Jane Whitcombe, Executive Director" }, { claim: "Riverbend Heritage Alliance; Harvest Table Kitchen" }];
+
+section("lib/network-shortlist.ts: the constants and the generic-word list are named data");
+ok("the limit is NETWORK_PATHS_MAX_CONSIDERED = 150, the minimum shared word is 4 letters, the whole-name bonus outranks any word count", NETWORK_PATHS_MAX_CONSIDERED === 150 && MIN_SHARED_WORD_LENGTH === 4 && WHOLE_NAME_BONUS >= 1000);
+ok("GENERIC_WORDS is a closed list of lowercase, de-duplicated words that includes the brief's: church, foundation, fund, trust, inc, llc, ltd, corp, company, group, ministries, ministry, international, national, global, association, society, university, college, school, center, centre, institute, community, board, member, director, president, pastor, chair, chairman, officer, executive, manager, the, and, of?, for, with, from",
+  ["church", "foundation", "fund", "trust", "inc", "llc", "ltd", "corp", "company", "group", "ministries", "ministry", "international", "national", "global", "association", "society", "university", "college", "school", "center", "centre", "institute", "community", "board", "member", "director", "president", "pastor", "chair", "chairman", "officer", "executive", "manager", "the", "and", "for", "with", "from"].every((w) => GENERIC_WORDS.includes(w)) &&
+    GENERIC_WORDS.every((w) => w === w.toLowerCase()) && new Set(GENERIC_WORDS).size === GENERIC_WORDS.length);
+ok("tokenize lowercases, strips accents and splits on anything that is not a letter or digit", JSON.stringify(tokenize("José O'Neil-Smith, St. Mary's (2024)")) === JSON.stringify(["jose", "o", "neil", "smith", "st", "mary", "s", "2024"]));
+ok("a distinctive word is 4+ letters, has a letter in it and is not generic: 'church' no, 'grace' yes, 'doe' no, '2024' no, 'cos7' yes", JSON.stringify([...distinctiveWords("Church Grace Doe 2024 Cos7 The Foundation")].sort()) === JSON.stringify(["cos7", "grace"]));
+ok("the rule sentence is built from the constants (4 letters, 150 people, a full-name match first)", /4 or more letters/.test(shortlistRuleSentence()) && /150 people/.test(shortlistRuleSentence()) && /full-name match first/.test(shortlistRuleSentence()) && /"church", "foundation" or "director"/.test(shortlistRuleSentence()));
+
+section("lib/network-shortlist.ts: at or under the limit, nothing is narrowed (identical to before)");
+{
+  const small = [person(0, { person_name: "Zed Last" }), person(1), person(2, { person_name: "Alpha First" })];
+  const r = shortlistConnections(small, factClaims);
+  ok("a small network: everyone considered, narrowed false, matched null, in the order given", r.narrowed === false && r.matched === null && JSON.stringify(ids(r.considered)) === JSON.stringify(ids(small)) && r.totalRecorded === 3);
+  ok("... the considered list is the same objects, so the prompt handed to the model is byte-identical to the unnarrowed prompt", (() => {
+    const claims = [{ claimId: "c1", claimKey: "people.key_contacts", claim: "Jane Whitcombe" }];
+    const before = buildNetworkPathPrompt({ prospectName: "F", connections: small.map((p) => ({ ...p, strength: "warm" as const })), claims });
+    const after = buildNetworkPathPrompt({ prospectName: "F", connections: r.considered.map((p) => ({ ...p, strength: "warm" as const })), claims });
+    return before === after;
+  })());
+  const at = shortlistConnections(fillers(0, 150), factClaims);
+  ok("exactly 150 people: all 150 considered, narrowed false (the boundary is inclusive)", at.narrowed === false && at.considered.length === 150);
+  ok("... even when NONE of them shares a word with the funder (nothing is filtered below the limit)", at.considered.length === 150 && at.matched === null);
+  const over = shortlistConnections([...fillers(0, 150), person(150, { affiliation: "Riverbend Heritage" })], factClaims);
+  ok("151 people: narrowed true, and only the one sharing a word is considered (1 of 151)", over.narrowed === true && over.totalRecorded === 151 && over.considered.length === 1 && over.considered[0].id === uuidOf(151) && over.matched === 1);
+  ok("shortlistConnections does not mutate its input", (() => { const input = [...fillers(0, 151)]; const copy = JSON.stringify(input); shortlistConnections(input, factClaims); return JSON.stringify(input) === copy; })());
+}
+
+section("lib/network-shortlist.ts: what shortlists a person, and what does not");
+{
+  const pad = fillers(1000, 151);
+  const run = (p: P) => ids(shortlistConnections([...pad, p], [{ claim: "Grace Community Church Foundation, board member Riverbend 2024" }]).considered).includes(p.id);
+  ok("a GENERIC word alone does not shortlist (Community, Church, Foundation, First all shared; nothing distinctive)", !run(person(5000, { person_name: "Pat Roe", affiliation: "First Community Church Foundation" })));
+  ok("a DISTINCTIVE word does (affiliation shares 'riverbend')", run(person(5001, { person_name: "Pat Roe", affiliation: "Riverbend Fellowship" })));
+  ok("a distinctive word in the how-known text shortlists", run(person(5002, { how_known: "We met through the Riverbend choir" })));
+  ok("a distinctive word in the notes shortlists", run(person(5003, { notes: "Mentioned Grace in passing" })));
+  ok("a distinctive word in the NAME shortlists (ruling 0040 clause 7 names the name)", run(person(5004, { person_name: "Riverbend Smith" })));
+  ok("a word under four letters never shortlists, even when shared exactly ('Zed')", !run(person(5005, { person_name: "Zed Roe", affiliation: "Zed" })) && !ShortSharedFixture());
+  ok("a bare number never shortlists (a shared year '2024' is not a shared word)", !run(person(5006, { notes: "Met in 2024" })));
+  ok("matching ignores case and accents ('RIVERBEND', 'Ríverbend')", run(person(5007, { affiliation: "RIVERBEND" })) && run(person(5008, { affiliation: "Ríverbend" })));
+  ok("a substring is not a match: 'Riverbendix' does not share 'riverbend'; whole words only (token containment, not fuzzy similarity)", !run(person(5009, { affiliation: "Riverbendix" })));
+  function ShortSharedFixture() {
+    return ids(shortlistConnections([...pad, person(5010, { person_name: "Zed", affiliation: "Zed" })], [{ claim: "Zed Corp" }]).considered).length > 0;
+  }
+}
+
+section("lib/network-shortlist.ts: ranking -- a whole name outranks any affiliation word; ties break deterministically");
+{
+  const pad = fillers(1000, 160);
+  const A = person(1, { person_name: "Jane Whitcombe", affiliation: null });
+  const B = person(2, { person_name: "Pat Roe", affiliation: "Riverbend Heritage Harvest Alliance" });
+  const C = person(3, { person_name: "Sam Lee", notes: "volunteers at Riverbend" });
+  const D = person(0, { person_name: "Dee Ray", notes: "Harvest" }); // same score as C, created earlier
+  const E = person(3, { id: uuidOf(0), person_name: "Eli Fox", notes: "Riverbend" }); // same score AND created_at as C: id decides
+  const r = shortlistConnections([...pad, C, B, E, D, A], factClaims);
+  ok("whole-name containment (Jane Whitcombe) ranks ABOVE a person sharing THREE affiliation words (more than the two words of the name)", r.considered[0].id === A.id && r.considered[1].id === B.id, JSON.stringify(r.considered.map((p) => p.person_name)));
+  ok("score is the number of distinct shared words: three shared words (B) outrank one (C, D, E)", r.considered.slice(1, 2)[0].id === B.id && r.considered.slice(2).every((p) => [C.id, D.id, E.id].includes(p.id)));
+  ok("equal scores: earlier created_at first, then id (D created earliest; E and C share created_at and E's id sorts first)", JSON.stringify(r.considered.slice(2).map((p) => p.person_name)) === JSON.stringify(["Dee Ray", "Eli Fox", "Sam Lee"]), JSON.stringify(r.considered.map((p) => p.person_name)));
+  ok("a single-word name that appears in a fact scores as a word match, not as a whole-name match", (() => {
+    const solo = person(9, { person_name: "Whitcombe", affiliation: null });
+    const rr = shortlistConnections([...pad, B, solo], factClaims);
+    return rr.considered[0].id === B.id && rr.considered[1].id === solo.id;
+  })());
+  ok("titles do not defeat a whole-name match ('Dr. Jane Whitcombe' still contains Jane Whitcombe)", shortlistConnections([...pad, person(8, { person_name: "Dr. Jane Whitcombe, Jr." }), B], factClaims).considered[0].person_name === "Dr. Jane Whitcombe, Jr.");
+}
+
+section("lib/network-shortlist.ts: determinism, stated cut, speed at 1,500 people");
+{
+  const crowd: P[] = [
+    ...fillers(0, 1300),
+    ...Array.from({ length: 200 }, (_, k) => person(2000 + k, { affiliation: "Riverbend Heritage Alliance" })),
+    person(3000, { person_name: "Jane Whitcombe", affiliation: null }),
+  ];
+  const a = shortlistConnections(crowd, factClaims);
+  const b = shortlistConnections(crowd, factClaims);
+  ok("the same input twice gives the same shortlist in the same order", JSON.stringify(ids(a.considered)) === JSON.stringify(ids(b.considered)));
+  const shuffled = [...crowd].sort((x, y) => (x.id.split("").reverse().join("") < y.id.split("").reverse().join("") ? -1 : 1));
+  ok("the input in a different order gives the SAME shortlist in the same order (nothing depends on arrival order)", JSON.stringify(ids(shortlistConnections(shuffled, factClaims).considered)) === JSON.stringify(ids(a.considered)));
+  ok("1,501 people: the model is never handed more than the limit (150), the whole-name match is first, and the cut is stated (201 matched)", a.considered.length === 150 && a.narrowed && a.matched === 201 && a.considered[0].person_name === "Jane Whitcombe" && a.totalRecorded === 1501);
+  const started = Date.now();
+  for (let i = 0; i < 20; i++) shortlistConnections(crowd, factClaims);
+  const per = (Date.now() - started) / 20;
+  ok(`a 1,501-person fixture shortlists quickly (${per.toFixed(1)} ms per look; under 250 ms)`, per < 250, `${per} ms`);
+  ok("the sentence states X of Y, the rule, the cut and that those left out were not examined", /Considered 150 of 1501 recorded people \(/.test(consideredSentence(a)) && /201 people shared such a word, so only the 150 sharing the most were considered/.test(consideredSentence(a)) && /not a judgement about them/.test(consideredSentence(a)) && consideredSentence(a).includes(a.rule));
+  ok("no cut clause when everyone who matched fits", !/shared such a word/.test(consideredSentence(shortlistConnections([...fillers(0, 200), person(900, { affiliation: "Riverbend" })], factClaims))));
+}
+
+section("lib/network-shortlist.ts: the user-facing wording");
+{
+  const narrowed = shortlistConnections([...fillers(0, 200), person(900, { affiliation: "Riverbend" })], factClaims);
+  const whole = shortlistConnections(fillers(0, 12), factClaims);
+  ok("no path found reads 'none found among those considered' with X of Y -- never 'none exist'", (() => { const m = pathsOutcomeMessage({ stored: 0, alreadyKnown: 0, shortlist: narrowed }); return /none found among those considered/.test(m) && /Considered 1 of 201 recorded people/.test(m) && !/none exist|no one exists|does not exist/i.test(m); })());
+  ok("... and the same words on a small network that was not narrowed (it is still only 'those considered')", (() => { const m = pathsOutcomeMessage({ stored: 0, alreadyKnown: 0, shortlist: whole }); return /none found among those considered/.test(m) && /Considered 12 of 12 recorded people/.test(m); })());
+  ok("found paths: the count, 'among those considered' and X of Y", /Found 2 possible paths among those considered/.test(pathsOutcomeMessage({ stored: 2, alreadyKnown: 0, shortlist: narrowed })) && /Considered 1 of 201/.test(pathsOutcomeMessage({ stored: 2, alreadyKnown: 0, shortlist: narrowed })));
+  ok("already-known paths keep their wording and still state the counts", /already listed below/.test(pathsOutcomeMessage({ stored: 0, alreadyKnown: 1, shortlist: narrowed })) && /Considered 1 of 201/.test(pathsOutcomeMessage({ stored: 0, alreadyKnown: 1, shortlist: narrowed })));
+  const empty = emptyShortlistMessage({ totalRecorded: 1500, rule: shortlistRuleSentence() });
+  ok("an empty shortlist's message: 'Considered 0 of 1500', none share a distinctive word, none examined, the AI was not asked, and how to widen it", /Considered 0 of 1500 recorded people/.test(empty) && /None of your 1500 recorded people share a distinctive word/.test(empty) && /none were examined/.test(empty) && /AI was not asked/.test(empty) && /approve more of this funder's facts on the Research tab/.test(empty) && /add affiliation and how-you-know-them detail/.test(empty));
+}
+
+section("lib/network.ts + the action: id validation uses the CONSIDERED pool");
+{
+  const crowd = [...fillers(0, 300), person(900, { affiliation: "Riverbend" }), person(901, { affiliation: "Riverbend" })];
+  const sl = shortlistConnections(crowd, factClaims);
+  const pool = new Set(ids(sl.considered));
+  const excluded = crowd.find((p) => !pool.has(p.id))!;
+  const r = validateNetworkPaths(
+    [
+      { network_connection_id: sl.considered[0].id, funder_claim_id: "c1", reasoning: "Same body.", confidence: "medium" },
+      { network_connection_id: excluded.id, funder_claim_id: "c1", reasoning: "Cites someone never shortlisted.", confidence: "high" },
+    ],
+    pool,
+    new Set(["c1"])
+  );
+  ok("a path citing a person who was not shortlisted is discarded (and reported for logging), exactly like any id outside the pool", r.kept.length === 1 && r.discarded.length === 1 && /network_connection_id/.test(r.discarded[0].reason));
+}
+
+section("source: lib/network-shortlist.ts is pure and the action only narrows through it");
+{
+  const sl = stripComments(read("lib/network-shortlist.ts"));
+  ok("the shortlist module imports no database, model or framework code (only a type from lib/network)", (sl.match(/^import .*$/gm) ?? []).every((l) => /^import type \{ NetworkConnection \} from "@\/lib\/network";$/.test(l)), (sl.match(/^import .*$/gm) ?? []).join(" | "));
+  ok("... and uses no randomness, clock or database (Math.random, Date.now, new Date, fetch, supabase)", !/Math\.random|Date\.now|new Date\(|fetch\(|supabase/i.test(sl));
+  ok("the sort has no tiebreak but created_at then id (fully deterministic)", /b\.score - a\.score \|\| a\.at - b\.at \|\| \(a\.person\.id < b\.person\.id/.test(sl));
+  const act = stripComments(read("app/(dashboard)/prospects/[id]/network-actions.ts"));
+  ok("the action hands the model ONLY shortlist.considered (connections = shortlist.considered) and builds both id pools from it", /const connections = shortlist\.considered;/.test(act) && /connectionIds = new Set\(connections\.map/.test(act) && !/loaded\.connections[^;]*buildNetworkPathPrompt/.test(act));
+  ok("an empty shortlist returns BEFORE beginRun: its return statement precedes the ledger birth in source order", act.indexOf("connections.length === 0") > 0 && act.indexOf("connections.length === 0") < act.indexOf("await beginRun("));
+  ok("the old fixed-number refusal is gone from lib/network.ts", !/connectionCapRefusal|NETWORK_PATHS_MAX_CONNECTIONS/.test(stripComments(read("lib/network.ts"))));
+}
+
+async function actionTests() {
+  section("findNetworkPaths, the REAL action, against a fake client and a fake model");
+  const S = makeStubber(root);
+  process.env.ANTHROPIC_API_KEY ||= "test-key";
+  let db = new FakeNetDb();
+  const approved = {
+    researchRunId: "90000000-0000-4000-8000-000000000001",
+    version: 1,
+    confirmedEin: null,
+    withheld: [],
+    claims: [
+      { claimId: "c-people", humanDecided: true, claimKey: "people.key_contacts", claim: "Jane Whitcombe, Executive Director", reportingPeriod: null, advisory: false, limitation: null, humanOverride: false, overrideNote: null, sources: [] },
+      { claimId: "c-grants", humanDecided: true, claimKey: "funding.recent_grants", claim: "Riverbend Heritage Alliance; Harvest Table Kitchen", reportingPeriod: null, advisory: false, limitation: null, humanOverride: false, overrideNote: null, sources: [] },
+    ],
+  };
+  let approvedNow: typeof approved | null = approved;
+  let modelCalls: { params: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let modelPaths: () => unknown[] = () => [];
+  const serverPath = S.resolve("lib/supabase/server.ts");
+  const intelPath = S.resolve("lib/prospect-intelligence.ts");
+  const anthropicPath = S.resolve("lib/ai/anthropic.ts");
+  const actionPath = S.resolve("app/(dashboard)/prospects/[id]/network-actions.ts");
+  const realIntel = require(intelPath);
+  const { anthropic } = require(anthropicPath) as { anthropic: { messages: { create: unknown } } };
+  const realCreate = anthropic.messages.create;
+  S.stub(serverPath, { createClient: () => db });
+  S.stub(require.resolve("next/cache"), { revalidatePath() {} });
+  S.stub(intelPath, { ...realIntel, loadApprovedIntelligence: async () => approvedNow });
+  (anthropic.messages as { create: unknown }).create = async (params: unknown) => {
+    modelCalls.push({ params });
+    return { model: "claude-test", usage: { input_tokens: 10, output_tokens: 5 }, content: [{ type: "tool_use", input: { paths: modelPaths() } }] };
+  };
+  S.forget(S.resolve("lib/auth.ts"));
+  S.forget(actionPath);
+  S.forget(S.resolve("lib/network-store.ts"));
+
+  const fullRow = (p: P) => ({ ...p, organization_id: ORG_ID, recorded_by: USER_ID, strength: "warm", updated_at: p.created_at });
+  const world = (people: P[]) => {
+    db = new FakeNetDb();
+    db.seed("prospects", [{ id: "prospect-1", name: "Test Funder" }]);
+    db.seed("network_connections", people.map(fullRow));
+    modelCalls = [];
+    modelPaths = () => [];
+    approvedNow = approved;
+    return db;
+  };
+  const connectionCount = (prompt: string) => (prompt.match(/\n {2}affiliation: /g) ?? []).length;
+
+  try {
+    const find = (require(actionPath) as { findNetworkPaths: (id: string) => Promise<any> }).findNetworkPaths; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // ---- a small network: nothing is narrowed ----
+    {
+      const people = [person(0, { person_name: "Anna One" }), person(1, { person_name: "Ben Two", affiliation: "Riverbend" }), person(2, { person_name: "Cy Three" })];
+      const d = world(people);
+      modelPaths = () => [{ network_connection_id: uuidOf(2), funder_claim_id: "c-grants", reasoning: "Both name Riverbend.", confidence: "medium" }];
+      const r = await find("prospect-1");
+      const prompt = modelCalls[0].params.messages[0].content as string;
+      const ordered = [...people].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)); // updated_at desc, as the action reads them
+      const expected = buildNetworkPathPrompt({ prospectName: "Test Funder", connections: ordered.map((p) => ({ ...p, strength: "warm" as const })), claims: approved.claims });
+      ok("a small network: the model is called once with EVERY person, and the prompt is byte-identical to the one built from the whole list", "success" in r && modelCalls.length === 1 && prompt === expected);
+      ok("... the result says narrowed false, 3 of 3 considered, and stored the one path", r.narrowed === false && r.considered === 3 && r.totalRecorded === 3 && r.stored === 1 && /Considered 3 of 3 recorded people/.test(r.message));
+      ok("... the run was born in the ledger before the call and finalized completed", d.logOf("ai_runs", "insert").length === 1 && d.rows("ai_runs")[0].outcome === "completed");
+    }
+
+    // ---- a large network: narrowed, full read, excluded id discarded ----
+    {
+      const crowd: P[] = [
+        person(0, { person_name: "Jane Whitcombe", affiliation: null }), // oldest: last in the updated_at-desc read, beyond row 1000
+        ...Array.from({ length: 199 }, (_, k) => person(1 + k, { affiliation: "Riverbend Heritage Alliance" })),
+        ...fillers(200, 1300),
+      ];
+      const d = world(crowd);
+      const excludedAmongMatched = uuidOf(181 + 1); // person(181): matched but cut by the limit
+      const neverMatched = uuidOf(900 + 1);
+      modelPaths = () => [
+        { network_connection_id: uuidOf(1), funder_claim_id: "c-people", reasoning: "Same person.", confidence: "high" },
+        { network_connection_id: uuidOf(11), funder_claim_id: "c-grants", reasoning: "Same body.", confidence: "medium" },
+        { network_connection_id: excludedAmongMatched, funder_claim_id: "c-grants", reasoning: "Cites a matched person cut by the limit.", confidence: "high" },
+        { network_connection_id: neverMatched, funder_claim_id: "c-grants", reasoning: "Cites a person who shared no word.", confidence: "high" },
+      ];
+      const r = await find("prospect-1");
+      const prompt = modelCalls[0]?.params.messages[0].content as string;
+      ok("1,500 recorded people: the whole list was read (more than 1000 rows; ranged pages after an exact count)", d.log.filter((l) => l.table === "network_connections" && l.op === "select" && l.range).length === 2 && d.log.some((l) => l.table === "network_connections" && l.head === true));
+      ok("... the model is handed exactly 150 people, never the whole network", "success" in r && modelCalls.length === 1 && connectionCount(prompt) === 150, `${connectionCount(prompt)} connections in prompt`);
+      ok("... the person who is oldest in the list (beyond the 1000-row limit) and whose WHOLE NAME is in an approved fact is considered, which proves the read was complete", prompt.includes(`id: ${uuidOf(1)}`));
+      ok("... a person who shares no word with the funder's facts was never sent (their id is not in the prompt)", !prompt.includes(neverMatched) && !prompt.includes("Filler 700"));
+      ok("... a matched person cut by the limit was not sent either", !prompt.includes(`id: ${excludedAmongMatched}`));
+      ok("the paths citing a person who was NOT shortlisted are discarded (2) and the two grounded paths are stored (2); nothing citing an excluded person reaches the table", r.stored === 2 && r.discarded === 2 && d.rows("network_path_suggestions").every((s) => s.network_connection_id !== excludedAmongMatched && s.network_connection_id !== neverMatched) && d.rows("network_path_suggestions").length === 2, JSON.stringify(r));
+      ok("the result states X of Y and the rule, the cut (200 shared a word, 150 considered), and that the rest were not examined", r.narrowed === true && r.considered === 150 && r.totalRecorded === 1500 && r.matched === 200 && /Considered 150 of 1500 recorded people/.test(r.message) && /200 people shared such a word, so only the 150/.test(r.message) && r.message.includes(r.rule) && /not examined/.test(r.message), r.message);
+      ok("the grounding rules in the prompt are unchanged by narrowing (same text as buildNetworkPathPrompt's)", prompt.includes("Never invent a person, an affiliation") && prompt.includes("Zero paths is a valid answer"));
+    }
+
+    // ---- an empty shortlist: no model call, no ledger birth ----
+    {
+      const d = world(fillers(0, 1500));
+      const r = await find("prospect-1");
+      ok("an empty shortlist makes NO model call", "success" in r && modelCalls.length === 0);
+      ok("... and writes NO ledger row: ai_runs is never touched (not an AI operation)", d.log.every((l) => l.table !== "ai_runs") && d.rows("ai_runs").length === 0);
+      ok("... and stores nothing: no path-suggestion write either", d.log.every((l) => l.table !== "network_path_suggestions"));
+      ok("... the result says none of the 1500 share a distinctive word, so none were examined, with Considered 0 of 1500 and how to widen it", r.examined === false && r.considered === 0 && r.totalRecorded === 1500 && /Considered 0 of 1500 recorded people/.test(r.message) && /none were examined/.test(r.message) && /approve more of this funder's facts/.test(r.message), r.message);
+    }
+
+    // ---- the model finds nothing ----
+    {
+      const d = world([person(0, { person_name: "Anna One" }), person(1, { person_name: "Ben Two" })]);
+      modelPaths = () => [];
+      const r = await find("prospect-1");
+      ok("when the model proposes nothing, the result reads 'none found among those considered' (never 'none exist'), and the run is finalized 'empty'", /none found among those considered/.test(r.message) && !/none exist/i.test(r.message) && d.rows("ai_runs")[0].outcome === "empty", r.message);
+    }
+
+    // ---- the refusals that precede the ledger, in their old order ----
+    {
+      let d = world(fillers(0, 5));
+      approvedNow = null;
+      const r1 = await find("prospect-1");
+      ok("unresolved funder identity: refused with an error, before the network is even read and with no ledger row", "error" in r1 && /confirm the organization's identity/.test(r1.error) && d.log.every((l) => l.table === "prospects") && modelCalls.length === 0);
+      d = world(fillers(0, 5));
+      approvedNow = { ...approved, claims: [] };
+      const r2 = await find("prospect-1");
+      ok("no approved fact naming anybody: refused, no ledger row, no model call", "error" in r2 && /names a person or an organization/.test(r2.error) && d.rows("ai_runs").length === 0 && modelCalls.length === 0);
+      d = world([]);
+      const r3 = await find("prospect-1");
+      ok("nobody recorded: refused with the old message, no ledger row, no model call", "error" in r3 && /have not recorded anyone/.test(r3.error) && d.rows("ai_runs").length === 0 && modelCalls.length === 0);
+      d = world(fillers(0, 5));
+      const r4 = await find("no-such-prospect");
+      ok("unknown prospect: refused first", "error" in r4 && /Prospect not found/.test(r4.error));
+    }
+  } finally {
+    (anthropic.messages as { create: unknown }).create = realCreate;
+    S.restore();
+  }
+}
+
+actionTests()
+  .catch((e) => {
+    console.error(e);
+    fail++;
+  })
+  .finally(() => {
+    console.log(`\n${pass} passed, ${fail} failed.`);
+    process.exit(fail > 0 ? 1 : 0);
+  });

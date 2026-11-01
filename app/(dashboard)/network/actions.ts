@@ -4,8 +4,9 @@
 //
 // A connection is the recorder's own note about a person: hand-entered, minimal
 // (name, affiliation, how known, strength, notes) and editable and deletable by
-// the organization. There is NO import here and NO contact-detail field --
-// the system never contacts these people. Deleting a connection deletes every
+// the organization, one at a time or in bulk (ruling 0040 clause 2). There is
+// NO contact-detail field -- the system never contacts these people. (A file
+// import lives in import-actions.ts.) Deleting a connection deletes every
 // path suggestion derived from it (foreign key cascade, migration 0077).
 //
 // Every action returns its failure rather than throwing it (Next redacts a
@@ -15,6 +16,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { isConnectionStrength } from "@/lib/network";
+import { NETWORK_DELETE_MAX_IDS, normalizeSearch, parseDeleteIds } from "@/lib/network-list";
+import { deleteConnectionsInChunks, loadMatchingConnectionIds } from "@/lib/network-store";
 
 export type ConnectionInput = {
   person_name: string;
@@ -95,5 +98,53 @@ export async function deleteConnection(id: string): Promise<Result> {
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not delete that person." };
+  }
+}
+
+export type BulkDeleteResult = { error: string; deleted?: number; notAttempted?: number } | { success: true; deleted: number };
+
+// Removes the people the caller selected -- by id, never by a filter -- in
+// chunks through the session client, and returns how many were actually
+// removed. Row-level security scopes the delete to the organization, so an id
+// from another organization removes nothing. Path suggestions derived from a
+// removed person go with them through the database's foreign key.
+export async function deleteConnections(ids: unknown): Promise<BulkDeleteResult> {
+  try {
+    await requireUser();
+    const parsed = parseDeleteIds(ids);
+    if ("error" in parsed) return { error: parsed.error };
+    const supabase = createClient();
+    const result = await deleteConnectionsInChunks(supabase, parsed.ids);
+    revalidatePath("/network");
+    revalidatePath("/prospects");
+    if (result.failure !== null) {
+      return {
+        error: `${result.deleted} of ${parsed.ids.length} people were removed before an error stopped the removal (${result.failure}). The rest were not removed and nothing after the failed step was attempted.`,
+        deleted: result.deleted,
+        notAttempted: result.notAttempted,
+      };
+    }
+    return { success: true, deleted: result.deleted };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not remove those people." };
+  }
+}
+
+// "Select all N matching": the ids of everyone matching the search, read in
+// full (past the 1000-row response limit) so the person can confirm exactly
+// that many before anything is removed.
+export async function getMatchingConnectionIds(search: unknown): Promise<{ error: string } | { ids: string[]; total: number }> {
+  try {
+    await requireUser();
+    const q = normalizeSearch(typeof search === "string" ? search : "");
+    const supabase = createClient();
+    const found = await loadMatchingConnectionIds(supabase, q);
+    if (!found.ok) return { error: "Could not read your network just now." };
+    if (found.total > NETWORK_DELETE_MAX_IDS) {
+      return { error: `${found.total} people match, and one removal takes at most ${NETWORK_DELETE_MAX_IDS}. Narrow the search, then select again.` };
+    }
+    return { ids: found.ids, total: found.total };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not read your network just now." };
   }
 }

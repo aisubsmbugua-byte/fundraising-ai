@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { findNetworkPaths, decideNetworkPath } from "./network-actions";
 import type { NetworkPanelData, NetworkPanelItem } from "@/lib/network-panel";
+import { shortlistRuleSentence } from "@/lib/network-shortlist";
 import { spacing, colors, buttonPrimary, buttonSecondary, sectionStyle, cardStyle, chipStyle } from "@/lib/ui";
 
 const STRENGTH_LABEL: Record<string, string> = { close: "Close", warm: "Warm", acquaintance: "Acquaintance" };
@@ -82,13 +83,11 @@ export default function NetworkPanel({ prospectId, data }: { prospectId: string;
         setError(result.error);
         return;
       }
-      setMessage(
-        result.stored > 0
-          ? `Found ${result.stored} possible path${result.stored === 1 ? "" : "s"}. Review them below.`
-          : result.alreadyKnown > 0
-            ? "No new paths — everything the AI found is already listed below."
-            : "No paths found. Nothing you have recorded clearly connects to this funder's people, and that is a fair answer."
-      );
+      // The result states how many people were considered of how many are
+      // recorded and by what rule, and phrases no-path as "none found among
+      // those considered" (ruling 0040 clause 7) -- the wording is built in
+      // lib/network-shortlist.ts, not restated here.
+      setMessage(result.message);
     });
   };
 
@@ -125,6 +124,14 @@ export default function NetworkPanel({ prospectId, data }: { prospectId: string;
                 Approve research on the Research tab
               </Link>{" "}
               so the funder&apos;s people are known.
+            </p>
+          )}
+          {data.narrowing && (
+            <p style={{ fontSize: 13, color: colors.textMuted, margin: 0 }}>
+              You have {data.connectionCount} people recorded, more than the {data.limit} one look can consider. Paths are looked for among
+              the people who share a distinctive word with this funder&apos;s approved facts; everyone else is not examined, which is
+              not a judgement about them. To widen the look, approve more of the funder&apos;s facts on the Research tab or add detail
+              to the people you have recorded. The rule: {shortlistRuleSentence()}.
             </p>
           )}
           {canFind && (
