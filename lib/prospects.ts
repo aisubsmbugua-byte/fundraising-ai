@@ -129,12 +129,30 @@ const DUE_SOON_WINDOW_DAYS = 3;
 // that isn't recomputed against "today" every render would silently
 // go stale the moment a day passes. No next action set at all means
 // no status to show, not a false "on track".
-export function computeHealthStatus(nextActionDue: string | null): HealthStatus | null {
+// STATE item 104, ruling 0041: the day count is a difference of CALENDAR DATES,
+// never a quotient of elapsed milliseconds. Subtracting two local-midnight
+// timestamps and dividing by 86,400,000 is wrong across a clock change, where a
+// calendar day lasts 23 or 25 hours -- a prospect due in exactly three days
+// measured three days and one hour and read "On track" instead of "Due soon".
+// Each date becomes a whole-day index through UTC arithmetic on its own
+// year/month/day components, so no timezone or clock change enters the
+// subtraction. `now` is passed in (defaulting to the current time) so the same
+// function gives the same answer for the same two dates anywhere, and a test can
+// fix "today". Which calendar date "today" is -- the running environment's own,
+// as before -- is unchanged by this ruling.
+function calendarDayIndex(year: number, monthIndex: number, day: number): number {
+  return Math.round(Date.UTC(year, monthIndex, day) / 86400000);
+}
+
+export function computeHealthStatus(nextActionDue: string | null, now: Date = new Date()): HealthStatus | null {
   if (!nextActionDue) return null;
-  const due = new Date(nextActionDue + "T00:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysUntilDue = (due.getTime() - today.getTime()) / 86400000;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(nextActionDue);
+  // A value that is not a calendar date has no day count; as before, it falls
+  // through every comparison to "on_track" rather than failing.
+  if (!parts) return "on_track";
+  const dueIndex = calendarDayIndex(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  const todayIndex = calendarDayIndex(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysUntilDue = dueIndex - todayIndex;
   if (daysUntilDue < 0) return "stalled";
   if (daysUntilDue <= DUE_SOON_WINDOW_DAYS) return "due_soon";
   return "on_track";
