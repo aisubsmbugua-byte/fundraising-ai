@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SlidersHorizontal, Building2, Users, ShieldCheck, Plug } from "lucide-react";
+import { SlidersHorizontal, Building2, Users, ShieldCheck, Plug, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { computeProfileCompleteness, type OrgProfile } from "@/lib/organization";
 import type { ScreeningRule } from "@/lib/screening";
@@ -115,6 +115,35 @@ export default async function SettingsPage() {
               <div style={{ fontSize: 15, fontWeight: 600 }}>Team</div>
               <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
                 Invite teammates into your organization.
+              </div>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          href="/settings/reply-address"
+          style={{ ...sectionStyle, display: "flex", alignItems: "center", justifyContent: "space-between", textDecoration: "none", color: colors.text }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: spacing.md }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                height: 36,
+                borderRadius: radiusSm,
+                background: colors.teal100,
+                color: colors.teal700,
+                flexShrink: 0,
+              }}
+            >
+              <Mail size={18} />
+            </span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Reply address</div>
+              <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+                Where funders&apos; replies to your emails go -- your own choice, shown before every send.
               </div>
             </div>
           </div>

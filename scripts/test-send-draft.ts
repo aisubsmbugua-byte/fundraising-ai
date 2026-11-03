@@ -661,11 +661,12 @@ ok(
   !/from:\s*(?:from|process\.env)/.test(sendModuleText)
 );
 ok(
-  "the handler sources sender identity from the org profile row, platformFromAddress() and the session user's email",
+  "the handler sources sender identity from the org profile row, platformFromAddress() and resolveReplyTo on the session user (rulings 0042/0043: replyToAddress = the resolver's address, not the account email; the resolver is given no from-address)",
   /\.from\("org_profile"\)/.test(handlerText) &&
     /orgName:\s*orgProfile\?\.name/.test(handlerText) &&
-    /fromAddress:\s*platformFromAddress\(\)/.test(handlerText) &&
-    /userEmail:\s*user\.email/.test(handlerText)
+    /const fromAddress = platformFromAddress\(\)/.test(handlerText) &&
+    /fromAddress,\s*\n\s*replyToAddress:\s*replyTo\.address/.test(handlerText) &&
+    /const replyTo = resolveReplyTo\(\{\s*accountEmail:\s*user\.email,\s*metadata:\s*user\.user_metadata,?\s*\}\)/.test(handlerText)
 );
 ok(
   "the interaction row is built from the SAME payload object that was sent (buildInteractionSummary(payload))",
@@ -1480,8 +1481,8 @@ section("evaluateSendReadiness: the clause-2 preconditions, offline");
 
 const baseDraft = { kind: "intro_email" as const, subject: "A real subject", content: "A real body", status: "approved" as const, sent_at: null };
 // STATE item 57: org name captured from the org's record, platform address
-// from env, reply-to from the authenticated clicker.
-const baseSender = { orgName: "Village Worship Initiative", fromAddress: "outreach@platform.example", userEmail: "officer@example.org" };
+// from env, reply-to from resolveReplyTo (ruling 0042) on the authenticated clicker.
+const baseSender = { orgName: "Village Worship Initiative", fromAddress: "outreach@platform.example", replyToAddress: "officer@example.org" };
 const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   id: "a1",
   draft_id: "d1",
@@ -1510,7 +1511,7 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
     r.ok && r.payload.from === '"Village Worship Initiative" <outreach@platform.example>'
   );
   ok(
-    "replies go to the human who clicked send: replyTo = the authenticated user's email, never the platform address",
+    "replies go to the human who clicked send: replyTo = the sender's resolved reply address (here their account email, the default), never the platform address",
     r.ok && r.payload.replyTo === "officer@example.org"
   );
 }
@@ -1601,7 +1602,7 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   ok("a malformed platform from-address refuses the same way", !r.ok && r.code === "send_not_configured");
 }
 {
-  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, userEmail: null }, true);
+  const r = evaluateSendReadiness(baseDraft, [], "funder@example.org", { ...baseSender, replyToAddress: null }, true);
   ok(
     "a clicker with no email refuses -- a funder's reply must have somewhere to go",
     !r.ok && r.code === "no_sender_email"
@@ -1674,6 +1675,27 @@ const attempt = (over: Partial<DraftSendAttempt>): DraftSendAttempt => ({
   ok("the page reads the same fact through the caller's session and fails closed the same way", /from\("org_sending_enablement"\)/.test(pageText) && /const sendingEnabled = !sendingEnablementError && sendingEnablement\?\.enabled === true;/.test(pageText));
   ok("the page passes it to the panel and the panel feeds the same evaluateSendReadiness the dialog uses", /sendingEnabled=\{sendingEnabled\}/.test(pageText) && /evaluateSendReadiness\(draft, attempts, contactEmail, sender, sendingEnabled\)/.test(panelText2));
   ok("a disabled org's approved email card shows readiness.reason as a calm muted note, not a Send button or an error", /\) : \(\s*<p style=\{\{ fontSize: 12, color: colors\.textMuted \}\}>\{readiness\.reason\}<\/p>/.test(panelText2) && /readiness\.ok \? \(\s*<button/.test(panelText2));
+}
+
+// --- 0042 / item 106: the reply address reaches the payload from ONE function ---
+{
+  const pageText3 = readFileSync(join(root, "app/(dashboard)/prospects/[id]/page.tsx"), "utf8");
+  const sendModText = readFileSync(join(root, "lib/send-draft.ts"), "utf8");
+  const draftSendText = readFileSync(join(root, "lib/draft-send.ts"), "utf8");
+  const F = "funder@example.org";
+  const chosenSender = { ...baseSender, replyToAddress: "  grants@village.example " };
+  const r = evaluateSendReadiness(baseDraft, [], F, chosenSender, true);
+  ok("a chosen reply address reaches the payload verbatim (trimmed): payload.replyTo = sender.replyToAddress", r.ok && r.payload.replyTo === "grants@village.example");
+  ok("the sender identity no longer carries the account email: SenderIdentity has replyToAddress and no userEmail", /replyToAddress:\s*string \| null \| undefined/.test(draftSendText) && !/userEmail/.test(draftSendText.replace(/\/\/.*$/gm, "")));
+  ok(
+    "the page puts the resolver's address in the confirmation's sender (the SAME resolveReplyTo call the handler makes), and no longer reads user?.email for it",
+    /replyToAddress:\s*replyToResolved\.address/.test(pageText3) && /resolveReplyTo\(\{/.test(pageText3) && !/userEmail:\s*user\?\.email/.test(pageText3)
+  );
+  ok(
+    "the handler's birth insert still writes reply_to from payload.replyTo only -- the ledger column is fed by the same payload the dialog shows",
+    [...handlerText.matchAll(/reply_to:\s*([^,\n]+)/g)].length === 1 && [...handlerText.matchAll(/reply_to:\s*([^,\n]+)/g)].every((m) => m[1].trim() === "payload.replyTo")
+  );
+  ok("the send module knows nothing of the choice: no metadata, no resolver, no reply-address module (identity arrives only via the payload)", !/user_metadata|resolveReplyTo|reply-address|reply_to_email/.test(sendModText));
 }
 
 // --- 0076: the admin toggle verifies superadmin server-side ----------------

@@ -27,7 +27,7 @@ import InitialsAvatar from "@/components/InitialsAvatar";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, chipStyle, sectionStyle } from "@/lib/ui";
 import type { StrategyRun } from "@/lib/strategy";
 import type { Draft } from "@/lib/drafts";
-import type { DraftSendAttempt } from "@/lib/draft-send";
+import { resolveReplyTo, type DraftSendAttempt } from "@/lib/draft-send";
 import type { Contact } from "@/lib/contacts";
 
 // Strategy generation runs two sequential AI calls with real web search,
@@ -171,6 +171,18 @@ export default async function ProspectDetailPage({
     .limit(1)
     .maybeSingle<{ enabled: boolean }>();
   const sendingEnabled = !sendingEnablementError && sendingEnablement?.enabled === true;
+
+  // The sender identity facts the confirmation displays. RESEND_FROM_EMAIL is
+  // an address, not a secret (the API key never leaves lib/send-draft.ts) --
+  // read here server-side so the confirmation can display the exact from
+  // identity the send will carry. Ruling 0042: the reply address comes from
+  // resolveReplyTo on the signed-in user, the SAME call the send handler
+  // makes; this page never reads the account email for the reply itself.
+  const sendFromAddress = process.env.RESEND_FROM_EMAIL ?? null;
+  const replyToResolved = resolveReplyTo({
+    accountEmail: user?.email,
+    metadata: user?.user_metadata,
+  });
 
   // "Who can open this door" (STATE item 76). Only the Strategy tab shows it,
   // so only that tab pays for the read.
@@ -508,13 +520,12 @@ export default async function ProspectDetailPage({
                     contactEmail={prospect.contact_email}
                     sendingEnabled={sendingEnabled}
                     sender={{
-                      // RESEND_FROM_EMAIL is an address, not a secret (the
-                      // API key never leaves lib/send-draft.ts) -- read here
-                      // server-side so the confirmation can display the
-                      // exact from identity the send will carry.
                       orgName: orgProfileName?.name ?? null,
-                      fromAddress: process.env.RESEND_FROM_EMAIL ?? null,
-                      userEmail: user?.email ?? null,
+                      fromAddress: sendFromAddress,
+                      // Ruling 0042: the SAME function the send handler runs
+                      // on the same user, so the address shown here is the
+                      // address the send uses.
+                      replyToAddress: replyToResolved.address,
                     }}
                   />
                 </>

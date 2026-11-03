@@ -1,7 +1,7 @@
 ---
 id: 0042
 title: A funder's reply goes to the human who sent the email, at an address that human chose, shown exactly as it will be sent
-status: settled
+status: superseded
 provenance: verbatim
 supersedes:
 date: 2026-11-02

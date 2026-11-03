@@ -17,8 +17,9 @@ export type SendPayload = {
   // platform infrastructure (RESEND_FROM_EMAIL). No user identity is
   // hardwired anywhere in the send path (STATE item 57).
   from: string;
-  // The authenticated human who clicked send. A funder's reply goes to that
-  // person, never to the platform address.
+  // Where a funder's reply goes: the address the human who clicked send
+  // chose for themselves, or their account email (ruling 0042). Always from
+  // resolveReplyTo below; never the platform address.
   replyTo: string;
   to: string;
   subject: string;
@@ -30,13 +31,86 @@ export type SendPayload = {
 // confirmation payload = send payload true for the new fields (ruling 0029
 // clause 2): orgName from the caller's org_profile row (RLS-scoped),
 // fromAddress from RESEND_FROM_EMAIL (server-side only -- the page and the
-// send module are the only readers), userEmail from the authenticated
-// session's user.
+// send module are the only readers), replyToAddress from resolveReplyTo
+// (ruling 0042) -- the ONE function both call sites run on the authenticated
+// session's user. Neither call site hands the account email to this type.
 export type SenderIdentity = {
   orgName: string | null | undefined;
   fromAddress: string | null | undefined;
-  userEmail: string | null | undefined;
+  replyToAddress: string | null | undefined;
 };
+
+// Ruling 0042 / STATE item 106. The key on the person's OWN auth user
+// metadata (auth.users.raw_user_meta_data, read as user.user_metadata) that
+// holds the address they chose for funders' replies. Stored with the person,
+// not the organization: another person's choice never changes whose replies
+// go where.
+export const REPLY_TO_METADATA_KEY = "reply_to_email";
+
+export type ReplyToSource = "chosen" | "account";
+export type ResolvedReplyTo = {
+  // null only when there is no usable address at all (no chosen address and
+  // no account email); evaluateSendReadiness then refuses with
+  // no_sender_email, exactly as it did before this choice existed.
+  address: string | null;
+  source: ReplyToSource;
+};
+
+// The shape a CHOSEN reply address must have. It is the file's EMAIL_SHAPE
+// (ruling 0042 clause 2, kept by 0043: "checked for shape") plus three
+// narrowings that only apply to a value a person typed, because EMAIL_SHAPE
+// alone would let "a@b.org,c@d.org" through as one string: exactly one
+// address (no comma, semicolon, angle bracket or quote, and exactly one @),
+// and a length a mail header can carry. Used by resolveReplyTo (read side)
+// AND by the settings action (write side), so the two cannot disagree about
+// what is acceptable. The platform cannot verify the person controls it.
+export function isPlausibleChosenReplyAddress(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const v = value.trim();
+  if (v.length === 0 || v.length > 254) return false;
+  if (!EMAIL_SHAPE.test(v)) return false;
+  if (/[,;<>"]/.test(v)) return false;
+  if (v.split("@").length !== 2) return false;
+  return true;
+}
+
+// Rulings 0042/0043 clause 3: the ONE function that turns the authenticated
+// user into the reply address. The prospect page (building the confirmation)
+// and the send handler BOTH call it, on the same user object, so the address
+// the person reads is the address that is sent -- by construction, not by two
+// call sites agreeing. Pure: no env, no database.
+//
+//   chosen  -- metadata[reply_to_email] is a string that passes
+//              isPlausibleChosenReplyAddress. It is used as typed (trimmed).
+//   account -- everything else: unset, empty, not a string, or implausible.
+//              The fallback is the account email, trimmed; null if none.
+//
+// There is deliberately NO exclusion for the platform's sending address, and
+// the function takes no from-address at all (ruling 0043, superseding the
+// exclusion in 0042): an organization may send as one of its own people's real
+// mailboxes, so a chosen reply address equal to the sending address is the
+// valid arrangement of writing from and replying to the same mailbox. Refusing
+// or substituting it would silently send that person's funders' replies to
+// their sign-in address, the opposite of their choice. The protection the
+// exclusion aimed at comes from the address only ever being the person's own
+// (never one the platform supplies) and from the confirmation showing it
+// before every send. Nothing is deleted or rewritten here -- a bad stored
+// value is simply not used.
+export function resolveReplyTo(input: {
+  accountEmail: string | null | undefined;
+  metadata: unknown;
+}): ResolvedReplyTo {
+  const md = input.metadata;
+  const raw =
+    md !== null && typeof md === "object" && !Array.isArray(md)
+      ? (md as Record<string, unknown>)[REPLY_TO_METADATA_KEY]
+      : undefined;
+  if (isPlausibleChosenReplyAddress(raw)) {
+    return { address: raw.trim(), source: "chosen" };
+  }
+  const account = typeof input.accountEmail === "string" ? input.accountEmail.trim() : "";
+  return { address: account || null, source: "account" };
+}
 
 // Mirrors draft_send_attempts (migration 0069). outcome null is
 // attempted-unconfirmed -- the provider's response never arrived, the
@@ -173,14 +247,14 @@ export function evaluateSendReadiness(
       reason: "Email sending is not configured on the server (RESEND_FROM_EMAIL). Nothing can be sent until it is.",
     };
   }
-  const replyTo = (sender.userEmail ?? "").trim();
+  const replyTo = (sender.replyToAddress ?? "").trim();
   if (!replyTo || !EMAIL_SHAPE.test(replyTo)) {
     return {
       ok: false,
       code: "no_sender_email",
       reason:
         "Your signed-in account has no email address, so a funder's reply would have nowhere to go. " +
-        "Fix your account's email, then come back to send.",
+        "Fix your account's email, or choose a reply address under Settings, then come back to send.",
     };
   }
   const from = `"${orgName}" <${fromAddress}>`;

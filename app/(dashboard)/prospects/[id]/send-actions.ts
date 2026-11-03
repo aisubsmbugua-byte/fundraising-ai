@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
-import { evaluateSendReadiness, buildInteractionSummary, type DraftSendAttempt } from "@/lib/draft-send";
+import { evaluateSendReadiness, buildInteractionSummary, resolveReplyTo, type DraftSendAttempt } from "@/lib/draft-send";
 import { sendFunderEmail, isSendConfigured, platformFromAddress } from "@/lib/send-draft";
 import type { Draft } from "@/lib/drafts";
 
@@ -72,10 +72,12 @@ export async function sendApprovedDraft(draftId: string, prospectId: string): Pr
 
     // Sender identity (STATE item 57): the org's own profile row supplies
     // the display name (captured, never typed), the platform env supplies
-    // the address, and the authenticated clicker's email is the reply-to.
-    // Re-read server-side at send time like everything else here -- the
-    // same three sources the page fed the confirmation UI, so what the
-    // human confirmed is what goes out, by sourcing and by construction.
+    // the address, and resolveReplyTo (ruling 0042) turns the authenticated
+    // clicker into the reply-to: the address they chose, else their account
+    // email. Re-read server-side at send time like everything else here --
+    // the same three sources, and the same function for the reply-to, that
+    // the page fed the confirmation UI, so what the human confirmed is what
+    // goes out, by sourcing and by construction.
     const { data: orgProfile, error: orgProfileError } = await supabase
       .from("org_profile")
       .select("name")
@@ -96,14 +98,20 @@ export async function sendApprovedDraft(draftId: string, prospectId: string): Pr
       .maybeSingle<{ enabled: boolean }>();
     const sendingEnabled = !enablementError && enablement?.enabled === true;
 
+    const fromAddress = platformFromAddress();
+    const replyTo = resolveReplyTo({
+      accountEmail: user.email,
+      metadata: user.user_metadata,
+    });
+
     const readiness = evaluateSendReadiness(
       draft,
       attempts ?? [],
       prospect.contact_email,
       {
         orgName: orgProfile?.name,
-        fromAddress: platformFromAddress(),
-        userEmail: user.email,
+        fromAddress,
+        replyToAddress: replyTo.address,
       },
       sendingEnabled
     );
