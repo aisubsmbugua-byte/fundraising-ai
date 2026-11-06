@@ -3,11 +3,18 @@
 // The Network page's write path (STATE item 76, ruling 0033 clauses 1-2).
 //
 // A connection is the recorder's own note about a person: hand-entered, minimal
-// (name, affiliation, how known, strength, notes) and editable and deletable by
-// the organization, one at a time or in bulk (ruling 0040 clause 2). There is
-// NO contact-detail field -- the system never contacts these people. (A file
-// import lives in import-actions.ts.) Deleting a connection deletes every
-// path suggestion derived from it (foreign key cascade, migration 0077).
+// (name, affiliation, title, city, state, how known, strength, notes) and
+// editable and deletable by the organization, one at a time or in bulk (ruling
+// 0040 clause 2, ruling 0044 clause 1). There is NO contact-detail field -- the
+// system never contacts these people. (A file import lives in import-actions.ts;
+// finding and confirming who a person is lives in identity-actions.ts.)
+// Deleting a connection deletes every path suggestion and every identity
+// candidate derived from it (foreign key cascade, migrations 0077 and 0083).
+//
+// Editing the facts a confirmation rests on (name, affiliation, title, city,
+// state) voids a confirmed identity and clears the person's candidates: the
+// confirmation was of the facts as recorded (ruling 0044 clause 2). This file
+// does it with the edit; migration 0083's trigger does it for every other path.
 //
 // Every action returns its failure rather than throwing it (Next redacts a
 // thrown message in a production build).
@@ -16,12 +23,21 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { isConnectionStrength } from "@/lib/network";
+import { IDENTITY_RESET_COLUMNS, identityFactsChanged, type IdentityFacts } from "@/lib/network-identity";
+import { NETWORK_CITY_MAX, NETWORK_STATE_MAX, NETWORK_TITLE_MAX } from "@/lib/network-import";
 import { NETWORK_DELETE_MAX_IDS, normalizeSearch, parseDeleteIds } from "@/lib/network-list";
 import { deleteConnectionsInChunks, loadMatchingConnectionIds } from "@/lib/network-store";
 
 export type ConnectionInput = {
   person_name: string;
   affiliation: string;
+  // Ruling 0044 clause 1. Optional text; left undefined by a caller that does
+  // not carry them, which on an edit means "leave as it is".
+  title?: string;
+  city?: string;
+  state?: string;
+  // A person a human has marked off limits for research (clause 10).
+  do_not_research?: boolean;
   how_known: string;
   strength: string;
   notes: string;
@@ -35,6 +51,10 @@ function validate(input: ConnectionInput): { error: string } | null {
   if (!input.person_name.trim()) return { error: "Enter the person's name." };
   // No default: an omitted or unknown strength is refused, never guessed.
   if (!isConnectionStrength(input.strength)) return { error: "Choose how close you are: close, warm or acquaintance." };
+  // Over the cap is refused, never shortened.
+  if ((input.title ?? "").trim().length > NETWORK_TITLE_MAX) return { error: `The title is longer than ${NETWORK_TITLE_MAX} characters.` };
+  if ((input.city ?? "").trim().length > NETWORK_CITY_MAX) return { error: `The city is longer than ${NETWORK_CITY_MAX} characters.` };
+  if ((input.state ?? "").trim().length > NETWORK_STATE_MAX) return { error: `The state is longer than ${NETWORK_STATE_MAX} characters.` };
   return null;
 }
 
@@ -44,11 +64,19 @@ export async function addConnection(input: ConnectionInput): Promise<Result> {
     const invalid = validate(input);
     if (invalid) return invalid;
     const supabase = createClient();
+    const title = blankToNull(input.title ?? "");
+    const city = blankToNull(input.city ?? "");
+    const state = blankToNull(input.state ?? "");
+    const markedOff = input.do_not_research === true;
     const { error } = await supabase.from("network_connections").insert({
       // recorded_by comes from the verified session, never from the request.
       recorded_by: user.id,
       person_name: input.person_name.trim(),
       affiliation: blankToNull(input.affiliation),
+      // The identity facts are written only when there is one to write, so a
+      // person with none can still be saved before migration 0083 is applied.
+      ...(title || city || state ? { title, city, state } : {}),
+      ...(markedOff ? { do_not_research: true } : {}),
       how_known: blankToNull(input.how_known),
       strength: input.strength,
       notes: blankToNull(input.notes),
@@ -67,11 +95,49 @@ export async function updateConnection(id: string, input: ConnectionInput): Prom
     const invalid = validate(input);
     if (invalid) return invalid;
     const supabase = createClient();
+
+    // The person as they are now, so a change to the facts a confirmation rests
+    // on can be told from an edit that leaves them alone.
+    const found = await supabase.from("network_connections").select("*").eq("id", id).maybeSingle();
+    if (found.error) return { error: found.error.message };
+    const current = found.data as Record<string, unknown> | null;
+    if (!current) return { error: "That person could not be found." };
+    const hasIdentity = "identity_status" in current;
+
+    const text = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const before: IdentityFacts = {
+      person_name: text(current.person_name) ?? "",
+      affiliation: text(current.affiliation),
+      title: text(current.title),
+      city: text(current.city),
+      state: text(current.state),
+    };
+    const after: IdentityFacts = {
+      person_name: input.person_name.trim(),
+      affiliation: blankToNull(input.affiliation),
+      // undefined = the caller did not carry the field: leave it as it is.
+      title: input.title === undefined ? before.title : blankToNull(input.title),
+      city: input.city === undefined ? before.city : blankToNull(input.city),
+      state: input.state === undefined ? before.state : blankToNull(input.state),
+    };
+    const wasConfirmed = hasIdentity && current.identity_status === "confirmed";
+    const wasMarkedOff = hasIdentity && current.do_not_research === true;
+    const nowMarkedOff = input.do_not_research === undefined ? wasMarkedOff : input.do_not_research === true;
+    const markingOff = nowMarkedOff && !wasMarkedOff;
+    // A confirmation was of the facts as recorded: editing any of them (or
+    // marking the person off limits) voids it.
+    const voidsConfirmation = wasConfirmed && (identityFactsChanged(before, after) || markingOff);
+
     const { data, error } = await supabase
       .from("network_connections")
       .update({
-        person_name: input.person_name.trim(),
-        affiliation: blankToNull(input.affiliation),
+        person_name: after.person_name,
+        affiliation: after.affiliation,
+        // The identity columns are written only where the database has them or
+        // there is something to write.
+        ...(hasIdentity || after.title || after.city || after.state ? { title: after.title, city: after.city, state: after.state } : {}),
+        ...(hasIdentity && input.do_not_research !== undefined ? { do_not_research: nowMarkedOff } : {}),
+        ...(voidsConfirmation ? IDENTITY_RESET_COLUMNS : {}),
         how_known: blankToNull(input.how_known),
         strength: input.strength,
         notes: blankToNull(input.notes),
@@ -81,7 +147,16 @@ export async function updateConnection(id: string, input: ConnectionInput): Prom
       .select("id");
     if (error) return { error: error.message };
     if (!data || data.length === 0) return { error: "That person could not be found." };
+
+    // The candidates of a person whose confirmation was voided, or who was just
+    // marked off limits, go with it. (The database's trigger does the same;
+    // this keeps the application correct on its own.)
+    if (hasIdentity && (voidsConfirmation || markingOff)) {
+      const cleared = await supabase.from("network_identity_candidates").delete().eq("network_connection_id", id);
+      if (cleared.error) return { error: `The change was saved, but the candidates could not be cleared: ${cleared.error.message}` };
+    }
     revalidatePath("/network");
+    revalidatePath("/network/identity");
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save that change." };
@@ -95,6 +170,7 @@ export async function deleteConnection(id: string): Promise<Result> {
     const { error } = await supabase.from("network_connections").delete().eq("id", id);
     if (error) return { error: error.message };
     revalidatePath("/network");
+    revalidatePath("/network/identity");
     return { success: true };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not delete that person." };
@@ -116,6 +192,7 @@ export async function deleteConnections(ids: unknown): Promise<BulkDeleteResult>
     const supabase = createClient();
     const result = await deleteConnectionsInChunks(supabase, parsed.ids);
     revalidatePath("/network");
+    revalidatePath("/network/identity");
     revalidatePath("/prospects");
     if (result.failure !== null) {
       return {

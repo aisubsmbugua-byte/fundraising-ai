@@ -10,23 +10,53 @@ import {
   getMatchingConnectionIds,
   type ConnectionInput,
 } from "./actions";
+import { findIdentityCandidates, resetIdentity, setDoNotResearch } from "./identity-actions";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { CONNECTION_STRENGTHS, NETWORK_DISCLOSURE, type NetworkConnection } from "@/lib/network";
+import { IDENTITY_BULK_CAP, IDENTITY_STATE_LABEL, identityState, type IdentityState } from "@/lib/network-identity";
+import type { IdentityCounts } from "@/lib/network-identity-store";
 import { networkHref, type PageWindow } from "@/lib/network-list";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, sectionStyle, cardStyle, chipStyle } from "@/lib/ui";
 
 const STRENGTH_LABEL: Record<string, string> = { close: "Close", warm: "Warm", acquaintance: "Acquaintance" };
 
-const EMPTY: ConnectionInput = { person_name: "", affiliation: "", how_known: "", strength: "", notes: "" };
+const EMPTY: ConnectionInput = { person_name: "", affiliation: "", title: "", city: "", state: "", do_not_research: false, how_known: "", strength: "", notes: "" };
 
 function toInput(c: NetworkConnection): ConnectionInput {
   return {
     person_name: c.person_name,
     affiliation: c.affiliation ?? "",
+    title: c.title ?? "",
+    city: c.city ?? "",
+    state: c.state ?? "",
+    do_not_research: c.do_not_research === true,
     how_known: c.how_known ?? "",
     strength: c.strength,
     notes: c.notes ?? "",
   };
+}
+
+// What the page knows about each person's identity, passed down as plain data.
+export type IdentityPageData = {
+  // False when the identity columns or tables are not there yet (migration
+  // 0083 not applied): the identity controls are hidden and the page says why.
+  available: boolean;
+  counts: IdentityCounts | null;
+  byId: Record<string, { candidateCount: number; lookedEmpty: boolean }>;
+};
+
+const STATE_TONE: Record<IdentityState, "teal" | "amber" | "red" | "neutral"> = {
+  not_looked_at: "neutral",
+  no_candidates_found: "neutral",
+  candidates: "amber",
+  confirmed: "teal",
+  none_of_these: "neutral",
+  do_not_research: "red",
+};
+
+function stateOf(c: NetworkConnection, identity: IdentityPageData): IdentityState {
+  const ctx = identity.byId[c.id];
+  return identityState(c, ctx?.candidateCount ?? 0, ctx?.lookedEmpty ?? false);
 }
 
 // One form for add and edit. The disclosure sentence (ruling 0033 clause 3)
@@ -98,6 +128,24 @@ function ConnectionForm({
           </select>
         </label>
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: spacing.md }}>
+        <label style={labelStyle}>
+          Title or role
+          <input style={fieldStyle} value={values.title ?? ""} onChange={set("title")} />
+        </label>
+        <label style={labelStyle}>
+          City
+          <input style={fieldStyle} value={values.city ?? ""} onChange={set("city")} />
+        </label>
+        <label style={labelStyle}>
+          State or region
+          <input style={fieldStyle} value={values.state ?? ""} onChange={set("state")} />
+        </label>
+      </div>
+      <p style={{ margin: 0, fontSize: 12, color: colors.textMuted }}>
+        Where they work, their title, their city and their state are what the platform uses to tell this person from others with the same name. They are
+        optional, but a name alone cannot be matched to the right person.{onCancel ? " Changing the name or any of these four clears a confirmed identity, because it was confirmed for the details as recorded." : ""}
+      </p>
       <label style={labelStyle}>
         How you know them
         <input style={fieldStyle} value={values.how_known} onChange={set("how_known")} />
@@ -105,6 +153,17 @@ function ConnectionForm({
       <label style={labelStyle}>
         Notes
         <textarea style={{ ...fieldStyle, minHeight: 72 }} value={values.notes} onChange={set("notes")} />
+      </label>
+      <label style={{ display: "flex", gap: spacing.sm, alignItems: "flex-start", fontSize: 13, cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={values.do_not_research === true}
+          onChange={(e) => setValues((v) => ({ ...v, do_not_research: e.target.checked }))}
+          style={{ marginTop: 3 }}
+        />
+        <span>
+          Do not research this person. Nothing will be looked up about them, and anything already found is removed.
+        </span>
       </label>
       {error && <p style={{ color: colors.danger, fontSize: 13, margin: 0 }}>{error}</p>}
       <div style={{ display: "flex", gap: spacing.sm }}>
@@ -125,15 +184,21 @@ function ConnectionCard({
   connection,
   checked,
   onToggle,
+  identity,
 }: {
   connection: NetworkConnection;
   checked: boolean;
   onToggle: (checked: boolean) => void;
+  identity: IdentityPageData;
 }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const state = stateOf(connection, identity);
+  const where = [connection.city, connection.state].filter(Boolean).join(", ");
 
   if (editing) {
     return (
@@ -166,11 +231,15 @@ function ConnectionCard({
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600, fontSize: 15 }}>{connection.person_name}</div>
             {connection.affiliation && <div style={{ fontSize: 13, color: colors.textMuted }}>{connection.affiliation}</div>}
+            {(connection.title || where) && <div style={{ fontSize: 13, color: colors.textMuted }}>{[connection.title, where].filter(Boolean).join(" · ")}</div>}
           </div>
         </div>
-        <span style={chipStyle(connection.strength === "close" ? "teal" : connection.strength === "warm" ? "amber" : "neutral")}>
-          {STRENGTH_LABEL[connection.strength] ?? connection.strength}
-        </span>
+        <div style={{ display: "flex", gap: spacing.xs, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {identity.available && <span style={chipStyle(STATE_TONE[state])}>{IDENTITY_STATE_LABEL[state]}</span>}
+          <span style={chipStyle(connection.strength === "close" ? "teal" : connection.strength === "warm" ? "amber" : "neutral")}>
+            {STRENGTH_LABEL[connection.strength] ?? connection.strength}
+          </span>
+        </div>
       </div>
       {connection.how_known && (
         <p style={{ fontSize: 13, margin: `${spacing.sm}px 0 0` }}>
@@ -179,19 +248,64 @@ function ConnectionCard({
         </p>
       )}
       {connection.notes && <p style={{ fontSize: 13, color: colors.textMuted, margin: `${spacing.xs}px 0 0` }}>{connection.notes}</p>}
+      {notice && <p style={{ fontSize: 13, margin: `${spacing.sm}px 0 0` }}>{notice}</p>}
       {error && <p style={{ color: colors.danger, fontSize: 13, margin: `${spacing.sm}px 0 0` }}>{error}</p>}
-      <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md }}>
+      <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md, flexWrap: "wrap" }}>
         <button type="button" style={buttonSecondary} onClick={() => setEditing(true)} disabled={isPending}>
           Edit
         </button>
+        {identity.available && (state === "not_looked_at" || state === "no_candidates_found" || state === "candidates") && (
+          <button
+            type="button"
+            style={buttonSecondary}
+            disabled={isPending}
+            onClick={() => {
+              setError(null);
+              setNotice(null);
+              startTransition(async () => {
+                const result = await findIdentityCandidates(connection.id);
+                if ("error" in result) setError(result.error);
+                else setNotice(result.message);
+              });
+            }}
+          >
+            {isPending ? "Looking…" : state === "not_looked_at" ? "Find matches" : "Look again"}
+          </button>
+        )}
+        {identity.available && state === "candidates" && (
+          <Link href="/network/identity" style={{ ...buttonSecondary, textDecoration: "none" }}>
+            Review matches
+          </Link>
+        )}
+        {identity.available && (state === "confirmed" || state === "none_of_these") && (
+          <button type="button" style={buttonSecondary} onClick={() => setResetting(true)} disabled={isPending}>
+            Reset identity
+          </button>
+        )}
         <button type="button" style={buttonDanger} onClick={() => setConfirming(true)} disabled={isPending}>
           {isPending ? "Deleting…" : "Delete"}
         </button>
       </div>
       <ConfirmDialog
+        open={resetting}
+        title="Reset this person's identity"
+        message={`Clear the ${state === "confirmed" ? "confirmed identity" : "\"none of these\" decision"} for "${connection.person_name}" and the candidates found for them? They can then be looked up again.`}
+        confirmLabel="Reset"
+        onCancel={() => setResetting(false)}
+        onConfirm={() => {
+          setResetting(false);
+          setError(null);
+          setNotice(null);
+          startTransition(async () => {
+            const result = await resetIdentity(connection.id);
+            if ("error" in result) setError(result.error);
+          });
+        }}
+      />
+      <ConfirmDialog
         open={confirming}
         title="Delete this person"
-        message={`Delete "${connection.person_name}" from your network? Any introduction paths suggested through them will be deleted too. This can't be undone.`}
+        message={`Delete "${connection.person_name}" from your network? Any introduction paths suggested through them will be deleted too, and so will any candidates found for them. This can't be undone.`}
         confirmLabel="Delete"
         danger
         onCancel={() => setConfirming(false)}
@@ -218,12 +332,14 @@ function PeopleList({
   matching,
   q,
   window: win,
+  identity,
 }: {
   connections: NetworkConnection[];
   totalRecorded: number;
   matching: number;
   q: string;
   window: PageWindow;
+  identity: IdentityPageData;
 }) {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -257,6 +373,25 @@ function PeopleList({
         return;
       }
       setCheckedIds(new Set(result.ids));
+    });
+  };
+
+  const markSelected = (value: boolean) => {
+    setError(null);
+    setNotice(null);
+    const ids = Array.from(checkedIds);
+    startTransition(async () => {
+      const result = await setDoNotResearch(ids, value);
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      setCheckedIds(new Set());
+      setNotice(
+        value
+          ? `Marked ${result.changed} ${result.changed === 1 ? "person" : "people"} do not research. Anything found about ${result.changed === 1 ? "them" : "them"} was removed and nothing will be looked up.`
+          : `Research is allowed again for ${result.changed} ${result.changed === 1 ? "person" : "people"}.`
+      );
     });
   };
 
@@ -327,6 +462,16 @@ function PeopleList({
               <button type="button" style={buttonSecondary} disabled={isPending} onClick={() => setCheckedIds(new Set())}>
                 Clear selection
               </button>
+              {identity.available && (
+                <>
+                  <button type="button" style={buttonSecondary} disabled={isPending} onClick={() => markSelected(true)}>
+                    Do not research ({checkedIds.size})
+                  </button>
+                  <button type="button" style={buttonSecondary} disabled={isPending} onClick={() => markSelected(false)}>
+                    Allow research ({checkedIds.size})
+                  </button>
+                </>
+              )}
               {!confirmOpen && (
                 <button type="button" style={buttonDanger} disabled={isPending} onClick={() => setConfirmOpen(true)}>
                   Remove selected ({checkedIds.size})
@@ -363,7 +508,7 @@ function PeopleList({
           </p>
         </div>
       ) : (
-        connections.map((c) => <ConnectionCard key={c.id} connection={c} checked={checkedIds.has(c.id)} onToggle={(v) => toggle(c.id, v)} />)
+        connections.map((c) => <ConnectionCard key={c.id} connection={c} checked={checkedIds.has(c.id)} onToggle={(v) => toggle(c.id, v)} identity={identity} />)
       )}
 
       {matching > 0 && (
@@ -397,15 +542,49 @@ export default function NetworkWorkspace({
   matching,
   q,
   window: win,
+  identity,
 }: {
   connections: NetworkConnection[];
   totalRecorded: number;
   matching: number;
   q: string;
   window: PageWindow;
+  identity: IdentityPageData;
 }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.xl, marginTop: spacing.lg }}>
+      {identity.available ? (
+        <section style={sectionStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.md, flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ fontSize: 17, margin: 0 }}>Who is who</h2>
+              <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 13, color: colors.textMuted, maxWidth: 640 }}>
+                The platform can look for who each of these people really is on the public web and propose up to three matches. You decide which is right, or
+                that none is; nothing is researched about a person beyond that, and nothing is ever sent to them.
+                {identity.counts && (
+                  <>
+                    {" "}
+                    {identity.counts.confirmed} confirmed · {identity.counts.noneOfThese} none of these · {identity.counts.doNotResearch} marked do not research.
+                  </>
+                )}
+              </p>
+            </div>
+            <Link href="/network/identity" style={{ ...buttonPrimary, textDecoration: "none", display: "inline-block" }}>
+              Review who is who
+            </Link>
+          </div>
+          <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
+            Looking up one person costs one AI run. &ldquo;Find matches&rdquo; on a person, or the button on the review page that does up to {IDENTITY_BULK_CAP} people per click.
+          </p>
+        </section>
+      ) : (
+        <section style={sectionStyle}>
+          <p style={{ margin: 0, fontSize: 13, color: colors.textMuted }}>
+            Identity checks are not available yet: the network tables have not had the latest database update (migration 0083) applied. Everything else here works as before.
+          </p>
+        </section>
+      )}
+
       <section style={sectionStyle}>
         <h2 style={{ fontSize: 17, margin: 0 }}>Add someone you know</h2>
         <ConnectionForm initial={EMPTY} submitLabel="Add to network" onSubmit={addConnection} />
@@ -418,6 +597,7 @@ export default function NetworkWorkspace({
         matching={matching}
         q={q}
         window={win}
+        identity={identity}
       />
     </div>
   );

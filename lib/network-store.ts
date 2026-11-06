@@ -108,11 +108,18 @@ export async function insertConnectionsInChunks(
   let imported = 0;
   const chunks = chunk(rows, NETWORK_IMPORT_CHUNK_SIZE);
   for (let i = 0; i < chunks.length; i++) {
+    // Ruling 0044: title, city and state are recorded when the file has them. A
+    // chunk with none of them leaves those columns out of the write altogether,
+    // so an import of the older shape still works against a database that has
+    // not yet had migration 0083 applied; a chunk that has any of them needs the
+    // migration and says so (the database's own message) if it is missing.
+    const withFacts = chunks[i].some((r) => r.title || r.city || r.state);
     const { error } = await supabase.from("network_connections").insert(
       chunks[i].map((r) => ({
         recorded_by: recordedBy,
         person_name: r.person_name,
         affiliation: r.affiliation,
+        ...(withFacts ? { title: r.title, city: r.city, state: r.state } : {}),
         how_known: r.how_known,
         strength,
         notes: r.notes,

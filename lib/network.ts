@@ -12,6 +12,7 @@
 // only asks the model to behave.
 
 import type { ApprovedClaim } from "@/lib/prospect-intelligence";
+import type { IdentityStatus } from "@/lib/network-identity";
 import { RESEARCH_CLAIM_KEYS } from "@/lib/research";
 
 // Ruling 0033 clause 1: a closed list, chosen by the recorder, no default.
@@ -32,18 +33,26 @@ export function isPathConfidence(v: unknown): v is PathConfidence {
 export const PATH_STATUSES = ["suggested", "accepted", "dismissed"] as const;
 export type PathStatus = (typeof PATH_STATUSES)[number];
 
-// Ruling 0033 clause 3, verbatim from the STATE item 76 row. Shown wherever a
-// connection is entered.
+// Ruling 0033 clause 3, as extended by ruling 0044 clause 10: shown wherever a
+// person is entered. It says, in plain words, what 0044 requires -- that people
+// may be researched on the public web and in official public records; which of
+// their details are shared with the AI and search providers (and which are not);
+// that notes should not hold sensitive details; and that nothing is ever sent to
+// the people listed. It states the two different flows truthfully: the search
+// that finds out who someone is sends name, employer, title, city and state (and
+// search text built from them) and NOT notes or how-you-know-them; finding an
+// introduction to a funder is unchanged and shares what ruling 0040 clause 3
+// listed.
 export const NETWORK_DISCLOSURE =
-  "What you record here is shared with the AI service to find introductions. Nothing is ever sent to the people you list. Avoid recording sensitive personal details in notes.";
+  "The people you record here may be researched on the public web and in official public records. To find out who someone is, their name, where they work, title, city and state, and search text built from them, are shared with the AI service and its web search; your notes and how you know them are not part of that search. To find introductions to a funder, their name, where they work, how you know them, how close you are and your notes are shared with the AI service. Avoid recording sensitive personal details in notes. Nothing is ever sent to the people you list.";
 
 // Ruling 0040 clause 3, shown wherever a file of people is imported. It is the
 // capture disclosure above, unweakened and word for word, plus what an import
-// adds: what is shared when paths are looked for, that contact details in a
-// file are not imported, and that nothing is sent to the people listed.
+// adds: that contact details in a file are not imported, and that importing
+// contacts no one.
 export const NETWORK_IMPORT_DISCLOSURE =
   NETWORK_DISCLOSURE +
-  " When paths are looked for, the names, affiliations, how-you-know-them text and notes of the people being considered are shared with the AI service. Notes are free text, so keep sensitive details out of them. Contact details in your file (email addresses, phone numbers, street addresses, web or social links) are never imported or stored, and importing contacts no one.";
+  " Notes are free text, so keep sensitive details out of them. Contact details in your file (email addresses, phone numbers, street addresses, web or social links) are never imported or stored, and importing contacts no one.";
 
 export type NetworkConnection = {
   id: string;
@@ -56,6 +65,17 @@ export type NetworkConnection = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  // Ruling 0044 (migration 0083). Optional on the type because a database
+  // without the migration returns rows without them, and every reader of these
+  // is written to cope with that.
+  title?: string | null;
+  city?: string | null;
+  state?: string | null;
+  do_not_research?: boolean;
+  identity_status?: IdentityStatus;
+  identity_decided_by?: string | null;
+  identity_decided_at?: string | null;
+  identity_candidate_id?: string | null;
 };
 
 export type NetworkPathSuggestion = {

@@ -1695,7 +1695,8 @@ async function main() {
     ok("only the act path's loader is wired into the HTTP layer", /loadAgentActEntryPoints/.test(code("lib/agent/http.ts")) && !/loadApprovalEntryPoints/.test(code("lib/agent/http.ts")));
 
     // forbidden references anywhere in the new surface
-    const FORBIDDEN = /sendApprovedDraft|send-draft|draft-send|send-actions|["']resend["']|@anthropic-ai|lib\/ai\/anthropic|moveProspectStage|stage-change|prospect-workflow|deleteProspect|deleteInteraction|bulkDelete|logProspectGift|logSupporterGift|importProspectGifts|decideClaim|submitClaimReview|setClaimVerificationStatus|retractProspectOutcome|updateContact|confirmProspectEin|setOrganizationSendingEnabled|generateDraft\b|runStrategy|extractResearchClaims/;
+    const FORBIDDEN = /sendApprovedDraft|send-draft|draft-send|send-actions|["']resend["']|@anthropic-ai|lib\/ai\/anthropic|moveProspectStage|stage-change|prospect-workflow|deleteProspect|deleteInteraction|bulkDelete|logProspectGift|logSupporterGift|importProspectGifts|decideClaim|submitClaimReview|setClaimVerificationStatus|retractProspectOutcome|updateContact|confirmProspectEin|setOrganizationSendingEnabled|generateDraft\b|runStrategy|extractResearchClaims|identity-actions|findIdentityCandidates|confirmIdentity|confirmPreselectedIdentities|markNoneOfThese|resetIdentity|setDoNotResearch|person-search/;
+    // (the last seven: STATE item 107, ruling 0044 -- an identity decision is a gate; ruling 0039)
     const forbiddenHits = NEW_SURFACE.filter((f) => FORBIDDEN.test(code(f)));
     ok("nothing in the connector's new code references sending, a stage move, claim decisions, deletion, gifts, contact changes or a model call", forbiddenHits.length === 0, forbiddenHits.map((f) => `${f}: ${code(f).match(FORBIDDEN)?.[0]}`).join("; "));
     const importsApp = AGENT_LIB.filter((f) => importSpecifiers(code(f)).some((s) => s.startsWith("@/app/")));
@@ -1727,7 +1728,11 @@ async function main() {
   section("13. migration 0082, by text");
   {
     const files = readdirSync(join(root, "supabase/migrations")).filter((f) => /^\d{4}_/.test(f)).sort();
-    ok("0082_agent_delegation.sql is the highest migration, directly after 0081", files[files.length - 1] === "0082_agent_delegation.sql" && files[files.length - 2] === "0081_assistant_commands.sql", files.slice(-3).join());
+    // Not "the highest migration": that position-relative claim was guaranteed to
+    // fail the moment any later migration landed (0083 did, STATE item 107) --
+    // the lesson scripts/test-network.ts records for 0077. What matters is that
+    // 0082 exists and follows 0081.
+    ok("0082_agent_delegation.sql exists, directly after 0081", files.indexOf("0082_agent_delegation.sql") > 0 && files.indexOf("0082_agent_delegation.sql") === files.indexOf("0081_assistant_commands.sql") + 1, files.slice(-4).join());
     const sql = read("supabase/migrations/0082_agent_delegation.sql");
     const stmts = sql.split("\n").map((l) => l.replace(/--.*$/, "")).join("\n").toLowerCase();
     const creates = [...stmts.matchAll(/create\s+table\s+([a-z_]+)/g)].map((m) => m[1]).sort();

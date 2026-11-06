@@ -1,7 +1,7 @@
 ---
 id: 0040
 title: Network people may be captured by hand or imported from any list the organization already holds, and a network too large for one look is narrowed by a stated rule, never silently
-status: settled
+status: superseded
 provenance: verbatim
 supersedes: 0033
 date: 2026-10-31

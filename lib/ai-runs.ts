@@ -67,6 +67,13 @@ export const AI_RUN_OPERATIONS = [
   // 6) is its own metered operation: decision 0006 prices per operation, and
   // it is neither a draft nor a strategy.
   "network_paths",
+  // Looking up who a recorded person is (STATE item 107 slice A, ruling 0044
+  // clause 9) is its own metered operation: one web search plus one forced-tool
+  // selection, ONE run per person looked at, tokens aggregated across both
+  // calls, joined to the person via source_table/source_id. Decision 0006
+  // prices per operation, and it is neither a path search nor a funder
+  // research run; its credit price is the owner's decision.
+  "network_identity",
   // One assistant turn (STATE item 87, ruling 0037 clause 4): a user message
   // answered by up to a few model calls and tool results is ONE run, tokens
   // aggregated, joined to its assistant_messages row via source_id. A

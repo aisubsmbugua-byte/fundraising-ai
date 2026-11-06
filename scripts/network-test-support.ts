@@ -75,6 +75,9 @@ export class FakeNetDb {
   // Fail the Nth insert call (1-based) on a table with this message.
   failInsert: Record<string, { onCall: number; message: string }> = {};
   insertCalls: Record<string, number> = {};
+  // Whether rows inserted into network_connections carry migration 0083's
+  // columns. Off by default so every older suite sees the rows it always did.
+  identityColumns = false;
   auth = { getUser: async () => ({ data: { user: { id: USER_ID, email: "user@example.org" } } }) };
 
   seed(table: string, rows: Row[]) {
@@ -95,7 +98,20 @@ export class FakeNetDb {
   }
   applyDefaults(table: string, p: Row): Row {
     const now = "2026-10-31T12:00:00.000Z";
-    if (table === "network_connections") return { id: this.uuid(), organization_id: ORG_ID, created_at: now, updated_at: now, ...p };
+    if (table === "network_connections") {
+      // The column defaults of migration 0083 (the real constraints and
+      // triggers are exercised on a real Postgres by
+      // scripts/test-network-identity-migration.ts, not here).
+      return {
+        id: this.uuid(),
+        organization_id: ORG_ID,
+        created_at: now,
+        updated_at: now,
+        ...(this.identityColumns ? { do_not_research: false, identity_status: "unconfirmed", identity_decided_by: null, identity_decided_at: null, identity_candidate_id: null } : {}),
+        ...p,
+      };
+    }
+    if (table === "network_identity_candidates") return { id: this.uuid(), organization_id: ORG_ID, created_at: now, ai_run_id: null, ...p };
     if (table === "ai_runs") return { id: this.uuid(), organization_id: ORG_ID, outcome: null, ...p };
     if (table === "network_path_suggestions") return { id: this.uuid(), organization_id: ORG_ID, status: "suggested", created_at: now, ...p };
     return { id: this.uuid(), ...p };
@@ -146,6 +162,14 @@ class FakeQuery {
   }
   eq(c: string, v: unknown) {
     return this.f(`eq ${c} ${String(v)}`, (r) => r[c] === v);
+  }
+  neq(c: string, v: unknown) {
+    return this.f(`neq ${c} ${String(v)}`, (r) => r[c] !== v);
+  }
+  limit(n: number) {
+    this.rangeFrom = 0;
+    this.rangeTo = n - 1;
+    return this;
   }
   in(c: string, vs: unknown[]) {
     return this.f(`in ${c} (${vs.length})`, (r) => vs.includes(r[c]));

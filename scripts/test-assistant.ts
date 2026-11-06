@@ -1603,7 +1603,8 @@ async function main() {
   }
   {
     // Closure: what the model-facing modules may never import.
-    const FORBIDDEN_IMPORT = /executors|send-draft|draft-send|supabase\/admin|lib\/ai\/anthropic|prospect-workflow|pipeline\/actions|send-actions|draft-actions|strategy-actions|research-actions|network-actions|resend|@anthropic-ai/;
+    // identity-actions / person-search / network-identity (STATE item 107, ruling 0044): confirming who a recorded person is is a gate the assistant must never reach.
+    const FORBIDDEN_IMPORT = /executors|send-draft|draft-send|supabase\/admin|lib\/ai\/anthropic|prospect-workflow|pipeline\/actions|send-actions|draft-actions|strategy-actions|research-actions|network-actions|identity-actions|person-search|network-identity|resend|@anthropic-ai/;
     // lib/assistant/command-entrypoints.ts is the ONE module that wires the
     // entry points a command may call (ruling 0038 clause 1: the signed-in
     // user's own page actions). It is exempt from the closure below and

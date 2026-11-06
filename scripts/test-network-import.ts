@@ -165,17 +165,17 @@ async function main() {
       "Ann,,https://linkedin.com/in/ann,ann@example.org,Hope Trust,,03 Mar 2024\n";
     const t = tableOf(csv);
     const sug = suggestMapping(t);
-    ok("LinkedIn file: the suggestion pre-selects First+Last, Company and Position -- and nothing for How known or Notes", sug.nameMode === "split" && sug.first === 0 && sug.last === 1 && sug.affiliation === 4 && sug.role === 5 && sug.howKnown === null && sug.notes === null);
+    ok("LinkedIn file: the suggestion pre-selects First+Last, Company and Position (now the TITLE) -- and nothing for How known or Notes", sug.nameMode === "split" && sug.first === 0 && sug.last === 1 && sug.affiliation === 4 && sug.title === 5 && sug.howKnown === null && sug.notes === null);
     ok("... and the suggestion leaves strength UNSET and the sentence empty (nothing inferred)", sug.strength === "" && sug.howKnownSentence === "");
     const r = reduceMapping(t, strengthSet(sug));
     ok("LinkedIn file: can be imported once strength and a how-known sentence are given", r.canImport && r.blockers.length === 0, r.blockers.join(" | "));
     ok(
-      "LinkedIn file: the stored fields are EXACTLY name, 'Role, Affiliation', the sentence and no notes",
+      "LinkedIn file: the stored fields are EXACTLY name, affiliation, title (kept apart now, ruling 0044), the sentence and no notes",
       JSON.stringify(r.rows) ===
         JSON.stringify([
-          { person_name: "Jane Doe", affiliation: "Pastor, Grace Church", how_known: "From my own contacts", notes: null },
-          { person_name: "Sam Lee", affiliation: "Chair", how_known: "From my own contacts", notes: null },
-          { person_name: "Ann", affiliation: "Hope Trust", how_known: "From my own contacts", notes: null },
+          { person_name: "Jane Doe", affiliation: "Grace Church", title: "Pastor", city: null, state: null, how_known: "From my own contacts", notes: null },
+          { person_name: "Sam Lee", affiliation: null, title: "Chair", city: null, state: null, how_known: "From my own contacts", notes: null },
+          { person_name: "Ann", affiliation: "Hope Trust", title: null, city: null, state: null, how_known: "From my own contacts", notes: null },
         ]),
       JSON.stringify(r.rows)
     );
@@ -193,11 +193,11 @@ async function main() {
     const csv = "Name,Email,Phone,Amount,Address\nJane Doe,jane@example.org,555-0100,\"$1,200\",1 Main St\nSam Lee,sam@example.org,555-0101,$50,2 Oak Ave\n";
     const t = tableOf(csv);
     const sug = suggestMapping(t);
-    ok("donor list: only Name is pre-selected", sug.name === 0 && sug.nameMode === "single" && sug.affiliation === null && sug.role === null && sug.notes === null && sug.howKnown === null);
+    ok("donor list: only Name is pre-selected", sug.name === 0 && sug.nameMode === "single" && sug.affiliation === null && sug.title === null && sug.city === null && sug.state === null && sug.cityState === null && sug.notes === null && sug.howKnown === null);
     const r = reduceMapping(t, strengthSet(sug, "close", "Donor list, 2024"));
     ok("donor list: ONLY the name is stored (no affiliation, no notes); how-known is the typed sentence", JSON.stringify(r.rows) === JSON.stringify([
-      { person_name: "Jane Doe", affiliation: null, how_known: "Donor list, 2024", notes: null },
-      { person_name: "Sam Lee", affiliation: null, how_known: "Donor list, 2024", notes: null },
+      { person_name: "Jane Doe", affiliation: null, title: null, city: null, state: null, how_known: "Donor list, 2024", notes: null },
+      { person_name: "Sam Lee", affiliation: null, title: null, city: null, state: null, how_known: "Donor list, 2024", notes: null },
     ]));
     ok("donor list: Email, Phone, Amount and Address are named as not imported; Email, Phone and Address with the contact-details flag, Amount without", JSON.stringify(r.notImported.map((c) => [c.heading, c.contact])) === JSON.stringify([["Email", true], ["Phone", true], ["Amount", false], ["Address", true]]));
     ok("donor list: nothing from the email, phone, amount or address cells is stored", !/@|555|1,200|\$50|Main St|Oak Ave/.test(JSON.stringify(r.rows)));
@@ -207,9 +207,9 @@ async function main() {
     const csv = "Member,Organization,Title\nJane Doe,Grace Church,Treasurer\nSam Lee,,Chair\n";
     const t = tableOf(csv);
     const sug = suggestMapping(t);
-    ok("board list: Member -> Name, Organization -> affiliation, Title -> role are pre-selected", sug.name === 0 && sug.affiliation === 1 && sug.role === 2);
+    ok("board list: Member -> Name, Organization -> affiliation, Title -> title are pre-selected", sug.name === 0 && sug.affiliation === 1 && sug.title === 2);
     const r = reduceMapping(t, strengthSet(sug, "warm", "Board of Grace Church"));
-    ok("board list: role is joined to the affiliation as 'Role, Affiliation', or is just the role when there is no affiliation", r.rows[0].affiliation === "Treasurer, Grace Church" && r.rows[1].affiliation === "Chair");
+    ok("board list: the title is stored as the TITLE, apart from the affiliation (it used to be joined as 'Role, Affiliation')", r.rows[0].affiliation === "Grace Church" && r.rows[0].title === "Treasurer" && r.rows[1].affiliation === null && r.rows[1].title === "Chair");
     ok("board list: every column is used, so the not-imported list is empty (and says so)", r.notImported.length === 0);
   }
 
@@ -268,7 +268,7 @@ async function main() {
     {
       const page = read("app/(dashboard)/network/import/import-workspace.tsx");
       const selects = (page.match(/<ColumnSelect\b/g) ?? []).length;
-      ok("the page renders every dropdown from mappableColumns only: all ColumnSelect uses are given `options`, none is given the full column list", /options = useMemo\(\(\) => \(table \? mappableColumns\(table\)/.test(page) && selects === 7 && (page.match(/columns=\{options\}/g) ?? []).length === selects && !/columns=\{columns\}/.test(page), `${selects} selects`);
+      ok("the page renders every dropdown from mappableColumns only: all ColumnSelect uses are given `options`, none is given the full column list", /options = useMemo\(\(\) => \(table \? mappableColumns\(table\)/.test(page) && selects === 10 && (page.match(/columns=\{options\}/g) ?? []).length === selects && !/columns=\{columns\}/.test(page), `${selects} selects`);
     }
   }
 
@@ -276,7 +276,7 @@ async function main() {
   section("4. Classifying rows: duplicates, missing names, long fields -- counted separately, adding up");
 
   {
-    const row = (name: string, aff: string | null = null, how: string | null = "h", notes: string | null = null): MappedRow => ({ person_name: name, affiliation: aff, how_known: how, notes });
+    const row = (name: string, aff: string | null = null, how: string | null = "h", notes: string | null = null): MappedRow => ({ person_name: name, affiliation: aff, title: null, city: null, state: null, how_known: how, notes });
     const existing = new Set([connectionKey("Jane Doe", "Grace Church"), connectionKey("Pat Roe", null)]);
     const rows = [
       row("Jane Doe", "Grace Church"), // existing
@@ -315,7 +315,7 @@ async function main() {
   section("5. The server's view of the request: a hostile client");
 
   {
-    const good = { person_name: "Jane", affiliation: null, how_known: "x", notes: null };
+    const good = { person_name: "Jane", affiliation: null, title: null, city: null, state: null, how_known: "x", notes: null };
     ok("a well-formed request parses", "rows" in parseImportRequest([good], { strength: "warm" }, true));
     const bad = (rows: unknown, options: unknown) => "error" in parseImportRequest(rows, options, true);
     ok("bad strength is refused: missing, empty, wrong case, unknown, wrong type", bad([good], {}) && bad([good], { strength: "" }) && bad([good], { strength: "Warm" }) && bad([good], { strength: "friend" }) && bad([good], { strength: 3 }));
@@ -357,7 +357,7 @@ async function main() {
       deleteConnections: (ids: unknown) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
       getMatchingConnectionIds: (q: unknown) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     };
-    const R = (name: string, aff: string | null = null, how: string | null = "From a list", notes: string | null = null) => ({ person_name: name, affiliation: aff, how_known: how, notes });
+    const R = (name: string, aff: string | null = null, how: string | null = "From a list", notes: string | null = null) => ({ person_name: name, affiliation: aff, title: null, city: null, state: null, how_known: how, notes });
     const fresh = () => {
       db = new FakeNetDb();
       revalidated.length = 0;
@@ -561,7 +561,7 @@ async function main() {
 
   {
     ok("the import disclosure starts with the capture disclosure, unweakened and word for word", NETWORK_IMPORT_DISCLOSURE.startsWith(NETWORK_DISCLOSURE));
-    ok("... and adds what an import adds (ruling 0040 clause 3): names, affiliations, how-known text and notes shared with the AI service; notes are free text; contact details not imported; nothing sent to the people listed", /names, affiliations, how-you-know-them text and notes/.test(NETWORK_IMPORT_DISCLOSURE) && /shared with the AI service/.test(NETWORK_IMPORT_DISCLOSURE) && /free text/.test(NETWORK_IMPORT_DISCLOSURE) && /never imported or stored/.test(NETWORK_IMPORT_DISCLOSURE) && /Nothing is ever sent to the people you list/.test(NETWORK_IMPORT_DISCLOSURE));
+    ok("... and adds what an import adds (ruling 0040 clause 3): names, affiliations, how-known text and notes shared with the AI service; notes are free text; contact details not imported; nothing sent to the people listed", /name, where they work, how you know them, how close you are and your notes are shared with the AI service/.test(NETWORK_IMPORT_DISCLOSURE) && /shared with the AI service/.test(NETWORK_IMPORT_DISCLOSURE) && /free text/.test(NETWORK_IMPORT_DISCLOSURE) && /never imported or stored/.test(NETWORK_IMPORT_DISCLOSURE) && /Nothing is ever sent to the people you list/.test(NETWORK_IMPORT_DISCLOSURE));
     const ws = stripComments(read("app/(dashboard)/network/import/import-workspace.tsx"));
     ok("the import page renders the import disclosure", /NETWORK_IMPORT_DISCLOSURE/.test(ws) && /\{NETWORK_IMPORT_DISCLOSURE\}/.test(ws));
   }
@@ -580,10 +580,10 @@ async function main() {
     ok("recorded_by is the verified session user's id in the store call, not a request value", /insertConnectionsInChunks\(supabase, user\.id,/.test(importActions) && /const user = await requireUser\(\)/.test(importActions));
     ok("the import and bulk-delete code reads no research table and no prospect table", ![importActions, store].some((t) => /from\("(research_|prospects|drafts|stage_changes|interactions|contacts)/.test(t)));
     ok("the import touches only network_connections", [importActions, store].every((t) => (t.match(/\.from\("([a-z_]+)"\)/g) ?? []).every((m) => m === '.from("network_connections")')));
-    ok("the insert row built by the store has exactly the six allowed keys", (() => { const m = store.match(/\.insert\(\s*chunks\[i\]\.map\(\(r\) => \(\{([\s\S]*?)\}\)\)/); if (!m) return false; const keys = m[1].split("\n").map((l) => l.trim().split(/[:,]/)[0]).filter(Boolean); return JSON.stringify(keys) === JSON.stringify(["recorded_by", "person_name", "affiliation", "how_known", "strength", "notes"]); })());
+    ok("the insert row built by the store has exactly the six allowed keys, plus title / city / state only when the chunk has one (ruling 0044)", (() => { const m = store.match(/\.insert\(\s*chunks\[i\]\.map\(\(r\) => \(\{([\s\S]*?)\}\)\)/); if (!m) return false; const keys = m[1].split("\n").map((l) => l.trim().split(/[:,]/)[0]).filter(Boolean); return JSON.stringify(keys) === JSON.stringify(["recorded_by", "person_name", "affiliation", "...(withFacts ? { title", "how_known", "strength", "notes"]) && /\.\.\.\(withFacts \? \{ title: r\.title, city: r\.city, state: r\.state \} : \{\}\)/.test(m[1]); })());
     const lib = stripComments(read("lib/network-import.ts")).replace(/export const CONTACT_HEADING_(STEMS|WORDS)[\s\S]*?\];/g, "");
     ok("lib/network-import.ts has no contact-field identifier outside its two heading lists (no email/phone/handle/social/url field exists in any type)", !/\b(email|phone|mobile|linkedin|twitter|facebook|instagram|whatsapp|handle|website)\b/i.test(lib), (lib.match(/\b(email|phone|mobile|linkedin|twitter|facebook|instagram|whatsapp|handle|website)\b/gi) ?? []).join());
-    ok("the stored row type is exactly name, affiliation, how_known, notes", /export type MappedRow = \{\s*person_name: string;\s*affiliation: string \| null;\s*how_known: string \| null;\s*notes: string \| null;\s*\};/.test(lib));
+    ok("the stored row type is exactly name, affiliation, title, city, state, how_known, notes", /export type MappedRow = \{\s*person_name: string;\s*affiliation: string \| null;\s*title: string \| null;\s*city: string \| null;\s*state: string \| null;\s*how_known: string \| null;\s*notes: string \| null;\s*\};/.test(lib));
     const clientFile = read("app/(dashboard)/network/import/import-workspace.tsx");
     ok("the client component imports no server-only module (no supabase, no auth, no anthropic) and is a client component", clientFile.startsWith('"use client"') && !/@\/lib\/supabase|@\/lib\/auth|@\/lib\/ai/.test(clientFile));
     ok("the client component has no email or tel input", !/type="(email|tel)"/.test(clientFile));
@@ -593,13 +593,20 @@ async function main() {
     ok("manual add, edit and single delete are unchanged in what they call", /addConnection/.test(read("app/(dashboard)/network/network-workspace.tsx")) && /updateConnection\(connection\.id, input\)/.test(read("app/(dashboard)/network/network-workspace.tsx")) && /deleteConnection\(connection\.id\)/.test(read("app/(dashboard)/network/network-workspace.tsx")));
     let migrationsTouched = "unknown";
     try {
-      const out = execSync("git status --porcelain -- supabase/migrations", { cwd: root, encoding: "utf8" }).trim();
-      const diff = execSync("git diff HEAD --name-only -- supabase/migrations", { cwd: root, encoding: "utf8" }).trim();
+      // Item 103 added no migration. Migration 0083 (STATE item 107, ruling
+      // 0044) is the one later, deliberate addition: it is allowed to appear
+      // here; no OTHER migration may be added, and none may be changed.
+      const out = execSync("git status --porcelain -- supabase/migrations", { cwd: root, encoding: "utf8" })
+        .split("\n")
+        .filter((l) => l.trim() && !/supabase\/migrations\/0083_network_identity\.sql$/.test(l))
+        .join("\n")
+        .trim();
+      const diff = execSync("git diff HEAD --name-only -- supabase/migrations", { cwd: root, encoding: "utf8" }).replace(/^.*0083_network_identity\.sql$/m, "").trim();
       migrationsTouched = out + diff;
     } catch (e) {
       migrationsTouched = `git failed: ${(e as Error).message}`;
     }
-    ok("no migration file was added or changed (git status and git diff HEAD over supabase/migrations are empty)", migrationsTouched === "", migrationsTouched);
+    ok("no migration file was added or changed other than 0083_network_identity.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
   }
 
   console.log(`\n${pass} passed, ${fail} failed.`);

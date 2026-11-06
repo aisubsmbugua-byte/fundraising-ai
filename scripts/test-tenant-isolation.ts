@@ -9,7 +9,9 @@
 // ledger added in migration 0069 (draft_send_attempts), and on drafts
 // itself (which carries the send facts since 0069), on the ruling-0033
 // network tables added in migration 0077 (network_connections,
-// network_path_suggestions), and on the ruling-0034 supporter tables added in
+// network_path_suggestions), on the ruling-0044 identity table added in
+// migration 0083 (network_identity_candidates, and the identity columns it adds
+// to network_connections), and on the ruling-0034 supporter tables added in
 // migration 0078 (supporters, supporter_gifts, supporter_interactions), and on
 // the ruling-0037 assistant tables added in migration 0080 (assistant_threads,
 // assistant_messages, assistant_proposals -- which additionally need a
@@ -1261,6 +1263,99 @@ async function main() {
       await admin.from("research_claims").delete().eq("id", claimA2!.id);
       const { data: claimCascaded } = await admin.from("network_path_suggestions").select("id").eq("id", sugClaim!.id);
       check("Deleting the anchoring claim deletes the suggestion (foreign key cascade)", (claimCascaded?.length ?? 0) === 0);
+    }
+
+    // --- Network identity (migration 0083, ruling 0044) ---
+    // network_identity_candidates is the AI's PROPOSAL of who a recorded person
+    // could be; the human's choice lives on network_connections
+    // (identity_candidate_id). Two real authenticated sessions, never the
+    // service role, for every isolation assertion. Four org-match triggers
+    // (candidate -> connection, candidate -> ai run, connection -> candidate,
+    // connection -> decider) are exercised by cross-org writes that must be
+    // REFUSED; the reset-on-edit trigger and the chosen-candidate-delete trigger
+    // are exercised through a real session. WRITTEN AND UNEXECUTED against the
+    // live project (no migration 0083 there yet): scripts/test-network-identity-
+    // migration.ts runs the same behaviour on a real Postgres. NOT-EVALUATED when
+    // the table does not exist (42P01 / PGRST205).
+    const { error: identityProbeError } = await admin.from("network_identity_candidates").select("id").limit(1);
+    if (identityProbeError && (identityProbeError.code === "42P01" || identityProbeError.code === "PGRST205")) {
+      notEvaluated.push("network_identity_candidates -- migration 0083 is not applied to this database, so its assertions did not run");
+      console.log("\nNOT EVALUATED: network identity (migration 0083 not applied). Apply 0083 and re-run; this is not a pass.\n");
+    } else {
+      const { data: idPersonA, error: idPersonAError } = await clientA
+        .from("network_connections")
+        .insert({ recorded_by: a.userId, person_name: "[test] identity person A", affiliation: "[test] Employer", strength: "warm" })
+        .select("id")
+        .single();
+      if (idPersonAError || !idPersonA) throw new Error(`Org A identity person insert failed: ${idPersonAError?.message}`);
+      const { data: idPersonB, error: idPersonBError } = await clientB
+        .from("network_connections")
+        .insert({ recorded_by: b.userId, person_name: "[test] identity person B", affiliation: "[test] Employer", strength: "warm" })
+        .select("id")
+        .single();
+      if (idPersonBError || !idPersonB) throw new Error(`Org B identity person insert failed: ${idPersonBError?.message}`);
+      const candBody = (personId: string, rank: number, extra: Record<string, unknown> = {}) => ({
+        network_connection_id: personId, label: `[test] candidate ${rank}`, source_url: `https://example.org/${personId}/${rank}`, agreement: { facts: {} }, rank, ...extra,
+      });
+      const { data: idCandA, error: idCandAError } = await clientA.from("network_identity_candidates").insert(candBody(idPersonA.id, 1)).select("id").single();
+      check("Org A CAN record a candidate for its own person (organization_id from my_organization_id())", !idCandAError && !!idCandA);
+      const { data: idCandB } = await clientB.from("network_identity_candidates").insert(candBody(idPersonB.id, 1)).select("id").single();
+
+      const { data: idRead } = await clientB.from("network_identity_candidates").select("id").eq("id", idCandA!.id);
+      check("Org B cannot SELECT Org A's candidate by id", (idRead?.length ?? 0) === 0);
+      const { data: idUpdB } = await clientB.from("network_identity_candidates").update({ label: "[test] hijacked" }).eq("id", idCandA!.id).select("id");
+      check("Org B's UPDATE of Org A's candidate affects 0 rows", (idUpdB?.length ?? 0) === 0);
+      const { data: idDelB } = await clientB.from("network_identity_candidates").delete().eq("id", idCandA!.id).select("id");
+      check("Org B's DELETE of Org A's candidate affects 0 rows", (idDelB?.length ?? 0) === 0);
+      const { data: idUpdA } = await clientA.from("network_identity_candidates").update({ label: "[test] edited" }).eq("id", idCandA!.id).select("id");
+      check("Org A cannot UPDATE its own candidate either: there is no update policy (0 rows)", (idUpdA?.length ?? 0) === 0);
+      const { error: xCandErr } = await clientB.from("network_identity_candidates").insert(candBody(idPersonA.id, 2));
+      check("Org B cannot INSERT a candidate for Org A's person (org-match trigger / RLS refuses)", !!xCandErr);
+      const { error: xDeciderErr } = await clientA
+        .from("network_connections")
+        .update({ identity_status: "confirmed", identity_candidate_id: idCandB!.id, identity_decided_by: a.userId, identity_decided_at: new Date().toISOString() })
+        .eq("id", idPersonA.id);
+      check("Org A cannot confirm Org B's candidate as its person's identity (org-match trigger refuses)", !!xDeciderErr);
+      const { data: idDecideB } = await clientB
+        .from("network_connections")
+        .update({ identity_status: "none_of_these", identity_decided_by: b.userId, identity_decided_at: new Date().toISOString() })
+        .eq("id", idPersonA.id)
+        .select("id");
+      check("Org B cannot record a decision on Org A's person (0 rows)", (idDecideB?.length ?? 0) === 0);
+      const { error: socialErr } = await clientA.from("network_identity_candidates").insert(candBody(idPersonA.id, 2, { source_url: "https://www.linkedin.com/in/someone" }));
+      check("a candidate whose source is on LinkedIn is refused by the database (ruling 0044 clause 4)", !!socialErr);
+      const { error: rank4Err } = await clientA.from("network_identity_candidates").insert(candBody(idPersonA.id, 4));
+      check("a fourth candidate (rank 4) is refused: at most three per person", !!rank4Err);
+
+      // a human confirms, then edits a fact: the confirmation is voided
+      const { data: confirmedOwn, error: confirmErr } = await clientA
+        .from("network_connections")
+        .update({ identity_status: "confirmed", identity_candidate_id: idCandA!.id, identity_decided_by: a.userId, identity_decided_at: new Date().toISOString() })
+        .eq("id", idPersonA.id)
+        .select("id");
+      check("Org A CAN confirm its own candidate, recorded as itself", !confirmErr && (confirmedOwn?.length ?? 0) === 1);
+      const { error: forgedErr } = await clientA
+        .from("network_connections")
+        .update({ identity_decided_by: b.userId })
+        .eq("id", idPersonA.id);
+      check("... and cannot name a decider from another organization", !!forgedErr);
+      await clientA.from("network_connections").update({ affiliation: "[test] A different employer" }).eq("id", idPersonA.id);
+      const { data: afterEdit } = await admin.from("network_connections").select("identity_status, identity_candidate_id, identity_decided_by").eq("id", idPersonA.id).single();
+      const { data: candsAfterEdit } = await admin.from("network_identity_candidates").select("id").eq("network_connection_id", idPersonA.id);
+      check("Editing the employer of a CONFIRMED person resets the confirmation and deletes their candidates (trigger)", afterEdit?.identity_status === "unconfirmed" && afterEdit?.identity_candidate_id === null && afterEdit?.identity_decided_by === null && (candsAfterEdit?.length ?? 0) === 0);
+
+      // deleting the chosen candidate voids; erasing a confirmed person works
+      const { data: c1 } = await clientA.from("network_identity_candidates").insert(candBody(idPersonA.id, 1)).select("id").single();
+      await clientA.from("network_identity_candidates").insert(candBody(idPersonA.id, 2));
+      await clientA.from("network_connections").update({ identity_status: "confirmed", identity_candidate_id: c1!.id, identity_decided_by: a.userId, identity_decided_at: new Date().toISOString() }).eq("id", idPersonA.id);
+      await clientA.from("network_identity_candidates").delete().eq("id", c1!.id);
+      const { data: afterCandDelete } = await admin.from("network_connections").select("identity_status, identity_candidate_id").eq("id", idPersonA.id).single();
+      check("Deleting the chosen candidate voids the confirmation instead of leaving it dangling", afterCandDelete?.identity_status === "unconfirmed" && afterCandDelete?.identity_candidate_id === null);
+      const { data: c3 } = await clientA.from("network_identity_candidates").insert(candBody(idPersonA.id, 3)).select("id").single();
+      await clientA.from("network_connections").update({ identity_status: "confirmed", identity_candidate_id: c3!.id, identity_decided_by: a.userId, identity_decided_at: new Date().toISOString() }).eq("id", idPersonA.id);
+      const { data: erased } = await clientA.from("network_connections").delete().eq("id", idPersonA.id).select("id");
+      const { data: erasedCands } = await admin.from("network_identity_candidates").select("id").eq("network_connection_id", idPersonA.id);
+      check("Org A CAN erase a CONFIRMED person, and their candidates go with them (the chosen-candidate reference does not block erasure)", (erased?.length ?? 0) === 1 && (erasedCands?.length ?? 0) === 0);
     }
 
     // --- Supporters (migration 0078, ruling 0034) ---

@@ -3,7 +3,8 @@
 // Importing people from a file (STATE item 103, ruling 0040 clauses 1-3).
 //
 // The page parses the file in the browser and sends only the MAPPED rows
-// (name, affiliation, how known, notes) plus one strength for the whole batch.
+// (name, affiliation, title, city, state, how known, notes) plus one strength for
+// the whole batch (ruling 0044 clause 1 added title, city and state).
 // This file treats that request as hostile: it re-validates the strength, the
 // shape of every row, the field lengths and the row count itself, and it
 // de-duplicates on the server against everyone already recorded (read in full,
@@ -15,7 +16,7 @@
 //   * organization_id is never passed: the column default fills it;
 //   * recorded_by is the verified session user, never a value from the request;
 //   * no contact-detail field exists to write -- the request shape has exactly
-//     four text fields plus the batch strength, and anything else is refused;
+//     seven text fields plus the batch strength, and anything else is refused;
 //   * the import creates connections and nothing else: it contacts no one.
 //
 // Counts are returned BY REASON and add up to the rows received; a failure

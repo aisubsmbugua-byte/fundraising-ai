@@ -159,10 +159,17 @@ ok("exactly three security definer functions, all with search_path pinned (none 
 // --- 2. The pure rules, run for real ----------------------------------------
 
 section("lib/network.ts: the disclosure, the closed lists, the anchor selection");
+// Ruling 0044 clause 10 replaced the item-76 sentence (which said only that
+// what is recorded is "shared with the AI service to find introductions"): the
+// disclosure now also says people may be researched on the public web and in
+// official public records, which details go to the AI and search providers,
+// that notes should not hold sensitive details, and that nothing is ever sent to
+// the people listed. The wording is asserted in scripts/test-network-identity.ts.
 ok(
-  "the clause-3 disclosure is the item row's sentence verbatim",
-  NETWORK_DISCLOSURE ===
-    "What you record here is shared with the AI service to find introductions. Nothing is ever sent to the people you list. Avoid recording sensitive personal details in notes."
+  "the disclosure still says notes are shared for introductions, that sensitive details do not belong in notes, and that nothing is ever sent to the people listed (the item-76 promises, kept)",
+  /notes are shared with the AI service/.test(NETWORK_DISCLOSURE) &&
+    /Avoid recording sensitive personal details in notes\./.test(NETWORK_DISCLOSURE) &&
+    /Nothing is ever sent to the people you list\./.test(NETWORK_DISCLOSURE)
 );
 ok("strengths are exactly close / warm / acquaintance", JSON.stringify([...CONNECTION_STRENGTHS]) === JSON.stringify(["close", "warm", "acquaintance"]));
 

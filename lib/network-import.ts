@@ -41,6 +41,12 @@ export const NETWORK_NAME_MAX = 200;
 export const NETWORK_AFFILIATION_MAX = 300;
 export const NETWORK_HOW_KNOWN_MAX = 500;
 export const NETWORK_NOTES_MAX = 2000;
+// Ruling 0044 clause 1: a title, a city and a state are the new identifying
+// facts. Same rule as the others: over the cap is skipped and counted, never
+// shortened.
+export const NETWORK_TITLE_MAX = 200;
+export const NETWORK_CITY_MAX = 100;
+export const NETWORK_STATE_MAX = 100;
 // The largest file the page will read into the browser.
 export const NETWORK_IMPORT_MAX_FILE_BYTES = 10_000_000;
 // How many of the file's first rows the person may name as the heading row.
@@ -172,7 +178,7 @@ export const CONTACT_HEADING_STEMS: readonly string[] = [
 // mail, web, www, http, username, whatsapp, ...) are the same kind of thing.
 export const CONTACT_HEADING_WORDS: readonly string[] = [
   "tel", "url", "urls", "cell", "zip", "web", "www", "fax", "social", "handle", "handles",
-  "sms", "link", "links", "http", "https", "mail",
+  "sms", "link", "links", "http", "https", "mail", "profile", "profiles",
 ];
 
 export function looksLikeContactDetail(heading: string): boolean {
@@ -227,7 +233,14 @@ export type FieldMapping = {
   first: number | null;
   last: number | null;
   affiliation: number | null;
-  role: number | null;
+  // Ruling 0044 clause 1: the title is its own recorded fact now (it used to be
+  // joined to the affiliation as "Role, Affiliation").
+  title: number | null;
+  // Either separate City and State columns, or ONE combined "City, state"
+  // column split at its last comma -- never both.
+  city: number | null;
+  state: number | null;
+  cityState: number | null;
   howKnown: number | null;
   // Used for a row whose how-known cell is empty, and for every row when no
   // column is mapped. Typed by the person; recorded as the batch's origin.
@@ -243,7 +256,10 @@ export const EMPTY_MAPPING: FieldMapping = {
   first: null,
   last: null,
   affiliation: null,
-  role: null,
+  title: null,
+  city: null,
+  state: null,
+  cityState: null,
   howKnown: null,
   howKnownSentence: "",
   notes: null,
@@ -259,7 +275,10 @@ export const HEADING_ALIASES = {
   first: ["first name", "first", "given name", "forename"],
   last: ["last name", "last", "surname", "family name"],
   affiliation: ["company", "organization", "organisation", "employer", "affiliation", "church", "institution", "workplace"],
-  role: ["position", "title", "job title", "role", "occupation"],
+  title: ["position", "title", "job title", "role", "occupation"],
+  city: ["city", "town"],
+  state: ["state", "province", "region"],
+  cityState: ["city state", "city and state", "location"],
   howKnown: ["how known", "how you know them", "how we know them", "relationship", "connection"],
   notes: ["notes", "note", "comments", "comment", "remarks"],
 } as const;
@@ -282,7 +301,17 @@ export function suggestMapping(table: CsvTable): FieldMapping {
     m.last = last;
   }
   m.affiliation = find(HEADING_ALIASES.affiliation);
-  m.role = find(HEADING_ALIASES.role);
+  m.title = find(HEADING_ALIASES.title);
+  // Separate City and State columns win over a combined one; the two ways are
+  // never suggested together.
+  const city = find(HEADING_ALIASES.city);
+  const state = find(HEADING_ALIASES.state);
+  if (city !== null && state !== null) {
+    m.city = city;
+    m.state = state;
+  } else {
+    m.cityState = find(HEADING_ALIASES.cityState);
+  }
   m.howKnown = find(HEADING_ALIASES.howKnown);
   m.notes = find(HEADING_ALIASES.notes);
   return m;
@@ -291,6 +320,9 @@ export function suggestMapping(table: CsvTable): FieldMapping {
 export type MappedRow = {
   person_name: string;
   affiliation: string | null;
+  title: string | null;
+  city: string | null;
+  state: string | null;
   how_known: string | null;
   notes: string | null;
 };
@@ -314,6 +346,12 @@ export type MappingResult = {
   // How the first people will be recorded (rows that have a name).
   preview: MappedRow[];
   canImport: boolean;
+  // Rows whose combined "City, state" cell could not be split cleanly at its
+  // last comma (no comma, or nothing on one side of it). Each such cell went
+  // whole into City; locationNotice says so in plain words, or null when every
+  // combined cell split (or none is mapped).
+  locationNotSplit: number;
+  locationNotice: string | null;
 };
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -325,6 +363,22 @@ export function joinRoleAndAffiliation(role: string, affiliation: string): strin
   const a = clean(affiliation);
   if (r && a) return `${r}, ${a}`;
   return r || a || null;
+}
+
+// One combined "City, state" cell, split at its LAST comma ("Austin, TX" ->
+// Austin / TX; "Austin, Travis County, TX" -> "Austin, Travis County" / TX).
+// When it cannot be split cleanly -- no comma, or nothing on one side of it --
+// the whole text goes into City and `clean` is false, so the person importing
+// can be told. Nothing is guessed.
+export function splitCityState(raw: string): { city: string | null; state: string | null; clean: boolean } {
+  const text = clean(raw);
+  if (!text) return { city: null, state: null, clean: true };
+  const at = text.lastIndexOf(",");
+  if (at < 0) return { city: text, state: null, clean: false };
+  const left = text.slice(0, at).trim();
+  const right = text.slice(at + 1).trim();
+  if (!left || !right) return { city: text, state: null, clean: false };
+  return { city: left, state: right, clean: true };
 }
 
 export function reduceMapping(table: CsvTable, mapping: FieldMapping): MappingResult {
@@ -369,7 +423,14 @@ export function reduceMapping(table: CsvTable, mapping: FieldMapping): MappingRe
     useColumn("Last name", mapping.last);
   }
   useColumn("Affiliation", mapping.affiliation);
-  useColumn("Role or title", mapping.role);
+  useColumn("Title", mapping.title);
+  if (mapping.cityState !== null && (mapping.city !== null || mapping.state !== null)) {
+    blockers.push("Use either one combined \"City, state\" column or separate City and State columns, not both.");
+    sound = false;
+  }
+  useColumn("City", mapping.city);
+  useColumn("State", mapping.state);
+  useColumn("City and state together", mapping.cityState);
   useColumn("How you know them", mapping.howKnown);
   useColumn("Notes", mapping.notes);
 
@@ -391,6 +452,7 @@ export function reduceMapping(table: CsvTable, mapping: FieldMapping): MappingRe
   if (rowsRead === 0) blockers.push("The file has a heading row but no people under it.");
 
   const rows: MappedRow[] = [];
+  let locationNotSplit = 0;
   if (sound) {
     const cell = (r: readonly string[], i: number | null) => (i === null ? "" : (r[i] ?? ""));
     for (const r of dataRecords) {
@@ -399,9 +461,20 @@ export function reduceMapping(table: CsvTable, mapping: FieldMapping): MappingRe
         mapping.nameMode === "single"
           ? clean(cell(r, mapping.name))
           : clean([cell(r, mapping.first), cell(r, mapping.last)].filter((p) => p.trim()).join(" "));
+      let city: string | null = clean(cell(r, mapping.city)) || null;
+      let state: string | null = clean(cell(r, mapping.state)) || null;
+      if (mapping.cityState !== null) {
+        const split = splitCityState(cell(r, mapping.cityState));
+        city = split.city;
+        state = split.state;
+        if (!split.clean) locationNotSplit++;
+      }
       rows.push({
         person_name,
-        affiliation: joinRoleAndAffiliation(cell(r, mapping.role), cell(r, mapping.affiliation)),
+        affiliation: clean(cell(r, mapping.affiliation)) || null,
+        title: clean(cell(r, mapping.title)) || null,
+        city,
+        state,
         how_known: clean(cell(r, mapping.howKnown)) || sentence || null,
         notes: cell(r, mapping.notes).trim() || null,
       });
@@ -422,12 +495,20 @@ export function reduceMapping(table: CsvTable, mapping: FieldMapping): MappingRe
     notImported,
     preview: rows.filter((r) => r.person_name).slice(0, NETWORK_PREVIEW_ROWS),
     canImport: blockers.length === 0,
+    locationNotSplit,
+    locationNotice: locationNoticeSentence(locationNotSplit),
   };
 }
 
 // ---------------------------------------------------------------------------
 // Classifying rows (shared by the page's preview and the server action)
 // ---------------------------------------------------------------------------
+
+// The plain sentence for combined City, state cells that could not be split.
+export function locationNoticeSentence(notSplit: number): string | null {
+  if (notSplit <= 0) return null;
+  return `${notSplit} ${notSplit === 1 ? "value in the combined City, state column" : "values in the combined City, state column"} could not be split at a comma into a city and a state (there was no comma, or nothing on one side of it), so the whole text was put in City and no State was recorded for ${notSplit === 1 ? "that person" : "those people"}. Check the preview, or use separate City and State columns.`;
+}
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -460,6 +541,9 @@ export function isTooLong(r: MappedRow): boolean {
   return (
     r.person_name.length > NETWORK_NAME_MAX ||
     (r.affiliation ?? "").length > NETWORK_AFFILIATION_MAX ||
+    (r.title ?? "").length > NETWORK_TITLE_MAX ||
+    (r.city ?? "").length > NETWORK_CITY_MAX ||
+    (r.state ?? "").length > NETWORK_STATE_MAX ||
     (r.how_known ?? "").length > NETWORK_HOW_KNOWN_MAX ||
     (r.notes ?? "").length > NETWORK_NOTES_MAX
   );
@@ -476,6 +560,9 @@ export function classifyImportRows(
     const row: MappedRow = {
       person_name: raw.person_name.trim(),
       affiliation: raw.affiliation?.trim() || null,
+      title: raw.title?.trim() || null,
+      city: raw.city?.trim() || null,
+      state: raw.state?.trim() || null,
       how_known: raw.how_known?.trim() || null,
       notes: raw.notes?.trim() || null,
     };
@@ -488,7 +575,11 @@ export function classifyImportRows(
       continue;
     }
     const key = connectionKey(row.person_name, row.affiliation);
-    if (existing.has(key)) {
+    // People imported before the title was its own fact were recorded with
+    // "Role, Affiliation" in the affiliation; the same file imported again must
+    // still find them, not add them a second time.
+    const legacyKey = row.title ? connectionKey(row.person_name, joinRoleAndAffiliation(row.title, row.affiliation ?? "")) : null;
+    if (existing.has(key) || (legacyKey !== null && existing.has(legacyKey))) {
       counts.duplicateExisting++;
       continue;
     }
@@ -507,7 +598,7 @@ export function classifyImportRows(
 // The server's view of the request: treat the client as hostile
 // ---------------------------------------------------------------------------
 
-const ROW_KEYS = ["affiliation", "how_known", "notes", "person_name"] as const;
+const ROW_KEYS = ["affiliation", "city", "how_known", "notes", "person_name", "state", "title"] as const;
 
 export type ParsedImportRequest = { error: string } | { rows: MappedRow[]; strength: string | null };
 
@@ -542,12 +633,15 @@ export function parseImportRequest(rowsRaw: unknown, optionsRaw: unknown, requir
       return { error: `Row ${i + 1} carried fields this import does not accept. Nothing was imported.` };
     }
     if (typeof r.person_name !== "string") return { error: `Row ${i + 1} was not understood. Nothing was imported.` };
-    for (const k of ["affiliation", "how_known", "notes"] as const) {
+    for (const k of ["affiliation", "title", "city", "state", "how_known", "notes"] as const) {
       if (r[k] !== null && typeof r[k] !== "string") return { error: `Row ${i + 1} was not understood. Nothing was imported.` };
     }
     rows.push({
       person_name: r.person_name,
       affiliation: r.affiliation as string | null,
+      title: r.title as string | null,
+      city: r.city as string | null,
+      state: r.state as string | null,
       how_known: r.how_known as string | null,
       notes: r.notes as string | null,
     });

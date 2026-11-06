@@ -297,7 +297,11 @@ const modelCallers = sourceFiles
 // invokes them (research, research_verify, strategy), which is where one
 // user-perceived run lives. Everything else calling the model must carry
 // its own beginRun.
-const HELPER_FILES = ["lib/ai/funder-search.ts", "lib/ai/research-extract.ts", "lib/ai/research-verify.ts"].sort();
+// lib/ai/person-search.ts (STATE item 107 slice A, ruling 0044) is a helper like
+// the three research ones: it makes the model calls, and the OPERATION that
+// invokes it (network_identity, in app/(dashboard)/network/identity-actions.ts)
+// is where the run is born and finalized.
+const HELPER_FILES = ["lib/ai/funder-search.ts", "lib/ai/research-extract.ts", "lib/ai/research-verify.ts", "lib/ai/person-search.ts"].sort();
 const INSTRUMENTED_FILES = [
   "app/(dashboard)/discovery/search/actions.ts",
   "app/(dashboard)/organization/channel-fit/actions.ts",
@@ -365,12 +369,19 @@ ok(
 
 // The helper-calling operations too: research-actions.ts holds runResearch
 // and verifyRunClaims, which reach the model through the helpers.
-const OPERATION_FILES = [...INSTRUMENTED_FILES, "app/(dashboard)/prospects/[id]/research-actions.ts", ...PROVIDER_INSTRUMENTED_FILES];
+const OPERATION_FILES = [
+  ...INSTRUMENTED_FILES,
+  "app/(dashboard)/prospects/[id]/research-actions.ts",
+  // network_identity reaches the model through findPersonCandidates.
+  "app/(dashboard)/network/identity-actions.ts",
+  ...PROVIDER_INSTRUMENTED_FILES,
+];
 const MODEL_CALL_TOKENS = [
   "await anthropic.messages.create",
   "await searchFunderWeb(",
   "await extractResearchClaims(",
   "await verifyResearchClaims(",
+  "await findPersonCandidates(",
   // The assistant's loop is the only code that reaches the provider.
   "await runAssistantLoop(",
 ];

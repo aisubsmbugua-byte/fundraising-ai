@@ -277,8 +277,9 @@ export default function ImportWorkspace() {
               <summary style={{ cursor: "pointer" }}>How suggestions are made</summary>
               <p style={{ margin: `${spacing.xs}px 0 0` }}>
                 A heading is pre-selected only when it is exactly one of these (ignoring capitals and punctuation). Name: {HEADING_ALIASES.name.join(", ")}. First name:{" "}
-                {HEADING_ALIASES.first.join(", ")}. Last name: {HEADING_ALIASES.last.join(", ")}. Affiliation: {HEADING_ALIASES.affiliation.join(", ")}. Role or title:{" "}
-                {HEADING_ALIASES.role.join(", ")}. How you know them: {HEADING_ALIASES.howKnown.join(", ")}. Notes: {HEADING_ALIASES.notes.join(", ")}.
+                {HEADING_ALIASES.first.join(", ")}. Last name: {HEADING_ALIASES.last.join(", ")}. Affiliation: {HEADING_ALIASES.affiliation.join(", ")}. Title:{" "}
+                {HEADING_ALIASES.title.join(", ")}. City: {HEADING_ALIASES.city.join(", ")}. State: {HEADING_ALIASES.state.join(", ")}. City and state together:{" "}
+                {HEADING_ALIASES.cityState.join(", ")}. How you know them: {HEADING_ALIASES.howKnown.join(", ")}. Notes: {HEADING_ALIASES.notes.join(", ")}.
               </p>
             </details>
 
@@ -308,14 +309,26 @@ export default function ImportWorkspace() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: spacing.md }}>
               <ColumnSelect label="Where they work or serve (optional)" value={mapping.affiliation} onChange={(v) => set("affiliation", v)} columns={options} placeholder="Not imported" />
               <ColumnSelect
-                label="Role or title (optional)"
-                hint="Joined to the affiliation as “Role, Affiliation” — or just the role when there is no affiliation."
-                value={mapping.role}
-                onChange={(v) => set("role", v)}
+                label="Title or role (optional)"
+                hint="Kept as the person's title, separately from where they work."
+                value={mapping.title}
+                onChange={(v) => set("title", v)}
                 columns={options}
                 placeholder="Not imported"
               />
               <ColumnSelect label="Notes (optional)" hint="Notes are shared with the AI service when paths are looked for." value={mapping.notes} onChange={(v) => set("notes", v)} columns={options} placeholder="Not imported" />
+            </div>
+
+            <div style={{ display: "grid", gap: spacing.sm }}>
+              <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted, maxWidth: 680 }}>
+                Where they live helps tell this person from others with the same name. Use separate City and State columns, or one column that holds both (such as
+                &ldquo;Austin, TX&rdquo;) — not both. A combined column is split at its last comma; a value with no comma is put whole into City, and this page tells you how many.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: spacing.md }}>
+                <ColumnSelect label="City (optional)" value={mapping.city} onChange={(v) => set("city", v)} columns={options} placeholder="Not imported" />
+                <ColumnSelect label="State or region (optional)" value={mapping.state} onChange={(v) => set("state", v)} columns={options} placeholder="Not imported" />
+                <ColumnSelect label="City and state together (optional)" value={mapping.cityState} onChange={(v) => set("cityState", v)} columns={options} placeholder="Not imported" />
+              </div>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: spacing.md }}>
@@ -380,6 +393,9 @@ export default function ImportWorkspace() {
                   <div key={i} style={cardStyle}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{p.person_name}</div>
                     <div style={{ fontSize: 13, color: colors.textMuted }}>{p.affiliation ?? "(no affiliation)"}</div>
+                    <div style={{ fontSize: 13, color: colors.textMuted }}>
+                      Title: {p.title ?? "(none)"} · City: {p.city ?? "(none)"} · State: {p.state ?? "(none)"}
+                    </div>
                     <div style={{ fontSize: 13 }}>
                       <span style={{ color: colors.textMuted }}>How you know them: </span>
                       {p.how_known ?? "(not recorded)"} ·{" "}
@@ -412,6 +428,8 @@ export default function ImportWorkspace() {
                 {check.status === "error" && check.payload === payload && <p style={{ color: colors.danger, margin: `${spacing.xs}px 0 0` }}>{check.message}</p>}
               </div>
             )}
+
+            {reduced.locationNotice && <p style={{ margin: 0, fontSize: 13, color: colors.warning }}>{reduced.locationNotice}</p>}
 
             {reduced.blockers.length > 0 && (
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: colors.danger, display: "grid", gap: 2 }}>
@@ -462,7 +480,10 @@ function suggestionList(table: CsvTable, m: FieldMapping): string[] {
   if (m.nameMode === "single" && m.name !== null) out.push(`“${label(m.name)}” for Name`);
   if (m.nameMode === "split") out.push(`“${label(m.first)}” and “${label(m.last)}” for First and Last name`);
   if (m.affiliation !== null) out.push(`“${label(m.affiliation)}” for Where they work or serve`);
-  if (m.role !== null) out.push(`“${label(m.role)}” for Role or title`);
+  if (m.title !== null) out.push(`“${label(m.title)}” for Title or role`);
+  if (m.city !== null) out.push(`“${label(m.city)}” for City`);
+  if (m.state !== null) out.push(`“${label(m.state)}” for State or region`);
+  if (m.cityState !== null) out.push(`“${label(m.cityState)}” for City and state together`);
   if (m.howKnown !== null) out.push(`“${label(m.howKnown)}” for How you know them`);
   if (m.notes !== null) out.push(`“${label(m.notes)}” for Notes`);
   return out;

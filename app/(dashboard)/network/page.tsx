@@ -3,7 +3,13 @@ import { spacing, colors, type as typeScale } from "@/lib/ui";
 import type { NetworkConnection } from "@/lib/network";
 import { NETWORK_PAGE_SIZE, normalizeSearch, pageWindow, parsePage, searchOrFilter } from "@/lib/network-list";
 import { countConnections } from "@/lib/network-store";
-import NetworkWorkspace from "./network-workspace";
+import { countIdentityStates, loadIdentityContext } from "@/lib/network-identity-store";
+import NetworkWorkspace, { type IdentityPageData } from "./network-workspace";
+
+// A look at one person (their "Find matches" button) is a web search plus a
+// model call and runs inside this page's request; the same budget the prospect
+// page gives its longest actions.
+export const maxDuration = 450;
 
 // One page of people at a time (STATE item 103): an exact total, an exact
 // count of those matching the search, then only the requested page -- never
@@ -32,6 +38,20 @@ export default async function NetworkPage({ searchParams }: { searchParams: { q?
     else connections = data ?? [];
   }
 
+  // Who each person on this page is (ruling 0044): candidate counts, which were
+  // looked at with nothing found, and the summary counts. All of it tolerates a
+  // database without migration 0083 -- the identity controls are then hidden.
+  const counts = failed ? null : await countIdentityStates(supabase);
+  let identity: IdentityPageData = { available: counts !== null, counts, byId: {} };
+  if (identity.available && connections.length > 0) {
+    const ctx = await loadIdentityContext(supabase, connections.map((c) => c.id));
+    if (ctx.available) {
+      const byId: IdentityPageData["byId"] = {};
+      for (const c of connections) byId[c.id] = { candidateCount: ctx.candidateCounts.get(c.id) ?? 0, lookedEmpty: ctx.lookedEmpty.has(c.id) };
+      identity = { ...identity, byId };
+    } else identity = { available: false, counts: null, byId: {} };
+  }
+
   return (
     <div>
       <h1 style={{ fontSize: typeScale.pageTitle }}>Network</h1>
@@ -45,7 +65,7 @@ export default async function NetworkPage({ searchParams }: { searchParams: { q?
           Could not load your network just now. If this is a new install, the network tables may not be set up yet.
         </p>
       ) : (
-        <NetworkWorkspace connections={connections} totalRecorded={totalRecorded ?? 0} matching={matching ?? 0} q={q} window={win} />
+        <NetworkWorkspace connections={connections} totalRecorded={totalRecorded ?? 0} matching={matching ?? 0} q={q} window={win} identity={identity} />
       )}
     </div>
   );
