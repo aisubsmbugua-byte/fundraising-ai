@@ -1,34 +1,26 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { spacing, colors, type as typeScale } from "@/lib/ui";
-import {
-  IDENTITY_BULK_CAP,
-  IDENTITY_STATE_LABEL,
-  agreementFor,
-  evidenceItems,
-  evidenceLine,
-  identityState,
-  planBulkLook,
-  preselectedCandidate,
-  type IdentityFacts,
-  type IdentityState,
-} from "@/lib/network-identity";
+import { identityState, planBulkLook, type IdentityState } from "@/lib/network-identity";
+import { STRONG_MATCHES_PER_SCREEN, buildReviewPerson, type ReviewPerson, type StateCounts } from "@/lib/network-identity-flow";
 import { loadIdentityOverview } from "@/lib/network-identity-store";
 import { pageWindow, parsePage } from "@/lib/network-list";
-import IdentityWorkspace, { type ReviewPerson, type StateCounts } from "./identity-workspace";
+import IdentityWorkspace from "./identity-workspace";
 
-// A look is a web search plus a model call run inside this page's request, and
-// "Find matches for everyone" runs up to IDENTITY_BULK_CAP of them; this is the
-// same budget the prospect page gives its longest actions.
+// A look is a web search plus a model call run inside this page's request (one
+// person per request: the "Look up more people" button calls the single-person
+// action from the browser, one call at a time); this is the same budget the
+// prospect page gives its longest actions.
 export const maxDuration = 450;
 
 const REVIEW_PAGE_SIZE = 20;
 
-// Who is who (STATE item 107 slice A, ruling 0044 clause 2). One screen where a
-// human says, for each recorded person, which candidate is the real one -- or
-// that none is -- with the evidence for each laid out beside it. Nothing here
-// confirms anything on its own: a preselected candidate is only a default
-// highlight until a human clicks.
+// Confirm your network (STATE item 107 slice A and item 109, ruling 0044 clause
+// 2). The one screen where a human says, for each recorded person, which
+// candidate is the real one -- or that none is -- with the evidence for each laid
+// out beside it, opening straight to the work with a one-line status on top.
+// Nothing here confirms anything on its own: a preselected candidate is only a
+// default highlight until a human clicks.
 export default async function IdentityPage({ searchParams }: { searchParams: { page?: string } }) {
   const supabase = createClient();
   const overview = await loadIdentityOverview(supabase);
@@ -40,7 +32,7 @@ export default async function IdentityPage({ searchParams }: { searchParams: { p
           ← Back to Network
         </Link>
       </p>
-      <h1 style={{ fontSize: typeScale.pageTitle, marginTop: spacing.xs }}>Who is who</h1>
+      <h1 style={{ fontSize: typeScale.pageTitle, marginTop: spacing.xs }}>Confirm your network</h1>
     </>
   );
 
@@ -68,44 +60,19 @@ export default async function IdentityPage({ searchParams }: { searchParams: { p
     tally[st]++;
   }
 
+  // Everyone with candidates waiting for a human, in the order recorded. People
+  // with exactly one strong (preselected) match are listed in full on the screen
+  // with the match that would be used; the rest are paged for an individual choice.
   const toReview: ReviewPerson[] = [];
   for (const p of overview.people) {
     if (stateOf.get(p.id) !== "candidates") continue;
-    const facts: IdentityFacts = { person_name: p.person_name, affiliation: p.affiliation, title: p.title, city: p.city, state: p.state };
-    const cands = overview.candidates.get(p.id) ?? [];
-    const pre = preselectedCandidate(cands, facts);
-    toReview.push({
-      id: p.id,
-      name: p.person_name,
-      affiliation: p.affiliation,
-      title: p.title,
-      city: p.city,
-      state: p.state,
-      preselectedId: pre?.id ?? null,
-      candidates: cands.map((c) => {
-        const { agreement, recomputed } = agreementFor(c, facts);
-        return {
-          id: c.id,
-          label: c.label,
-          headline: c.headline,
-          locationText: c.location_text,
-          sourceUrl: c.source_url,
-          sourceTitle: c.source_title,
-          evidence: evidenceItems(agreement),
-          evidenceLine: evidenceLine(agreement),
-          labelSupported: agreement.model_text.label,
-          headlineSupported: agreement.model_text.headline,
-          recomputed,
-        };
-      }),
-    });
+    toReview.push(buildReviewPerson(p, overview.candidates.get(p.id) ?? []));
   }
-  // People with a preselected candidate come first, then the rest, each in the
-  // order they were recorded; the batch panel lists ALL preselected people
-  // regardless of which page of cards is showing.
-  const preselected = toReview.filter((r) => r.preselectedId !== null);
-  const win = pageWindow(parsePage(searchParams.page), toReview.length, REVIEW_PAGE_SIZE);
-  const pageItems = toReview.slice(win.from, toReview.length === 0 ? 0 : win.to + 1);
+  const allStrong = toReview.filter((r) => r.preselectedId !== null);
+  const strong = allStrong.slice(0, STRONG_MATCHES_PER_SCREEN);
+  const others = toReview.filter((r) => r.preselectedId === null);
+  const win = pageWindow(parsePage(searchParams.page), others.length, REVIEW_PAGE_SIZE);
+  const pageItems = others.slice(win.from, others.length === 0 ? 0 : win.to + 1);
 
   const plan = planBulkLook(overview.people, candidateCounts, overview.lookedEmpty);
 
@@ -122,11 +89,10 @@ export default async function IdentityPage({ searchParams }: { searchParams: { p
         totalRecorded={overview.people.length}
         eligible={plan.eligible.length}
         skipped={plan.skipped}
-        cap={IDENTITY_BULK_CAP}
-        stateLabels={IDENTITY_STATE_LABEL}
-        preselected={preselected}
-        people={pageItems}
-        paging={{ page: win.page, totalPages: win.totalPages, first: win.first, last: win.last, total: toReview.length }}
+        strong={strong}
+        strongTotal={allStrong.length}
+        others={pageItems}
+        paging={{ page: win.page, totalPages: win.totalPages, first: win.first, last: win.last, total: others.length }}
       />
     </div>
   );

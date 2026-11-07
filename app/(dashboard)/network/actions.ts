@@ -58,7 +58,12 @@ function validate(input: ConnectionInput): { error: string } | null {
   return null;
 }
 
-export async function addConnection(input: ConnectionInput): Promise<Result> {
+// The new person's id comes back so the page can look for their matches (item
+// 109). Returning it confers nothing: a look is a separate action, refused in
+// code for anyone who may not be looked at.
+export type AddResult = { error: string } | { success: true; id: string | null };
+
+export async function addConnection(input: ConnectionInput): Promise<AddResult> {
   try {
     const user = await requireUser();
     const invalid = validate(input);
@@ -68,7 +73,7 @@ export async function addConnection(input: ConnectionInput): Promise<Result> {
     const city = blankToNull(input.city ?? "");
     const state = blankToNull(input.state ?? "");
     const markedOff = input.do_not_research === true;
-    const { error } = await supabase.from("network_connections").insert({
+    const { data: created, error } = await supabase.from("network_connections").insert({
       // recorded_by comes from the verified session, never from the request.
       recorded_by: user.id,
       person_name: input.person_name.trim(),
@@ -80,10 +85,10 @@ export async function addConnection(input: ConnectionInput): Promise<Result> {
       how_known: blankToNull(input.how_known),
       strength: input.strength,
       notes: blankToNull(input.notes),
-    });
+    }).select("id").single();
     if (error) return { error: error.message };
     revalidatePath("/network");
-    return { success: true };
+    return { success: true, id: typeof created?.id === "string" ? created.id : null };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save that person." };
   }

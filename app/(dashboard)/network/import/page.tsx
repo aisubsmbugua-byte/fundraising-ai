@@ -2,6 +2,12 @@ import Link from "next/link";
 import { spacing, colors, type as typeScale } from "@/lib/ui";
 import ImportWorkspace from "./import-workspace";
 
+// The "Confirm your network" button on this page runs one look at a time through
+// a server action, which inherits this route's time limit (STATE item 109): a
+// single look is a web search plus a selection, up to about three minutes, so the
+// limit is raised the same as on /network and /network/identity.
+export const maxDuration = 450;
+
 // Import people from any list the organization already holds (STATE item 103,
 // ruling 0040). The file is read in the browser; nothing leaves it until the
 // person has mapped the columns, chosen a strength and seen what will happen.

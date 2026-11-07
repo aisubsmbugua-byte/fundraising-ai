@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { importConnections, previewConnectionImport, type ImportResult } from "../import-actions";
+import { loadLookupQueue } from "../identity-actions";
+import LookupRunner from "../identity/lookup-runner";
 import { CONNECTION_STRENGTHS, NETWORK_IMPORT_DISCLOSURE } from "@/lib/network";
 import {
   EMPTY_MAPPING,
@@ -75,6 +77,10 @@ export default function ImportWorkspace() {
   const [suggested, setSuggested] = useState<string[]>([]);
   const [check, setCheck] = useState<Check>({ status: "idle" });
   const [result, setResult] = useState<ImportResult | null>(null);
+  // How many people are waiting to be looked up once an import has finished (a
+  // READ; nothing is looked up by importing -- the person clicks "Confirm your
+  // network", and that click is the consent).
+  const [waiting, setWaiting] = useState<number | null>(null);
   const [importedColumns, setImportedColumns] = useState<string[] | null>(null);
   const [notImportedAtRun, setNotImportedAtRun] = useState<string[]>([]);
   // Bumped after an import attempt so the duplicate check is asked again: the
@@ -174,8 +180,13 @@ export default function ImportWorkspace() {
     setImportedColumns(columns.filter((c) => !reduced.notImported.some((n) => n.index === c.index)).map((c) => c.label));
     startTransition(async () => {
       try {
-        setResult(await importConnections(rows, { strength: mapping.strength }));
+        const imported = await importConnections(rows, { strength: mapping.strength });
+        setResult(imported);
         setCheckNonce((n) => n + 1);
+        if ("success" in imported) {
+          const queue = await loadLookupQueue();
+          setWaiting("success" in queue ? queue.eligible : null);
+        }
       } catch {
         setResult({ error: "The import could not be completed, and it is not known how much of it was written. Check the Network page before trying again." });
         setCheckNonce((n) => n + 1);
@@ -459,7 +470,14 @@ export default function ImportWorkspace() {
                 </p>
                 {notImportedAtRun.length > 0 && <p style={{ margin: `${spacing.xs}px 0 0` }}>Columns that were not imported: {notImportedAtRun.join("; ")}.</p>}
                 {importedColumns && <p style={{ margin: `${spacing.xs}px 0 0`, color: colors.textMuted }}>Columns used: {importedColumns.join("; ")}.</p>}
-                <p style={{ margin: `${spacing.xs}px 0 0` }}>
+                <div style={{ marginTop: spacing.md, display: "grid", gap: spacing.sm }}>
+                  <p style={{ margin: 0 }}>
+                    <strong>Nothing has been looked up.</strong> To find out who these people really are, so you can confirm them, click the button. That is your choice to make, because
+                    looking each person up costs one AI run.
+                  </p>
+                  <LookupRunner eligible={waiting} navigateWhenDone />
+                </div>
+                <p style={{ margin: `${spacing.sm}px 0 0` }}>
                   <Link href="/network" style={{ color: colors.text }}>
                     See them on the Network page
                   </Link>

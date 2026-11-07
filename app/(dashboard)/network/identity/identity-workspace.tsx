@@ -1,205 +1,104 @@
 "use client";
 
+// The single review screen (STATE item 109, ruling 0044 clause 2): it opens
+// straight to the work. A compact status line replaces the old "where everyone
+// stands" step; people whose page text contained their name, their employer or
+// title, and their place are listed with the match that would be used, and ONE
+// button, "Confirm your network (N)", confirms them. People without a strong
+// match stay below for an individual choice. A preselected match is a default
+// highlight only: nobody is confirmed until a human clicks that button (or the
+// confirm button on a person's own card), and the server re-derives the
+// preselection from stored data before it confirms anything.
+
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import {
-  confirmIdentity,
-  confirmPreselectedIdentities,
-  findIdentityCandidates,
-  findIdentityCandidatesForUnidentified,
-  markNoneOfThese,
-  setDoNotResearch,
-} from "../identity-actions";
-import { type EvidenceItem, type IdentityState } from "@/lib/network-identity";
+import { confirmPreselectedIdentities } from "../identity-actions";
+import LookupRunner from "./lookup-runner";
+import { Evidence, PersonCard, RecordedFacts, SourceLink } from "./person-card";
+import { LOOK_REFUSAL_LABEL, type IdentityState, type LookRefusalCode } from "@/lib/network-identity";
+import { statusLineParts, strongMatchPairs, type ReviewPerson, type StateCounts } from "@/lib/network-identity-flow";
 import { spacing, colors, buttonPrimary, buttonSecondary, sectionStyle, cardStyle, chipStyle } from "@/lib/ui";
 
-export type ReviewCandidate = {
-  id: string;
-  label: string;
-  headline: string | null;
-  locationText: string | null;
-  sourceUrl: string;
-  sourceTitle: string | null;
-  evidence: EvidenceItem[];
-  evidenceLine: string;
-  // Whether the captured text supports the words the AI wrote (null = nothing to test).
-  labelSupported: boolean;
-  headlineSupported: boolean | null;
-  // True when the stored comparison was out of date (the person was edited after
-  // the look) and was worked out again from the stored page text.
-  recomputed: boolean;
+export type { ReviewCandidate, ReviewPerson, StateCounts } from "@/lib/network-identity-flow";
+
+const TONE: Record<IdentityState, "teal" | "amber" | "red" | "neutral"> = {
+  not_looked_at: "neutral",
+  no_candidates_found: "neutral",
+  candidates: "amber",
+  confirmed: "teal",
+  none_of_these: "neutral",
+  do_not_research: "red",
 };
 
-export type ReviewPerson = {
-  id: string;
-  name: string;
-  affiliation: string | null;
-  title: string | null;
-  city: string | null;
-  state: string | null;
-  preselectedId: string | null;
-  candidates: ReviewCandidate[];
-};
+// Why some people cannot be looked up at all matters to the person deciding what
+// to fix: a name on its own is the one the owner can do something about.
+const WORTH_SAYING: LookRefusalCode[] = ["too_few_facts", "no_name"];
 
-export type StateCounts = Record<IdentityState, number>;
-
-const MARK_COLOR = { found: colors.success, not_found: colors.warning, not_recorded: colors.textFaint } as const;
-
-function Evidence({ items, line }: { items: EvidenceItem[]; line: string }) {
-  return (
-    <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 12.5, lineHeight: 1.6 }} aria-label={line}>
-      {items.map((e, i) => (
-        <span key={e.key} style={{ whiteSpace: "nowrap" }}>
-          {i > 0 && <span style={{ color: colors.textFaint }}> · </span>}
-          <span style={{ color: colors.textMuted }}>{e.label} </span>
-          <span style={{ color: MARK_COLOR[e.value], fontWeight: 600 }}>{e.mark} </span>
-          <span style={{ color: MARK_COLOR[e.value] }}>{e.text}</span>
-        </span>
-      ))}
-    </p>
-  );
-}
-
-function RecordedFacts({ p }: { p: ReviewPerson }) {
-  const where = [p.city, p.state].filter(Boolean).join(", ");
-  return (
-    <div style={{ fontSize: 13, color: colors.textMuted }}>
-      {[p.affiliation, p.title, where].filter(Boolean).join(" · ") || "(no employer, title or place recorded)"}
-    </div>
-  );
-}
-
-function CandidateBody({ c, suggested }: { c: ReviewCandidate; suggested: boolean }) {
-  return (
-    <div style={{ minWidth: 0, flex: 1 }}>
-      <div style={{ display: "flex", gap: spacing.sm, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span>
-        {suggested && <span style={chipStyle("teal")}>Suggested — please check</span>}
+function StrongRow({
+  p,
+  included,
+  choosing,
+  onInclude,
+  onChoose,
+  disabled,
+}: {
+  p: ReviewPerson;
+  included: boolean;
+  choosing: boolean;
+  onInclude: (v: boolean) => void;
+  onChoose: (v: boolean) => void;
+  disabled: boolean;
+}) {
+  const c = p.candidates.find((x) => x.id === p.preselectedId);
+  if (!c) return null;
+  if (choosing) {
+    return (
+      <div style={{ display: "grid", gap: spacing.xs }}>
+        <PersonCard p={p} />
+        <div>
+          <button type="button" style={buttonSecondary} disabled={disabled} onClick={() => onChoose(false)}>
+            Back to the suggested match
+          </button>
+        </div>
       </div>
-      {c.headline && <div style={{ fontSize: 13 }}>{c.headline}</div>}
-      {c.locationText && <div style={{ fontSize: 13, color: colors.textMuted }}>{c.locationText}</div>}
-      <div style={{ fontSize: 12.5, marginTop: 2, wordBreak: "break-word" }}>
-        <span style={{ color: colors.textMuted }}>Found on: </span>
-        <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" style={{ color: colors.text }}>
-          {c.sourceTitle || c.sourceUrl}
-        </a>
-      </div>
-      <Evidence items={c.evidence} line={c.evidenceLine} />
-      {(!c.labelSupported || c.headlineSupported === false) && (
-        <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 12, color: colors.warning }}>
-          {!c.labelSupported ? "The name shown is the AI's reading of the page and was not found word for word in the text that was captured. " : ""}
-          {c.headlineSupported === false ? "The description above uses words that were not found in the captured text. " : ""}
-          Check the source before choosing.
-        </p>
-      )}
-      {c.recomputed && (
-        <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 12, color: colors.textMuted }}>
-          This person&apos;s details were edited after the look, so the comparison above was worked out again from the captured text.
-        </p>
-      )}
-    </div>
-  );
-}
-
-const NONE = "__none__";
-
-function PersonCard({ p }: { p: ReviewPerson }) {
-  const [choice, setChoice] = useState<string>(p.preselectedId ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-
-  const submit = () => {
-    if (!choice) return;
-    setError(null);
-    setNotice(null);
-    startTransition(async () => {
-      const result = choice === NONE ? await markNoneOfThese(p.id) : await confirmIdentity(p.id, choice);
-      if ("error" in result) setError(result.error);
-    });
-  };
-
+    );
+  }
   return (
-    <div style={cardStyle} id={`person-${p.id}`}>
-      <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
-      <RecordedFacts p={p} />
-      <fieldset style={{ border: "none", padding: 0, margin: `${spacing.md}px 0 0`, display: "grid", gap: spacing.sm }}>
-        <legend style={{ fontSize: 12.5, color: colors.textMuted, padding: 0, marginBottom: spacing.xs }}>Which of these is {p.name}?</legend>
-        {p.candidates.map((c) => (
-          <label
-            key={c.id}
-            style={{
-              display: "flex",
-              gap: spacing.sm,
-              alignItems: "flex-start",
-              padding: spacing.sm,
-              border: `1px solid ${choice === c.id ? colors.primary : colors.border}`,
-              borderRadius: 6,
-              cursor: "pointer",
-              boxSizing: "border-box",
-            }}
-          >
-            <input type="radio" name={`choice-${p.id}`} value={c.id} checked={choice === c.id} onChange={() => setChoice(c.id)} style={{ marginTop: 3 }} />
-            <CandidateBody c={c} suggested={p.preselectedId === c.id} />
-          </label>
-        ))}
-        <label
-          style={{
-            display: "flex",
-            gap: spacing.sm,
-            alignItems: "center",
-            padding: spacing.sm,
-            border: `1px solid ${choice === NONE ? colors.primary : colors.border}`,
-            borderRadius: 6,
-            cursor: "pointer",
-            boxSizing: "border-box",
-          }}
-        >
-          <input type="radio" name={`choice-${p.id}`} value={NONE} checked={choice === NONE} onChange={() => setChoice(NONE)} />
-          <span style={{ fontSize: 14 }}>None of these</span>
-          <span style={{ fontSize: 12.5, color: colors.textMuted }}>— recorded, and this person is not looked up again unless you reset them</span>
-        </label>
-      </fieldset>
-      <p style={{ margin: `${spacing.sm}px 0 0`, fontSize: 12, color: colors.textMuted }}>
-        &ldquo;Not found in source&rdquo; means the text that was captured from the page did not contain it. The captured text is often only a short snippet, so
-        that is not proof the page disagrees; open the source to be sure.
-      </p>
-      {error && <p style={{ color: colors.danger, fontSize: 13, margin: `${spacing.sm}px 0 0` }}>{error}</p>}
-      {notice && <p style={{ fontSize: 13, margin: `${spacing.sm}px 0 0` }}>{notice}</p>}
-      <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md, flexWrap: "wrap" }}>
-        <button type="button" style={buttonPrimary} disabled={isPending || !choice} onClick={submit}>
-          {isPending ? "Saving…" : choice === NONE ? "Record: none of these" : "Confirm this is the person"}
+    <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2, opacity: included ? 1 : 0.7 }} id={`person-${p.id}`}>
+      <div style={{ display: "flex", gap: spacing.sm, alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: spacing.sm, alignItems: "flex-start", minWidth: 0 }}>
+          <input
+            type="checkbox"
+            checked={included}
+            onChange={(e) => onInclude(e.target.checked)}
+            aria-label={`Include ${p.name} when I confirm my network`}
+            style={{ marginTop: 4, cursor: "pointer", flexShrink: 0 }}
+          />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap", alignItems: "baseline" }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+              <RecordedFacts p={p} />
+            </div>
+          </div>
+        </div>
+        <button type="button" style={{ ...buttonSecondary, fontSize: 13, padding: "6px 10px" }} disabled={disabled} onClick={() => onChoose(true)}>
+          Choose a different match
         </button>
-        <button
-          type="button"
-          style={buttonSecondary}
-          disabled={isPending}
-          onClick={() => {
-            setError(null);
-            setNotice(null);
-            startTransition(async () => {
-              const result = await findIdentityCandidates(p.id);
-              if ("error" in result) setError(result.error);
-              else setNotice(result.message);
-            });
-          }}
-        >
-          Look again
-        </button>
-        <button
-          type="button"
-          style={buttonSecondary}
-          disabled={isPending}
-          onClick={() => {
-            setError(null);
-            startTransition(async () => {
-              const result = await setDoNotResearch([p.id], true);
-              if ("error" in result) setError(result.error);
-            });
-          }}
-        >
-          Do not research this person
-        </button>
+      </div>
+      <div style={{ fontSize: 13, paddingLeft: 26 }}>
+        <span style={{ color: colors.textMuted }}>will be confirmed as: </span>
+        <strong>{c.label}</strong>
+        {c.headline ? ` — ${c.headline}` : ""}
+        {c.locationText ? ` — ${c.locationText}` : ""}
+      </div>
+      <div style={{ paddingLeft: 26 }}>
+        <SourceLink c={c} />
+        <Evidence items={c.evidence} line={c.evidenceLine} />
+        {(!c.labelSupported || c.headlineSupported === false) && (
+          <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 12, color: colors.warning }}>
+            Some of the words shown here were not found word for word in the captured text. Check the source before you confirm.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -210,158 +109,120 @@ export default function IdentityWorkspace({
   totalRecorded,
   eligible,
   skipped,
-  cap,
-  stateLabels,
-  preselected,
-  people,
+  strong,
+  strongTotal,
+  others,
   paging,
 }: {
   counts: StateCounts;
   totalRecorded: number;
   eligible: number;
   skipped: { code: string; label: string; count: number }[];
-  cap: number;
-  stateLabels: Record<IdentityState, string>;
-  preselected: ReviewPerson[];
-  people: ReviewPerson[];
+  // People with exactly one strong match: shown with the match that would be used.
+  strong: ReviewPerson[];
+  // How many strong matches there are in all (the screen lists a limited number at a time).
+  strongTotal: number;
+  // People with candidates but no strong match: one page of them, for a choice.
+  others: ReviewPerson[];
   paging: { page: number; totalPages: number; first: number; last: number; total: number };
 }) {
-  const [bulkResult, setBulkResult] = useState<string | null>(null);
-  const [bulkError, setBulkError] = useState<string | null>(null);
-  const [batchOpen, setBatchOpen] = useState(false);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [choosing, setChoosing] = useState<Set<string>>(new Set());
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const runBulk = () => {
-    setBulkResult(null);
-    setBulkError(null);
-    startTransition(async () => {
-      const result = await findIdentityCandidatesForUnidentified();
-      if ("error" in result) setBulkError(result.error);
-      else setBulkResult(result.message);
-    });
+  const flip = (set: Set<string>, setter: (s: Set<string>) => void, id: string, on: boolean) => {
+    const next = new Set(set);
+    if (on) next.add(id);
+    else next.delete(id);
+    setter(next);
   };
 
-  const runBatch = () => {
+  // Who "Confirm your network" would confirm right now: every strong match the
+  // person has not unticked or opened for a different choice.
+  const pairs = strongMatchPairs(strong, new Set([...excluded, ...choosing]));
+
+  // A human click, and nothing else, posts the pairs.
+  const confirmNetwork = () => {
     setBatchResult(null);
     setBatchError(null);
-    const pairs = preselected.map((p) => ({ personId: p.id, candidateId: p.preselectedId as string }));
     startTransition(async () => {
       const result = await confirmPreselectedIdentities(pairs);
       if ("error" in result) setBatchError(result.error);
-      else {
-        setBatchResult(result.message);
-        setBatchOpen(false);
-      }
+      else setBatchResult(result.message);
     });
   };
 
-  const order: IdentityState[] = ["not_looked_at", "no_candidates_found", "candidates", "confirmed", "none_of_these", "do_not_research"];
+  const worthSaying = skipped.filter((s) => (WORTH_SAYING as string[]).includes(s.code));
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.xl, marginTop: spacing.lg }}>
-      <section style={sectionStyle}>
-        <h2 style={{ fontSize: 17, margin: 0 }}>Where everyone stands ({totalRecorded} recorded)</h2>
-        <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap" }}>
-          {order.map((st) => (
-            <span key={st} style={chipStyle(st === "candidates" ? "amber" : st === "confirmed" ? "teal" : st === "do_not_research" ? "red" : "neutral")}>
-              {stateLabels[st]}: {counts[st]}
+      <section style={sectionStyle} aria-label="Status">
+        <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: colors.textMuted }}>{totalRecorded} recorded:</span>
+          {statusLineParts(counts).map((part) => (
+            <span key={part.key} style={chipStyle(TONE[part.key])}>
+              {part.text}
             </span>
           ))}
         </div>
-
-        <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: spacing.md, display: "grid", gap: spacing.sm }}>
-          <div style={{ display: "flex", gap: spacing.md, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" style={buttonPrimary} disabled={isPending || eligible === 0} onClick={runBulk}>
-              {isPending ? "Looking…" : `Find matches for everyone not yet identified (${eligible})`}
-            </button>
-            <span style={{ fontSize: 12.5, color: colors.textMuted, maxWidth: 560 }}>
-              Looks at up to {cap} people per click, one at a time, each as its own AI run, and tells you how many it looked at of how many were eligible. Click
-              again to continue.
-            </span>
-          </div>
-          {skipped.length > 0 && (
-            <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
-              Not eligible, and why: {skipped.map((s) => `${s.count} ${s.label}`).join("; ")}.
-            </p>
-          )}
-          {bulkResult && <p style={{ margin: 0, fontSize: 13 }}>{bulkResult}</p>}
-          {bulkError && <p style={{ margin: 0, fontSize: 13, color: colors.danger }}>{bulkError}</p>}
-        </div>
+        {/* Always mounted, so a finished click can say what happened even when it was the last person: with nobody waiting it shows nothing. */}
+        <LookupRunner eligible={eligible} label="Look up more people" primary={false} whenNoneWaiting="nothing" />
+        {worthSaying.length > 0 && (
+          <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
+            Cannot be looked up yet: {worthSaying.map((s) => `${s.count} ${LOOK_REFUSAL_LABEL[s.code as LookRefusalCode] ?? s.label}`).join("; ")}.
+          </p>
+        )}
       </section>
 
-      {preselected.length > 0 && (
-        <section style={sectionStyle}>
+      {strong.length > 0 && (
+        <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.md }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.md, flexWrap: "wrap" }}>
             <div>
-              <h2 style={{ fontSize: 17, margin: 0 }}>Confirm all preselected ({preselected.length})</h2>
+              <h2 style={{ fontSize: 17, margin: 0 }}>Strong matches ({strongTotal > strong.length ? `${strong.length} of ${strongTotal}` : strong.length})</h2>
               <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 13, color: colors.textMuted, maxWidth: 640 }}>
-                For {preselected.length === 1 ? "this person" : "these people"} exactly one candidate&apos;s page text contained their name, their employer or title, and their city or
-                state. That is only a suggestion. Open the list, check each one, then confirm.
+                For {strong.length === 1 ? "this person" : "these people"}, exactly one candidate&apos;s page text contained their name, their employer or title, and their city or
+                state. That is only a suggestion: nobody is confirmed until you click the button. Untick anyone you want to check first, or choose a different match.
+                {strongTotal > strong.length ? ` This screen shows the first ${strong.length}; the rest appear once these are confirmed.` : ""}
               </p>
             </div>
-            <button type="button" style={buttonSecondary} onClick={() => setBatchOpen((v) => !v)} disabled={isPending}>
-              {batchOpen ? "Hide the list" : `Show the ${preselected.length} to check`}
+            <button type="button" style={buttonPrimary} disabled={isPending || pairs.length === 0} onClick={confirmNetwork}>
+              {isPending ? "Confirming…" : `Confirm your network (${pairs.length})`}
             </button>
           </div>
-          {batchOpen && (
-            <div style={{ display: "grid", gap: spacing.sm }}>
-              <p style={{ margin: 0, fontSize: 13 }}>
-                Every person below will be confirmed as the candidate shown. Nobody is confirmed until you click the button at the bottom of this list.
-              </p>
-              {preselected.map((p) => {
-                const c = p.candidates.find((x) => x.id === p.preselectedId);
-                if (!c) return null;
-                return (
-                  <div key={p.id} style={{ ...cardStyle, display: "grid", gap: 2 }}>
-                    <div style={{ display: "flex", gap: spacing.sm, flexWrap: "wrap", alignItems: "baseline" }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
-                      <RecordedFacts p={p} />
-                    </div>
-                    <div style={{ fontSize: 13 }}>
-                      <span style={{ color: colors.textMuted }}>will be confirmed as: </span>
-                      <strong>{c.label}</strong>
-                      {c.headline ? ` — ${c.headline}` : ""}
-                      {c.locationText ? ` — ${c.locationText}` : ""}
-                    </div>
-                    <div style={{ fontSize: 12.5, wordBreak: "break-word" }}>
-                      <span style={{ color: colors.textMuted }}>Found on: </span>
-                      <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" style={{ color: colors.text }}>
-                        {c.sourceTitle || c.sourceUrl}
-                      </a>
-                    </div>
-                    <Evidence items={c.evidence} line={c.evidenceLine} />
-                  </div>
-                );
-              })}
-              <div style={{ display: "flex", gap: spacing.sm }}>
-                <button type="button" style={buttonPrimary} disabled={isPending} onClick={runBatch}>
-                  {isPending ? "Confirming…" : `Confirm these ${preselected.length} ${preselected.length === 1 ? "person" : "people"}`}
-                </button>
-                <button type="button" style={buttonSecondary} disabled={isPending} onClick={() => setBatchOpen(false)}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
           {batchResult && <p style={{ margin: 0, fontSize: 13 }}>{batchResult}</p>}
           {batchError && <p style={{ margin: 0, fontSize: 13, color: colors.danger }}>{batchError}</p>}
+          {strong.map((p) => (
+            <StrongRow
+              key={p.id}
+              p={p}
+              included={!excluded.has(p.id) && !choosing.has(p.id)}
+              choosing={choosing.has(p.id)}
+              onInclude={(v) => flip(excluded, setExcluded, p.id, !v)}
+              onChoose={(v) => flip(choosing, setChoosing, p.id, v)}
+              disabled={isPending}
+            />
+          ))}
         </section>
       )}
 
       <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.md }}>
-        <h2 style={{ fontSize: 17, margin: 0 }}>Candidates to review ({paging.total})</h2>
-        {people.length === 0 ? (
+        <h2 style={{ fontSize: 17, margin: 0 }}>{strong.length > 0 ? `Needs your choice (${paging.total})` : `Matches to review (${paging.total})`}</h2>
+        {others.length === 0 ? (
           <div style={sectionStyle}>
             <p style={{ margin: 0, fontSize: 13, color: colors.textMuted }}>
               {paging.total === 0
-                ? "Nobody has candidates waiting. Find matches above, or on a person on the Network page."
+                ? strong.length > 0
+                  ? "Everyone else with matches is in the strong matches above."
+                  : eligible > 0
+                    ? "Nobody has matches waiting yet. Use the button above to look people up."
+                    : "Nobody has matches waiting."
                 : "No one on this page."}
             </p>
           </div>
         ) : (
-          people.map((p) => <PersonCard key={p.id} p={p} />)
+          others.map((p) => <PersonCard key={p.id} p={p} />)
         )}
         {paging.totalPages > 1 && (
           <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.sm, fontSize: 13 }} aria-label="Pages">

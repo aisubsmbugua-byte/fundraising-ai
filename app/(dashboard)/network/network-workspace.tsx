@@ -10,10 +10,13 @@ import {
   getMatchingConnectionIds,
   type ConnectionInput,
 } from "./actions";
-import { findIdentityCandidates, resetIdentity, setDoNotResearch } from "./identity-actions";
+import { findIdentityCandidates, loadPersonCandidates, resetIdentity, setDoNotResearch } from "./identity-actions";
+import { AddPersonResultView, type AddPhase } from "./add-person-result";
+import LookupRunner from "./identity/lookup-runner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { CONNECTION_STRENGTHS, NETWORK_DISCLOSURE, type NetworkConnection } from "@/lib/network";
-import { IDENTITY_BULK_CAP, IDENTITY_STATE_LABEL, identityState, type IdentityState } from "@/lib/network-identity";
+import { IDENTITY_STATE_LABEL, identityState, type IdentityState } from "@/lib/network-identity";
+import { planAutoLook } from "@/lib/network-identity-flow";
 import type { IdentityCounts } from "@/lib/network-identity-store";
 import { networkHref, type PageWindow } from "@/lib/network-list";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, sectionStyle, cardStyle, chipStyle } from "@/lib/ui";
@@ -42,6 +45,9 @@ export type IdentityPageData = {
   // 0083 not applied): the identity controls are hidden and the page says why.
   available: boolean;
   counts: IdentityCounts | null;
+  // How many recorded people are waiting to be looked up (null when it could
+  // not be worked out). The count on the "Confirm your network" button.
+  eligible?: number | null;
   byId: Record<string, { candidateCount: number; lookedEmpty: boolean }>;
 };
 
@@ -177,6 +183,102 @@ function ConnectionForm({
         )}
       </div>
     </form>
+  );
+}
+
+// Adding ONE person by hand (STATE item 109). Once they are saved, the platform
+// looks for their matches by itself and shows them here, in place. That look is
+// the only thing that happens automatically: confirming is a click on a button in
+// the panel (PersonCard), never anything this component does. The person is saved
+// before any of this starts, and nothing here can undo or block the save.
+function AddPersonSection({ identityAvailable }: { identityAvailable: boolean }) {
+  const [phase, setPhase] = useState<AddPhase>({ kind: "idle" });
+  // The person just saved, for "Try again" and for "Add details".
+  const [saved, setSaved] = useState<{ id: string; input: ConnectionInput } | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  const readMatches = async (id: string, name: string) => {
+    const loaded = await loadPersonCandidates(id);
+    if ("error" in loaded) {
+      setPhase({ kind: "failed", name, message: loaded.error, step: "read" });
+      return;
+    }
+    if (!loaded.person) {
+      setPhase({ kind: "no_matches", name, message: "Saved. There is nothing to confirm for this person." });
+      return;
+    }
+    setPhase({ kind: "matches", name, person: loaded.person });
+  };
+
+  const lookFor = async (id: string, name: string) => {
+    setPhase({ kind: "looking", name });
+    const found = await findIdentityCandidates(id);
+    if ("error" in found) {
+      setPhase({ kind: "failed", name, message: found.error, step: "look" });
+      return;
+    }
+    if (found.stored === 0) {
+      setPhase({ kind: "no_matches", name, message: `Saved. ${found.message}` });
+      return;
+    }
+    await readMatches(id, name);
+  };
+
+  const afterSave = (id: string | null, input: ConnectionInput) => {
+    setEditing(false);
+    if (!identityAvailable || !id) {
+      setSaved(null);
+      setPhase({ kind: "idle" });
+      return;
+    }
+    setSaved({ id, input });
+    const name = input.person_name.trim();
+    const plan = planAutoLook(input);
+    if (!plan.look) {
+      setPhase({ kind: "not_looked", name, message: plan.message, canAddDetails: plan.reason === "too_few_facts" });
+      return;
+    }
+    void lookFor(id, name);
+  };
+
+  return (
+    <>
+      <ConnectionForm
+        initial={EMPTY}
+        submitLabel="Add to network"
+        onSubmit={async (input) => {
+          const result = await addConnection(input);
+          // Saved. The look starts here and is NOT awaited, so the form is free again at once.
+          if ("success" in result) afterSave(result.id, input);
+          return result;
+        }}
+      />
+      {editing && saved ? (
+        <div style={cardStyle}>
+          <ConnectionForm
+            initial={saved.input}
+            submitLabel="Save and look for matches"
+            onCancel={() => setEditing(false)}
+            onSubmit={async (input) => {
+              const result = await updateConnection(saved.id, input);
+              if ("success" in result) afterSave(saved.id, input);
+              return result;
+            }}
+          />
+        </div>
+      ) : (
+        <AddPersonResultView
+          phase={phase}
+          onTryAgain={() => {
+            if (!saved) return;
+            const name = saved.input.person_name.trim();
+            if (phase.kind === "failed" && phase.step === "read") void readMatches(saved.id, name);
+            else void lookFor(saved.id, name);
+          }}
+          onAddDetails={() => setEditing(true)}
+        />
+      )}
+    </>
   );
 }
 
@@ -554,10 +656,10 @@ export default function NetworkWorkspace({
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.xl, marginTop: spacing.lg }}>
       {identity.available ? (
-        <section style={sectionStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: spacing.md, flexWrap: "wrap" }}>
+        totalRecorded > 0 && (
+          <section style={sectionStyle}>
             <div>
-              <h2 style={{ fontSize: 17, margin: 0 }}>Who is who</h2>
+              <h2 style={{ fontSize: 17, margin: 0 }}>Confirm your network</h2>
               <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 13, color: colors.textMuted, maxWidth: 640 }}>
                 The platform can look for who each of these people really is on the public web and propose up to three matches. You decide which is right, or
                 that none is; nothing is researched about a person beyond that, and nothing is ever sent to them.
@@ -569,14 +671,9 @@ export default function NetworkWorkspace({
                 )}
               </p>
             </div>
-            <Link href="/network/identity" style={{ ...buttonPrimary, textDecoration: "none", display: "inline-block" }}>
-              Review who is who
-            </Link>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: colors.textMuted }}>
-            Looking up one person costs one AI run. &ldquo;Find matches&rdquo; on a person, or the button on the review page that does up to {IDENTITY_BULK_CAP} people per click.
-          </p>
-        </section>
+            <LookupRunner eligible={identity.eligible ?? null} navigateWhenDone />
+          </section>
+        )
       ) : (
         <section style={sectionStyle}>
           <p style={{ margin: 0, fontSize: 13, color: colors.textMuted }}>
@@ -587,7 +684,7 @@ export default function NetworkWorkspace({
 
       <section style={sectionStyle}>
         <h2 style={{ fontSize: 17, margin: 0 }}>Add someone you know</h2>
-        <ConnectionForm initial={EMPTY} submitLabel="Add to network" onSubmit={addConnection} />
+        <AddPersonSection identityAvailable={identity.available} />
       </section>
 
       <PeopleList

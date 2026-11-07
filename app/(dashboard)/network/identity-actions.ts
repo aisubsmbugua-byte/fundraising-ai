@@ -12,6 +12,9 @@
 //   * findIdentityCandidates / findIdentityCandidatesForUnidentified  -- a human
 //     clicks "Find matches"; the platform proposes. Each look is a metered
 //     ledger run (operation network_identity) BORN BEFORE the model is called.
+//   * loadLookupQueue / loadPersonCandidates -- READS only (item 109): who is
+//     waiting to be looked up, and one person's candidates for the panel under
+//     the form that just added them. They look nobody up and decide nothing.
 //   * confirmIdentity / confirmPreselectedIdentities / markNoneOfThese /
 //     resetIdentity / setDoNotResearch -- HUMAN decisions. Each records the
 //     verified session user (never a value from the request) as the decider.
@@ -42,15 +45,18 @@ import {
   isUuid,
   lookOutcomeMessage,
   parseIdList,
+  identityState,
   planBulkLook,
   preselectedCandidate,
   refusalForLook,
   type BulkLookReport,
   type IdentityFacts,
+  type IdentityState,
   type LookRefusal,
   type LookSubject,
   type NetworkIdentityCandidate,
 } from "@/lib/network-identity";
+import { IDENTITY_CLICK_CAP, buildReviewPerson, type ReviewPerson } from "@/lib/network-identity-flow";
 import { loadIdentityOverview } from "@/lib/network-identity-store";
 import { chunk } from "@/lib/network-list";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -188,6 +194,59 @@ export async function findIdentityCandidates(personId: unknown): Promise<FindIde
     return { success: true, stored: outcome.stored, discarded: outcome.discarded, sourcesOffered: outcome.sourcesOffered, refusedSources: outcome.refusedSources, message: outcome.message };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not look for matches." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reads that serve the shorter route (STATE item 109). Neither looks anyone up,
+// confirms anyone, writes anything or spends an AI run.
+// ---------------------------------------------------------------------------
+
+export type LookupQueueResult =
+  | { error: string }
+  | { success: true; ids: string[]; eligible: number; totalRecorded: number };
+
+// "Confirm your network" fetches who is waiting at the moment of the click, so
+// the list it works through is current, not the page's. Returns the first
+// IDENTITY_CLICK_CAP ids (a convenience: the client applies the cap itself and
+// the server does not rely on it -- every look is still one person, one run,
+// refused in code for anyone who may not be looked at) and the full count.
+export async function loadLookupQueue(): Promise<LookupQueueResult> {
+  try {
+    await requireUser();
+    const supabase = createClient();
+    const overview = await loadIdentityOverview(supabase);
+    if (!overview.ok) return { error: overview.reason === "not_set_up" ? NOT_SET_UP : "Could not read your network just now, so nobody was looked up." };
+    const counts = new Map<string, number>();
+    for (const [id, list] of overview.candidates) counts.set(id, list.length);
+    const plan = planBulkLook(overview.people, counts, overview.lookedEmpty);
+    return { success: true, ids: plan.eligible.slice(0, IDENTITY_CLICK_CAP).map((p) => p.id), eligible: plan.eligible.length, totalRecorded: plan.totalRecorded };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not read who is waiting." };
+  }
+}
+
+export type PersonCandidatesResult =
+  | { error: string }
+  | { success: true; state: IdentityState; person: ReviewPerson | null };
+
+// One person and their candidates, for the panel shown under the form that has
+// just added them. `person` is null unless they are still waiting for a human
+// choice (they have candidates and are not decided or off limits).
+export async function loadPersonCandidates(personId: unknown): Promise<PersonCandidatesResult> {
+  try {
+    await requireUser();
+    if (!isUuid(personId)) return { error: "That person was not understood." };
+    const supabase = createClient();
+    const read = await readSubject(supabase, personId);
+    if (!read.ok) return { error: read.error };
+    const cands = await candidatesOf(supabase, personId);
+    if (!cands) return { error: NOT_SET_UP };
+    const state = identityState(read.person, cands.length, false);
+    if (state !== "candidates") return { success: true, state, person: null };
+    return { success: true, state, person: buildReviewPerson(read.person, cands) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not read the matches." };
   }
 }
 

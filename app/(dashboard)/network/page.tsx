@@ -3,7 +3,8 @@ import { spacing, colors, type as typeScale } from "@/lib/ui";
 import type { NetworkConnection } from "@/lib/network";
 import { NETWORK_PAGE_SIZE, normalizeSearch, pageWindow, parsePage, searchOrFilter } from "@/lib/network-list";
 import { countConnections } from "@/lib/network-store";
-import { countIdentityStates, loadIdentityContext } from "@/lib/network-identity-store";
+import { planBulkLook } from "@/lib/network-identity";
+import { countIdentityStates, loadIdentityContext, loadIdentityOverview } from "@/lib/network-identity-store";
 import NetworkWorkspace, { type IdentityPageData } from "./network-workspace";
 
 // A look at one person (their "Find matches" button) is a web search plus a
@@ -50,6 +51,17 @@ export default async function NetworkPage({ searchParams }: { searchParams: { q?
       for (const c of connections) byId[c.id] = { candidateCount: ctx.candidateCounts.get(c.id) ?? 0, lookedEmpty: ctx.lookedEmpty.has(c.id) };
       identity = { ...identity, byId };
     } else identity = { available: false, counts: null, byId: {} };
+  }
+
+  // How many people are waiting to be looked up: the count on the "Confirm your
+  // network" button. Read-only; nothing is looked up by loading this page.
+  if (identity.available && !failed && (totalRecorded ?? 0) > 0) {
+    const overview = await loadIdentityOverview(supabase);
+    if (overview.ok) {
+      const candidateCounts = new Map<string, number>();
+      for (const [id, list] of overview.candidates) candidateCounts.set(id, list.length);
+      identity = { ...identity, eligible: planBulkLook(overview.people, candidateCounts, overview.lookedEmpty).eligible.length };
+    }
   }
 
   return (
