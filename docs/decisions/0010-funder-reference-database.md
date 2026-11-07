@@ -140,5 +140,5 @@ are separate, labelled claims.
 
 - **Decided 2026-11-06 by the owner:** the pilot's size threshold is at least $1
   million in assets or at least $100,000 in yearly giving.
-- **Still a default, not yet confirmed:** keep the full grant list only for
-  foundations above the threshold, three years.
+- **Decided 2026-11-06 by the owner:** keep the full grant list only for
+  foundations above the threshold, three tax periods.
