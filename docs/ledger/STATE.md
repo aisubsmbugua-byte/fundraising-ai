@@ -8,31 +8,29 @@ Last touched by: **decision** · 2026-11-05
 
 ## Authorized now
 
-- ruling: 0044
-- basis: item 109 only (a shorter route through person identity). Slices B to E
-  of item 107 remain NOT authorized.
-- objective: the owner finds three clicks (Review who is who, Find matches, then
-  confirm) too many. Adding ONE person looks for their matches automatically and
-  offers "Confirm this person" in place. A list or import gets ONE button,
-  "Confirm your network", which looks up everyone not yet identified with visible
-  progress, then confirms the strong matches in one click on a screen that shows
-  each person and their match, leaving unclear people for a choice on the same
-  screen. The separate "where everyone stands" step is folded into that screen.
-- approved decision: ruling 0044 clauses 2 and 9 unchanged. An automatic LOOK is
-  allowed (AI acts first, CLAUDE.md); an automatic CONFIRMATION never is (clause
-  2). Every look is still one ledger run born before the call, refused in code
-  for a do-not-research, confirmed or none-of-these person.
-- scope: app/(dashboard)/network/** and the import result page, and the
-  actions in identity-actions.ts they call. No new migration.
-- exclusions: no auto-confirmation; no automatic look for an IMPORT (cost: a
-  donor list can hold thousands, so a click is the consent, and the click states
-  the count and that each costs one AI run); no change to the ruling's rules, the
-  database, the search or agreement code, or path-finding; the assistant and the
-  external agent still cannot confirm. Do not edit docs/ledger/**. Do not commit.
-- acceptance checks: every suite from item 108 still passes (counts may rise);
-  tsc clean; next build compiles; new tests and mutation tests for the new
-  guards; ledger-check intact.
-- report: docs/reviews/0030-one-button-identity-build-report.md
+- ruling: 0045
+- basis: item 110 (funder reference database, California pilot). Nothing else.
+- objective: our own database of US grant-making organizations from public IRS
+  filings. First one organization end to end (Servant's Heart Foundation Inc,
+  EIN 58-2218044, Newport Beach), every stored value compared with the filing
+  itself; then California, three tax periods, foundations above a size threshold
+  the owner sets.
+- approved decision: ruling 0045 clauses 1 to 7. Field list and findings:
+  docs/decisions/0010-funder-reference-database.md.
+- scope: additive migration(s) for the shared reference tables (no
+  organization_id, read by any signed-in member, no write policy for any
+  application role); an offline loader under scripts/ that reads the IRS bulk
+  filings (not ProPublica's site) and writes with the service key; a permanent
+  verification script that compares the stored example to the filing; a run
+  record of rows read, loaded and rejected, with rejected filings named.
+- exclusions: no screen; no use in matching, discovery, scoring or paths; no web
+  or person enrichment; no state beyond California; no write path from the web
+  application, the assistant or the agent; do not apply any migration to
+  production (the owner applies after countercheck); no secret in client code.
+- acceptance checks: the example's stored values equal the filing's; the loader
+  twice makes no duplicates; an unreadable filing is recorded as unread with a
+  reason; a member session can read and cannot write; tsc clean; existing suites
+  pass; ledger-check intact. Report: docs/reviews/0031-funder-reference-pilot-build-report.md
 
 ## Next authorized
 
@@ -46,6 +44,7 @@ judgment, not on analysis.
 
 | id | owner | status | subject | opened |
 |----|-------|--------|---------|--------|
+| 110 | build | approved | **Funder reference database, California pilot (owner's decision 2026-11-06).** Ruling 0045 bounds it; direction and field list in docs/decisions/0010-funder-reference-database.md. Step 1 is one worked example, Servant's Heart Foundation Inc (EIN 58-2218044), loaded from the IRS filing and compared value by value; step 2 is California, three tax periods, foundations above an owner-set size threshold. Nothing is built. Open for the owner: the size threshold and whether to keep full grant lists only above it. | 2026-11-06 |
 | 109 | build | released | **A shorter route through person identity (owner's request 2026-11-06).** One person added by hand: the look runs automatically and "Confirm this person" appears in place. A list or import: one button, "Confirm your network", with progress, then one-click confirm of strong matches on a screen that shows each. An automatic look is allowed, an automatic confirmation is not (ruling 0044 clause 2); an import is never looked up without a click because a list can hold thousands and every look costs an AI run. | 2026-11-06 **Released 2026-11-06 at commit c8e617d, counterchecked in the decision space (build report docs/reviews/0030-one-button-identity-build-report.md).** Independently re-ran: tsc clean; test-network 183, test-network-import 156, test-network-identity 303, new test-network-identity-flow 114, test-network-identity-migration 96, test-assistant 585, test-agent 344, test-supporters 182, test-send-draft 268, test-reply-address 138, test-ai-runs 70, test-health-status 19, all passing; ledger-check intact. Read: the only client calls to confirm or none-of-these are click handlers in the person card and the batch button; the import page never starts a look (it only reads a count); the look loop starts only on a click. One gap found and fixed in the decision space: the import page set no time limit for the look it now runs (maxDuration 450 added). NOT verified: no real click, loop run, Stop or navigation was observed in a browser (could not sign in; fixtures rendered only); each look revalidates the page, so a 50-person click re-renders up to 50 times, unmeasured; a server action inheriting its page's time limit is a reading of Next, not observed. First real use should be a small list, watched. No migration. | 2026-11-06 |
 | 108 | build | released | **Slice A of 0044 (person identity), built 2026-11-05 and counterchecked in the decision space, not accepted on report.** Re-ran independently: tsc clean; test-network 183, test-network-import 156, test-assistant 585, test-agent 344, test-supporters 182, test-send-draft 268, test-reply-address 138, test-ai-runs 70, test-health-status 19, new test-network-identity 299 and test-network-identity-migration 96 (all 83 migrations applied on a real Postgres via pglite) all pass; ledger-check intact. Read in full: migration 0083 (decision check, org-match triggers, reset-on-edit trigger, social-host check in the database), lib/ai/person-search.ts (model selects from captured sources only; no fetch; refused hosts), the batch-confirm action (re-derives the preselection server-side, never trusts the client), the assistant and agent exclusion (test regexes extended, not loosened). Every edit to an existing assertion has a stated successor; none deleted. NOT verified: no live Anthropic call was made, so `blocked_domains` acceptance, real results, cost, latency and preselection rates are unmeasured; the screens were never seen in a browser; test-tenant-isolation's new 15 assertions are typechecked but unexecuted (needs live Supabase); **Migration 0083 applied to the production database 2026-11-06 at the owner's explicit instruction** (project mbsxeyoxojcqetrmwgba, applied through the Supabase tool, header comments omitted, every statement identical to the file); verified by query: 8 new columns, the candidates table, 7 identity triggers, 3 policies, row-level security on; production held 0 network people, so no existing row was touched. Code committed at 60f5519 and pushed after the migration, never before. Awaiting: one live look at 20 to 30 real people to measure cost, latency and preselection before relying on batch confirm; then the item moves to released and verified. | 2026-11-05 |
 | 107 | decision | proposed | **Finding a way in, slices B to E (slice A is item 108).** Ruling 0044 bounds all of it. (B) research on confirmed people from the public web and official records (990, SEC) into the closed list of finding kinds, with the capture contract and strikeable, not individually approved, findings; (C) the funder's people (board, trustees, officers) gathered the same way, keeping per-claim approval; (D) the code-made link between the two sides and paths to two degrees, at which point the clause 2 gate (an unconfirmed person contributes nothing to a path) attaches and a clarifying ruling is written; (E) a licensed people-data provider, which needs its own ruling naming the provider and its sourcing. None authorized. Open questions for the owner: whether funder-side official-record claims (a 990 officer list) may later be approved in bulk, and whether a pasted profile link is ever stored (0044 says no until a provider ruling). | 2026-11-05 |
