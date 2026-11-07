@@ -136,9 +136,9 @@ are separate, labelled claims.
    parsed and why.
 3. Only then decide the next state or national, and how often to refresh.
 
-## Open for the owner
+## Decided and still open
 
-- Size threshold for the pilot (suggestion: foundations with at least $1 million in
-  assets or at least $100,000 in yearly giving, so tiny family vehicles are left out).
-- Whether to keep the full grant list for every foundation or only for those above the
-  threshold (suggestion: only above it, three years).
+- **Decided 2026-11-06 by the owner:** the pilot's size threshold is at least $1
+  million in assets or at least $100,000 in yearly giving.
+- **Still a default, not yet confirmed:** keep the full grant list only for
+  foundations above the threshold, three years.
