@@ -74,6 +74,15 @@ export const AI_RUN_OPERATIONS = [
   // prices per operation, and it is neither a path search nor a funder
   // research run; its credit price is the owner's decision.
   "network_identity",
+  // Researching one CONFIRMED recorded person on the public web (STATE item 112
+  // slice B, ruling 0044 clauses 3 and 9) is its own metered operation, distinct
+  // from the identity look above: it reads more (a longer selection over the
+  // captured sources, up to a dozen findings) and so is a heavier unit. One web
+  // search plus one forced-tool selection, ONE run per person researched, tokens
+  // aggregated across both calls, joined to the person via source_table/source_id.
+  // Decision 0006 prices per operation; there is no price registry in code (the
+  // ledger records, the owner prices), so this entry is where its price attaches.
+  "network_research",
   // One assistant turn (STATE item 87, ruling 0037 clause 4): a user message
   // answered by up to a few model calls and tool results is ONE run, tokens
   // aggregated, joined to its assistant_messages row via source_id. A

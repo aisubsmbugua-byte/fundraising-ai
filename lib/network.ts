@@ -42,9 +42,13 @@ export type PathStatus = (typeof PATH_STATUSES)[number];
 // that finds out who someone is sends name, employer, title, city and state (and
 // search text built from them) and NOT notes or how-you-know-them; finding an
 // introduction to a funder is unchanged and shares what ruling 0040 clause 3
-// listed.
+// listed. STATE item 112 (slice B) adds the third flow, truthfully: once a human
+// has confirmed who someone is, the platform may research what the public web says
+// about them in the closed list of kinds, keeping each finding with its source for
+// review or strike -- sharing the same details plus the confirmed match's
+// description and page, and still not notes or how-you-know-them.
 export const NETWORK_DISCLOSURE =
-  "The people you record here may be researched on the public web and in official public records. To find out who someone is, their name, where they work, title, city and state, and search text built from them, are shared with the AI service and its web search; your notes and how you know them are not part of that search. To find introductions to a funder, their name, where they work, how you know them, how close you are and your notes are shared with the AI service. Avoid recording sensitive personal details in notes. Nothing is ever sent to the people you list.";
+  "The people you record here may be researched on the public web and in official public records. To find out who someone is, their name, where they work, title, city and state, and search text built from them, are shared with the AI service and its web search; your notes and how you know them are not part of that search. Once you confirm who someone is, the platform may also research what the public web says about them in a few public, organizational kinds only (where they work, their title, a board, trustee or officer seat, a school, a role in a church or other organization) and keeps each finding with its source, marked as not yet reviewed, for you to review or strike; that research shares the same details plus the description and page of the match you confirmed, and still not your notes or how you know them. To find introductions to a funder, their name, where they work, how you know them, how close you are and your notes are shared with the AI service. Avoid recording sensitive personal details in notes. Nothing is ever sent to the people you list.";
 
 // Ruling 0040 clause 3, shown wherever a file of people is imported. It is the
 // capture disclosure above, unweakened and word for word, plus what an import

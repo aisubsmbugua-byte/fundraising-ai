@@ -62,7 +62,7 @@ export type PersonLookResult = {
 // What the search actually returned, read off the response the way
 // searchFunderWeb reads it: the pages sentences were cited to (with the text
 // cited) and every page the search surfaced.
-function capturedSources(content: readonly unknown[]): { cited: PersonCitedSource[]; searched: PersonSearchedSource[]; searchesUsed: number } {
+export function capturedSources(content: readonly unknown[]): { cited: PersonCitedSource[]; searched: PersonSearchedSource[]; searchesUsed: number } {
   const cited: PersonCitedSource[] = [];
   const searched = new Map<string, PersonSearchedSource>();
   let searchesUsed = 0;

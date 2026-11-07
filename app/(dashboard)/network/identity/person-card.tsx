@@ -6,9 +6,19 @@
 // here are the ONLY client call sites of confirmIdentity and markNoneOfThese:
 // each runs from a click on a button, never from an effect or a page load, and
 // never on the strength of a preselected match alone.
+//
+// In "single" mode (the panel under the add form) the SAME click continues into
+// the research of the person just confirmed (STATE item 112, ruling 0044): once
+// the confirmation has succeeded, in the continuation of that click, the card
+// researches the person and shows "Researching…" and then "What we found" in
+// place. That is the only automatic research there is. It never happens on load,
+// never without a human's confirmation first, never in the review screen's batch
+// confirm, and a failed research never undoes the confirmation.
 
 import { useState, useTransition } from "react";
 import { confirmIdentity, findIdentityCandidates, markNoneOfThese, setDoNotResearch } from "../identity-actions";
+import { FindingsSection } from "../research/findings-view";
+import { usePersonResearch } from "../research/use-person-research";
 import type { EvidenceItem } from "@/lib/network-identity";
 import type { ReviewCandidate, ReviewPerson } from "@/lib/network-identity-flow";
 import { spacing, colors, buttonPrimary, buttonSecondary, cardStyle, chipStyle } from "@/lib/ui";
@@ -112,6 +122,7 @@ export function PersonCard({ p, mode = "review" }: { p: ReviewPerson; mode?: "re
   const [notice, setNotice] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const research = usePersonResearch(p.id);
   const single = mode === "single";
 
   // A human click on a button: nothing here runs on load or on a timer.
@@ -121,8 +132,16 @@ export function PersonCard({ p, mode = "review" }: { p: ReviewPerson; mode?: "re
     setNotice(null);
     startTransition(async () => {
       const result = await confirmIdentity(p.id, choice);
-      if ("error" in result) setError(result.error);
-      else if (single) setDone(`Confirmed: ${p.candidates.find((c) => c.id === choice)?.label ?? p.name}.`);
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      if (single) {
+        setDone(`Confirmed: ${p.candidates.find((c) => c.id === choice)?.label ?? p.name}.`);
+        // The confirmation above has succeeded; this click carries on into the
+        // research of that person. The server still refuses anyone it must.
+        await research.run(false);
+      }
     });
   };
   const recordNone = () => {
@@ -141,6 +160,9 @@ export function PersonCard({ p, mode = "review" }: { p: ReviewPerson; mode?: "re
       <div style={cardStyle} id={`person-${p.id}`}>
         <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
         <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 13 }}>{done}</p>
+        <div style={{ marginTop: spacing.md }}>
+          <FindingsSection name={p.name} research={research} showStart={false} />
+        </div>
       </div>
     );
   }

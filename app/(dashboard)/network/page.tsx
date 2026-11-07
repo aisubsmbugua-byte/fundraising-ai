@@ -5,11 +5,15 @@ import { NETWORK_PAGE_SIZE, normalizeSearch, pageWindow, parsePage, searchOrFilt
 import { countConnections } from "@/lib/network-store";
 import { planBulkLook } from "@/lib/network-identity";
 import { countIdentityStates, loadIdentityContext, loadIdentityOverview } from "@/lib/network-identity-store";
-import NetworkWorkspace, { type IdentityPageData } from "./network-workspace";
+import { buildReviewFinding, researchAgeText } from "@/lib/network-research";
+import { loadFindingsFor, loadResearchOverview } from "@/lib/network-research-store";
+import NetworkWorkspace, { type IdentityPageData, type ResearchPageData } from "./network-workspace";
 
 // A look at one person (their "Find matches" button) is a web search plus a
-// model call and runs inside this page's request; the same budget the prospect
-// page gives its longest actions.
+// model call and runs inside this page's request; so is researching one confirmed
+// person (STATE item 112: "Research this person", "Research your network", and the
+// research that follows a click on "Confirm this person"); the same budget the
+// prospect page gives its longest actions.
 export const maxDuration = 450;
 
 // One page of people at a time (STATE item 103): an exact total, an exact
@@ -64,6 +68,28 @@ export default async function NetworkPage({ searchParams }: { searchParams: { q?
     }
   }
 
+  // Researching confirmed people (STATE item 112, ruling 0044): how many confirmed
+  // people are waiting (the count on "Research your network") and, for the confirmed
+  // people on this page, what was found. Read-only; nothing is researched by loading
+  // this page. Tolerates a database without migration 0085: the controls are hidden.
+  let research: ResearchPageData = { available: false, eligible: null, byId: {} };
+  if (identity.available && !failed && (totalRecorded ?? 0) > 0) {
+    const overview = await loadResearchOverview(supabase);
+    if (overview.ok) {
+      const confirmedHere = connections.filter((c) => c.identity_status === "confirmed" && c.do_not_research !== true).map((c) => c.id);
+      const held = await loadFindingsFor(supabase, confirmedHere);
+      if (held) {
+        const byId: ResearchPageData["byId"] = {};
+        const now = new Date();
+        for (const id of confirmedHere) {
+          const researchedAt = overview.researchedAt.get(id) ?? null;
+          byId[id] = { findings: (held.get(id) ?? []).map(buildReviewFinding), researchedAt, ageText: researchAgeText(researchedAt, now) };
+        }
+        research = { available: true, eligible: overview.plan.eligible.length, byId };
+      }
+    }
+  }
+
   return (
     <div>
       <h1 style={{ fontSize: typeScale.pageTitle }}>Network</h1>
@@ -77,7 +103,7 @@ export default async function NetworkPage({ searchParams }: { searchParams: { q?
           Could not load your network just now. If this is a new install, the network tables may not be set up yet.
         </p>
       ) : (
-        <NetworkWorkspace connections={connections} totalRecorded={totalRecorded ?? 0} matching={matching ?? 0} q={q} window={win} identity={identity} />
+        <NetworkWorkspace connections={connections} totalRecorded={totalRecorded ?? 0} matching={matching ?? 0} q={q} window={win} identity={identity} research={research} />
       )}
     </div>
   );

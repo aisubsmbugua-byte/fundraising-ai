@@ -14,6 +14,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { confirmPreselectedIdentities } from "../identity-actions";
 import LookupRunner from "./lookup-runner";
+import ResearchRunner from "../research/research-runner";
 import { Evidence, PersonCard, RecordedFacts, SourceLink } from "./person-card";
 import { LOOK_REFUSAL_LABEL, type IdentityState, type LookRefusalCode } from "@/lib/network-identity";
 import { statusLineParts, strongMatchPairs, type ReviewPerson, type StateCounts } from "@/lib/network-identity-flow";
@@ -108,6 +109,7 @@ export default function IdentityWorkspace({
   counts,
   totalRecorded,
   eligible,
+  researchWaiting,
   skipped,
   strong,
   strongTotal,
@@ -117,6 +119,9 @@ export default function IdentityWorkspace({
   counts: StateCounts;
   totalRecorded: number;
   eligible: number;
+  // Confirmed people waiting to be researched (null when research is not available yet).
+  // Shown as its own button below; confirming a list never starts it.
+  researchWaiting?: number | null;
   skipped: { code: string; label: string; count: number }[];
   // People with exactly one strong match: shown with the match that would be used.
   strong: ReviewPerson[];
@@ -175,6 +180,13 @@ export default function IdentityWorkspace({
           </p>
         )}
       </section>
+
+      {typeof researchWaiting === "number" && (
+        // After people are confirmed (here, or one at a time) this is the one button
+        // that researches them. It is never started by a confirmation: the click is
+        // the consent, and the cost is stated beside it.
+        <ResearchRunner waiting={researchWaiting} />
+      )}
 
       {strong.length > 0 && (
         <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.md }}>

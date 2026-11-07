@@ -301,7 +301,10 @@ const modelCallers = sourceFiles
 // the three research ones: it makes the model calls, and the OPERATION that
 // invokes it (network_identity, in app/(dashboard)/network/identity-actions.ts)
 // is where the run is born and finalized.
-const HELPER_FILES = ["lib/ai/funder-search.ts", "lib/ai/research-extract.ts", "lib/ai/research-verify.ts", "lib/ai/person-search.ts"].sort();
+// lib/ai/person-research.ts (STATE item 112, ruling 0044) is a helper of the same
+// kind: the OPERATION that invokes it (network_research, in
+// app/(dashboard)/network/research-actions.ts) is where the run is born and finalized.
+const HELPER_FILES = ["lib/ai/funder-search.ts", "lib/ai/research-extract.ts", "lib/ai/research-verify.ts", "lib/ai/person-search.ts", "lib/ai/person-research.ts"].sort();
 const INSTRUMENTED_FILES = [
   "app/(dashboard)/discovery/search/actions.ts",
   "app/(dashboard)/organization/channel-fit/actions.ts",
@@ -374,6 +377,8 @@ const OPERATION_FILES = [
   "app/(dashboard)/prospects/[id]/research-actions.ts",
   // network_identity reaches the model through findPersonCandidates.
   "app/(dashboard)/network/identity-actions.ts",
+  // network_research reaches the model through findPersonFindings (STATE item 112).
+  "app/(dashboard)/network/research-actions.ts",
   ...PROVIDER_INSTRUMENTED_FILES,
 ];
 const MODEL_CALL_TOKENS = [
@@ -382,6 +387,7 @@ const MODEL_CALL_TOKENS = [
   "await extractResearchClaims(",
   "await verifyResearchClaims(",
   "await findPersonCandidates(",
+  "await findPersonFindings(",
   // The assistant's loop is the only code that reaches the provider.
   "await runAssistantLoop(",
 ];

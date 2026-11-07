@@ -112,6 +112,12 @@ export class FakeNetDb {
       };
     }
     if (table === "network_identity_candidates") return { id: this.uuid(), organization_id: ORG_ID, created_at: now, ai_run_id: null, ...p };
+    // The column defaults of migration 0085 (the real constraints, triggers and
+    // policies are exercised on a real Postgres by
+    // scripts/test-network-research-migration.ts, not here).
+    if (table === "network_person_findings") {
+      return { id: this.uuid(), organization_id: ORG_ID, created_at: now, ai_run_id: null, status: "included", struck_by: null, struck_at: null, restored_by: null, restored_at: null, ...p };
+    }
     if (table === "ai_runs") return { id: this.uuid(), organization_id: ORG_ID, outcome: null, ...p };
     if (table === "network_path_suggestions") return { id: this.uuid(), organization_id: ORG_ID, status: "suggested", created_at: now, ...p };
     return { id: this.uuid(), ...p };

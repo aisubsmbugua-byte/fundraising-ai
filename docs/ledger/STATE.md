@@ -8,29 +8,37 @@ Last touched by: **decision** · 2026-11-05
 
 ## Authorized now
 
-- ruling: 0045
-- basis: item 110 (funder reference database, California pilot). Nothing else.
-- objective: our own database of US grant-making organizations from public IRS
-  filings. First one organization end to end (Servant's Heart Foundation Inc,
-  EIN 58-2218044, Newport Beach), every stored value compared with the filing
-  itself; then California, three tax periods, foundations above a size threshold
-  the owner sets.
-- approved decision: ruling 0045 clauses 1 to 7. Field list and findings:
-  docs/decisions/0010-funder-reference-database.md.
-- scope: additive migration(s) for the shared reference tables (no
-  organization_id, read by any signed-in member, no write policy for any
-  application role); an offline loader under scripts/ that reads the IRS bulk
-  filings (not ProPublica's site) and writes with the service key; a permanent
-  verification script that compares the stored example to the filing; a run
-  record of rows read, loaded and rejected, with rejected filings named.
-- exclusions: no screen; no use in matching, discovery, scoring or paths; no web
-  or person enrichment; no state beyond California; no write path from the web
-  application, the assistant or the agent; do not apply any migration to
-  production (the owner applies after countercheck); no secret in client code.
-- acceptance checks: the example's stored values equal the filing's; the loader
-  twice makes no duplicates; an unreadable filing is recorded as unread with a
-  reason; a member session can read and cannot write; tsc clean; existing suites
-  pass; ledger-check intact. Report: docs/reviews/0031-funder-reference-pilot-build-report.md
+- ruling: 0044
+- basis: item 112 (slice B of the way-in feature: research each confirmed
+  person). Slices C to E of item 107 are NOT authorized.
+- also in force, a separate build session: ruling 0045, item 110 (funder
+  reference database, California pilot), scope and exclusions exactly as in that
+  ruling and docs/decisions/0010-funder-reference-database.md. Migration numbers:
+  0084 is reserved for item 110, 0085 for item 112.
+- objective (item 112): once a person's identity is CONFIRMED, the platform
+  researches that one person on the public web and records what it finds as
+  sourced findings in the closed list of kinds in ruling 0044 clause 3. A person
+  added by hand and confirmed is researched automatically right after the human
+  clicks Confirm; a list gets one "Research your network" button with the cost
+  stated and progress shown. Findings are visible with their source, labelled "not
+  yet reviewed by a person", and a human can strike any of them.
+- approved decision: ruling 0044 clauses 3, 4, 5, 9 and 10, and clause 2's gate:
+  nothing is researched about an unconfirmed, none-of-these or do-not-research
+  person.
+- scope: migration 0085 (an org-scoped findings table with an org-match trigger
+  and RLS; no update path except a human striking); a research operation on the
+  public web through search only; the card and Network page controls; tests.
+- exclusions: no use of findings in path-finding (that is slice D), strategies,
+  drafts or any funder-facing text; no page-fetch tool and no ProPublica or IRS
+  call (official records arrive through item 110); no social or professional
+  network and no people-data broker (ruling 0044 clause 4; item 111 is only a
+  proposal); no automatic confirmation of anything; the assistant and the
+  external agent cannot research, strike or reset; no change to the funder side;
+  do not apply the migration to production (the owner applies after
+  countercheck); do not edit docs/ledger/**; do not commit.
+- acceptance checks: every existing suite still passes; tsc clean; next build
+  compiles; new tests and mutation tests; the migration run on a real Postgres;
+  ledger-check intact. Report: docs/reviews/0032-slice-b-person-research-build-report.md
 
 ## Next authorized
 
@@ -44,6 +52,7 @@ judgment, not on analysis.
 
 | id | owner | status | subject | opened |
 |----|-------|--------|---------|--------|
+| 112 | build | tested | **Slice B of 0044: research each confirmed person (owner's go, 2026-11-06).** A confirmed person is researched on the public web into the closed list of finding kinds, each finding kept with its captured source and labelled not yet reviewed, and strikeable by a human. Automatic right after a single person is confirmed; one "Research your network" button for a list, with cost stated and progress shown. Findings feed nothing yet: paths use them only from slice D. Social networks are excluded (item 111 is a proposal only). | 2026-11-06 **Built 2026-11-06 and counterchecked in the decision space, not accepted on report.** Independently re-ran: tsc clean; test-network 183, test-network-import 156, test-network-identity 303, test-network-identity-flow 114, test-network-identity-migration 96, new test-network-research 218 and test-network-research-migration 141 (all 84 migrations on a real Postgres via pglite), test-assistant 585, test-agent 344, test-supporters 182, test-send-draft 268, test-reply-address 138, test-ai-runs 72, test-health-status 19, all passing; the mutation checker catches 68 of 68; ledger-check intact. Read: the research action refuses before any run is born (unconfirmed, none-of-these, do-not-research, already researched without an explicit again); web search only, no fetch tool; the prompt carries only name, employer, title, city, state and the confirmed match, never notes or how-known; the model answers through a closed tool with no URL, title or passage field. KNOWN LIMITS, recorded not tuned away: the wrong-person guard is name-token containment, so a namesake with the same full name, or a page with both name words in unrelated places, can pass; the closed kinds cannot stop a model labelling a private-life passage with one of the six kinds (a human strike is the remaining defence); the review screen's own per-person confirm starts no research (those people appear in Research your network). NOT verified: no live search was made (blocked_domains acceptance, real yield, cost, latency unmeasured); no click or loop was seen in a browser; test-tenant-isolation has no 0085 section and was not run; triggers proven on PGlite, not Supabase. Migration 0085 NOT applied to production. When item 110's migration 0084 lands, the migration allowance in test-network-import must be extended to name it. Awaiting: the owner's instruction to apply 0085, then release. | 2026-11-06 |
 | 111 | decision | proposed | **Social networks as a source for researching a person: allowed only where the network itself permits it (owner's direction 2026-11-06).** Ruling 0044 clause 4 stands: no scraping, crawling or signing in to any social or professional network, and slice B uses none. The owner's refinement is that a network which officially allows access may be used, X given as an example. Each such source needs its OWN ruling naming the network, its official access route and its terms, limited to the profile facts the person themselves declared (employer, title, location, stated affiliations), never posts, and inside the closed list of finding kinds. What a quick check found, 2026-11-06, from secondary sources only and to be verified at each network's own developer pages before any ruling: X moved to pay-per-use pricing in 2026 and its free tier is effectively gone, and none of what was read mentions a search-people-by-name endpoint, only lookup by a known username; Facebook removed name-based people search from its API years ago and its search is now limited to public pages, places and events; Instagram and LinkedIn were not checked. Next step is the owner (or the decision space with the owner) reading X's developer documentation for a by-name user search and the price per call. | 2026-11-06 |
 | 110 | build | approved | **Funder reference database, California pilot (owner's decision 2026-11-06).** Ruling 0045 bounds it; direction and field list in docs/decisions/0010-funder-reference-database.md. Step 1 is one worked example, Servant's Heart Foundation Inc (EIN 58-2218044), loaded from the IRS filing and compared value by value; step 2 is California, three tax periods, foundations above an owner-set size threshold. Nothing is built. Owner decided 2026-11-06: the pilot threshold is at least $1 million in assets OR at least $100,000 in yearly giving. Also decided by the owner 2026-11-06: keep full grant lists only for foundations above the threshold, three tax periods. | 2026-11-06 |
 | 109 | build | released | **A shorter route through person identity (owner's request 2026-11-06).** One person added by hand: the look runs automatically and "Confirm this person" appears in place. A list or import: one button, "Confirm your network", with progress, then one-click confirm of strong matches on a screen that shows each. An automatic look is allowed, an automatic confirmation is not (ruling 0044 clause 2); an import is never looked up without a click because a list can hold thousands and every look costs an AI run. | 2026-11-06 **Released 2026-11-06 at commit c8e617d, counterchecked in the decision space (build report docs/reviews/0030-one-button-identity-build-report.md).** Independently re-ran: tsc clean; test-network 183, test-network-import 156, test-network-identity 303, new test-network-identity-flow 114, test-network-identity-migration 96, test-assistant 585, test-agent 344, test-supporters 182, test-send-draft 268, test-reply-address 138, test-ai-runs 70, test-health-status 19, all passing; ledger-check intact. Read: the only client calls to confirm or none-of-these are click handlers in the person card and the batch button; the import page never starts a look (it only reads a count); the look loop starts only on a click. One gap found and fixed in the decision space: the import page set no time limit for the look it now runs (maxDuration 450 added). NOT verified: no real click, loop run, Stop or navigation was observed in a browser (could not sign in; fixtures rendered only); each look revalidates the page, so a 50-person click re-renders up to 50 times, unmeasured; a server action inheriting its page's time limit is a reading of Next, not observed. First real use should be a small list, watched. No migration. | 2026-11-06 |

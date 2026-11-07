@@ -4,13 +4,15 @@ import { spacing, colors, type as typeScale } from "@/lib/ui";
 import { identityState, planBulkLook, type IdentityState } from "@/lib/network-identity";
 import { STRONG_MATCHES_PER_SCREEN, buildReviewPerson, type ReviewPerson, type StateCounts } from "@/lib/network-identity-flow";
 import { loadIdentityOverview } from "@/lib/network-identity-store";
+import { loadResearchOverview } from "@/lib/network-research-store";
 import { pageWindow, parsePage } from "@/lib/network-list";
 import IdentityWorkspace from "./identity-workspace";
 
 // A look is a web search plus a model call run inside this page's request (one
 // person per request: the "Look up more people" button calls the single-person
-// action from the browser, one call at a time); this is the same budget the
-// prospect page gives its longest actions.
+// action from the browser, one call at a time); the same holds for researching a
+// confirmed person (STATE item 112: "Research your network"); this is the same
+// budget the prospect page gives its longest actions.
 export const maxDuration = 450;
 
 const REVIEW_PAGE_SIZE = 20;
@@ -76,18 +78,27 @@ export default async function IdentityPage({ searchParams }: { searchParams: { p
 
   const plan = planBulkLook(overview.people, candidateCounts, overview.lookedEmpty);
 
+  // Confirmed people waiting to be researched (STATE item 112): the count on the
+  // "Research your network" button once people have been confirmed here. Read-only;
+  // confirming never researches anyone. null when the findings table is not there yet.
+  const research = await loadResearchOverview(supabase);
+  const researchWaiting = research.ok ? research.plan.eligible.length : null;
+
   return (
     <div>
       {header}
       <p style={{ color: colors.textMuted, marginTop: spacing.xs, maxWidth: 700, fontSize: 14 }}>
         For each person you recorded, the platform can look for who they are on the public web and propose up to three matches, showing what each was found on
         and which of the details you recorded the page&apos;s text contains. You decide which one is the real person, or that none is. It never searches or reads a
-        social or professional network, nothing more is looked up about a person until you have decided, and nothing is ever sent to them.
+        social or professional network, nothing more is looked up about a person until you have decided, and nothing is ever sent to them. Once you have
+        confirmed someone, the platform can research what the public web says about them, in a few public, organizational kinds only, and keeps each finding with
+        its source for you to review or strike. Confirming a whole list never starts that research; it has its own button, with its cost stated.
       </p>
       <IdentityWorkspace
         counts={tally}
         totalRecorded={overview.people.length}
         eligible={plan.eligible.length}
+        researchWaiting={researchWaiting}
         skipped={plan.skipped}
         strong={strong}
         strongTotal={allStrong.length}

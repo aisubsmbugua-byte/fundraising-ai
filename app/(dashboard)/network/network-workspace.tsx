@@ -13,10 +13,13 @@ import {
 import { findIdentityCandidates, loadPersonCandidates, resetIdentity, setDoNotResearch } from "./identity-actions";
 import { AddPersonResultView, type AddPhase } from "./add-person-result";
 import LookupRunner from "./identity/lookup-runner";
+import PersonResearchBlock from "./research/person-research-block";
+import ResearchRunner from "./research/research-runner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { CONNECTION_STRENGTHS, NETWORK_DISCLOSURE, type NetworkConnection } from "@/lib/network";
 import { IDENTITY_STATE_LABEL, identityState, type IdentityState } from "@/lib/network-identity";
 import { planAutoLook } from "@/lib/network-identity-flow";
+import type { ReviewFinding } from "@/lib/network-research";
 import type { IdentityCounts } from "@/lib/network-identity-store";
 import { networkHref, type PageWindow } from "@/lib/network-list";
 import { spacing, colors, fieldStyle, labelStyle, buttonPrimary, buttonSecondary, buttonDanger, sectionStyle, cardStyle, chipStyle } from "@/lib/ui";
@@ -49,6 +52,18 @@ export type IdentityPageData = {
   // not be worked out). The count on the "Confirm your network" button.
   eligible?: number | null;
   byId: Record<string, { candidateCount: number; lookedEmpty: boolean }>;
+};
+
+// What the page knows about researching confirmed people (STATE item 112), passed
+// down as plain data. `available` is false when the findings table is not there yet
+// (migration 0085 not applied): the research controls are then hidden and the page
+// says why.
+export type ResearchPageData = {
+  available: boolean;
+  // Confirmed people waiting to be researched: the count on "Research your network".
+  eligible: number | null;
+  // For the confirmed people on this page: what was found, and when they were last researched.
+  byId: Record<string, { findings: ReviewFinding[]; researchedAt: string | null; ageText: string | null }>;
 };
 
 const STATE_TONE: Record<IdentityState, "teal" | "amber" | "red" | "neutral"> = {
@@ -287,11 +302,13 @@ function ConnectionCard({
   checked,
   onToggle,
   identity,
+  research,
 }: {
   connection: NetworkConnection;
   checked: boolean;
   onToggle: (checked: boolean) => void;
   identity: IdentityPageData;
+  research?: ResearchPageData;
 }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -301,6 +318,8 @@ function ConnectionCard({
   const [isPending, startTransition] = useTransition();
   const state = stateOf(connection, identity);
   const where = [connection.city, connection.state].filter(Boolean).join(", ");
+  // Only a CONFIRMED person is researched, and only when the findings table is there.
+  const researchHere = research?.available && identity.available && state === "confirmed" ? (research.byId[connection.id] ?? { findings: [], researchedAt: null, ageText: null }) : null;
 
   if (editing) {
     return (
@@ -352,6 +371,16 @@ function ConnectionCard({
       {connection.notes && <p style={{ fontSize: 13, color: colors.textMuted, margin: `${spacing.xs}px 0 0` }}>{connection.notes}</p>}
       {notice && <p style={{ fontSize: 13, margin: `${spacing.sm}px 0 0` }}>{notice}</p>}
       {error && <p style={{ color: colors.danger, fontSize: 13, margin: `${spacing.sm}px 0 0` }}>{error}</p>}
+      {researchHere && connection.do_not_research !== true && (
+        // Keyed by what the server holds, so the block shows fresh data after a batch
+        // research or a strike has re-rendered the page.
+        <PersonResearchBlock
+          key={`${connection.id}|${researchHere.researchedAt ?? ""}|${researchHere.findings.map((f) => `${f.id}:${f.status}`).join(",")}`}
+          personId={connection.id}
+          name={connection.person_name}
+          initial={researchHere}
+        />
+      )}
       <div style={{ display: "flex", gap: spacing.sm, marginTop: spacing.md, flexWrap: "wrap" }}>
         <button type="button" style={buttonSecondary} onClick={() => setEditing(true)} disabled={isPending}>
           Edit
@@ -435,6 +464,7 @@ function PeopleList({
   q,
   window: win,
   identity,
+  research,
 }: {
   connections: NetworkConnection[];
   totalRecorded: number;
@@ -442,6 +472,7 @@ function PeopleList({
   q: string;
   window: PageWindow;
   identity: IdentityPageData;
+  research?: ResearchPageData;
 }) {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -610,7 +641,7 @@ function PeopleList({
           </p>
         </div>
       ) : (
-        connections.map((c) => <ConnectionCard key={c.id} connection={c} checked={checkedIds.has(c.id)} onToggle={(v) => toggle(c.id, v)} identity={identity} />)
+        connections.map((c) => <ConnectionCard key={c.id} connection={c} checked={checkedIds.has(c.id)} onToggle={(v) => toggle(c.id, v)} identity={identity} research={research} />)
       )}
 
       {matching > 0 && (
@@ -645,6 +676,7 @@ export default function NetworkWorkspace({
   q,
   window: win,
   identity,
+  research,
 }: {
   connections: NetworkConnection[];
   totalRecorded: number;
@@ -652,6 +684,7 @@ export default function NetworkWorkspace({
   q: string;
   window: PageWindow;
   identity: IdentityPageData;
+  research?: ResearchPageData;
 }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: spacing.xl, marginTop: spacing.lg }}>
@@ -662,7 +695,9 @@ export default function NetworkWorkspace({
               <h2 style={{ fontSize: 17, margin: 0 }}>Confirm your network</h2>
               <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: 13, color: colors.textMuted, maxWidth: 640 }}>
                 The platform can look for who each of these people really is on the public web and propose up to three matches. You decide which is right, or
-                that none is; nothing is researched about a person beyond that, and nothing is ever sent to them.
+                that none is. Nothing more is researched about anyone until you have confirmed who they are; after that the platform can look up what the public web
+                says about them in a few public, organizational kinds (where they work, their title, a board or officer seat, a school, a role in a church or other
+                organization), each kept with its source for you to review or strike. Nothing found is used in a draft, and nothing is ever sent to them.
                 {identity.counts && (
                   <>
                     {" "}
@@ -682,6 +717,20 @@ export default function NetworkWorkspace({
         </section>
       )}
 
+      {identity.available && research?.available && totalRecorded > 0 && (
+        // One button, never started by loading the page or by a confirmation. With
+        // nobody waiting it renders nothing (a finished click still shows its result).
+        <ResearchRunner waiting={research.eligible} />
+      )}
+      {identity.available && research && !research.available && totalRecorded > 0 && (
+        <section style={sectionStyle}>
+          <p style={{ margin: 0, fontSize: 13, color: colors.textMuted }}>
+            Researching confirmed people is not available yet: the network tables have not had the latest database update (migration 0085) applied. Nothing is
+            researched and no AI run is spent until it is. Everything else here works as before.
+          </p>
+        </section>
+      )}
+
       <section style={sectionStyle}>
         <h2 style={{ fontSize: 17, margin: 0 }}>Add someone you know</h2>
         <AddPersonSection identityAvailable={identity.available} />
@@ -695,6 +744,7 @@ export default function NetworkWorkspace({
         q={q}
         window={win}
         identity={identity}
+        research={research}
       />
     </div>
   );
