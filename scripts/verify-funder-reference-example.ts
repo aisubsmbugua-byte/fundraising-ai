@@ -102,8 +102,10 @@ type Row = Record<string, unknown>;
 interface ReadDb {
   label: string;
   rows(table: string, ein: string): Promise<Row[]>;
-  /** Raw SQL, available on a local database only; used to choose a sample. */
+  /** Raw SQL, available on a local database only; used to choose a varied sample. */
   query?(sql: string): Promise<Row[]>;
+  /** Every funder's EIN, in order (paged). Available on both kinds of database. */
+  listEins(): Promise<string[]>;
   close(): Promise<void>;
 }
 async function openDb(spec: string): Promise<ReadDb> {
@@ -116,6 +118,7 @@ async function openDb(spec: string): Promise<ReadDb> {
       // to_jsonb so bigint, date, numeric and timestamptz arrive as plain JSON values
       rows: async (table, ein) => (await db.query(`select to_jsonb(t) as r from ${table} t where ein = $1 order by 1`, [ein])).rows.map((x) => (x as { r: Row }).r),
       query: async (sql) => (await db.query(sql)).rows as Row[],
+      listEins: async () => (await db.query(`select ein from funder_reference_foundations order by ein`)).rows.map((r) => String((r as { ein: string }).ein)),
       close: () => db.close(),
     };
   }
@@ -131,6 +134,16 @@ async function openDb(spec: string): Promise<ReadDb> {
         const { data, error } = await c.from(table).select("*").eq("ein", ein).limit(10000);
         if (error) throw new Error(`${table}: ${error.message}`);
         return data as Row[];
+      },
+      listEins: async () => {
+        const out: string[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await c.from("funder_reference_foundations").select("ein").order("ein").range(from, from + 999);
+          if (error) throw new Error(`foundations: ${error.message}`);
+          out.push(...(data as Array<{ ein: string }>).map((r) => r.ein));
+          if (data.length < 1000) break;
+        }
+        return out;
       },
       close: async () => undefined,
     };
@@ -586,9 +599,14 @@ async function main() {
   let chosen: Array<[string, string]>;
   if (einArg) chosen = einArg.split(",").map((e) => ["named", e] as [string, string]);
   else if (all) {
-    if (!db.query) throw new Error("--all needs a local (pglite) database");
-    chosen = (await db.query(`select ein from funder_reference_foundations order by ein`)).map((r) => ["every funder", String(r.ein)] as [string, string]);
-  } else chosen = await pickSample(db, Number(sampleArg));
+    chosen = (await db.listEins()).map((e) => ["every funder", e] as [string, string]);
+  } else if (db.query) chosen = await pickSample(db, Number(sampleArg));
+  else {
+    // a live database offers no raw SQL: take evenly spaced funders from the sorted list
+    const eins = await db.listEins();
+    const n = Math.min(Number(sampleArg), eins.length);
+    chosen = Array.from({ length: n }, (_, i) => ["evenly spaced", eins[Math.floor((i * eins.length) / n)]] as [string, string]);
+  }
   console.log(`database: ${db.label}; verifying ${chosen.length} funder(s)${SAMPLE_MODE ? " (a repeatable, varied sample):" : ""}`);
   if (SAMPLE_MODE && !all) for (const [why, e] of chosen) console.log(`  ${e}  ${why}`);
   const ppLines: string[] = [];
