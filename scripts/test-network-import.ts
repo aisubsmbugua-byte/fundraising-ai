@@ -593,20 +593,21 @@ async function main() {
     ok("manual add, edit and single delete are unchanged in what they call", /addConnection/.test(read("app/(dashboard)/network/network-workspace.tsx")) && /updateConnection\(connection\.id, input\)/.test(read("app/(dashboard)/network/network-workspace.tsx")) && /deleteConnection\(connection\.id\)/.test(read("app/(dashboard)/network/network-workspace.tsx")));
     let migrationsTouched = "unknown";
     try {
-      // Item 103 added no migration. Migration 0083 (STATE item 107, ruling
-      // 0044) is the one later, deliberate addition: it is allowed to appear
-      // here; no OTHER migration may be added, and none may be changed.
+      // Item 103 added no migration. Migrations 0083 (STATE item 107, ruling
+      // 0044) and 0084 (STATE item 110, ruling 0045) are the later, deliberate
+      // additions: they are allowed to appear here; no OTHER migration may be
+      // added, and none may be changed.
       const out = execSync("git status --porcelain -- supabase/migrations", { cwd: root, encoding: "utf8" })
         .split("\n")
-        .filter((l) => l.trim() && !/supabase\/migrations\/0083_network_identity\.sql$/.test(l))
+        .filter((l) => l.trim() && !/supabase\/migrations\/(0083_network_identity|0084_funder_reference)\.sql$/.test(l))
         .join("\n")
         .trim();
-      const diff = execSync("git diff HEAD --name-only -- supabase/migrations", { cwd: root, encoding: "utf8" }).replace(/^.*0083_network_identity\.sql$/m, "").trim();
+      const diff = execSync("git diff HEAD --name-only -- supabase/migrations", { cwd: root, encoding: "utf8" }).replace(/^.*(0083_network_identity|0084_funder_reference)\.sql$/gm, "").trim();
       migrationsTouched = out + diff;
     } catch (e) {
       migrationsTouched = `git failed: ${(e as Error).message}`;
     }
-    ok("no migration file was added or changed other than 0083_network_identity.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
+    ok("no migration file was added or changed other than 0083_network_identity.sql and 0084_funder_reference.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
   }
 
   console.log(`\n${pass} passed, ${fail} failed.`);
