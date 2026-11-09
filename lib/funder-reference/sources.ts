@@ -28,9 +28,16 @@ import { join } from "node:path";
 
 export const IRS_BASE = "https://apps.irs.gov/pub/epostcard/990/xml";
 
-/** Archive names the IRS page listed on 2026-11-06 (it was last updated 2026-10-22). */
+/**
+ * Archive names the IRS page listed on 2026-11-06 (it was last updated 2026-10-22), plus
+ * 2022_TEOS_XML_02A, which that page did not list but which the IRS serves (HTTP 200,
+ * 1,408,196,885 bytes, checked 2026-11-08 by HEAD). The first full California dry run could
+ * not find 5,901 returns that were submitted in 2022 in any listed archive; this is the
+ * archive added to look for them. Other 2022 names tried (03A to 12A, 01B, 05B, 11B, 11C)
+ * are not served.
+ */
 export const IRS_ARCHIVES: Record<number, string[]> = {
-  2022: ["2022_TEOS_XML_01A"],
+  2022: ["2022_TEOS_XML_01A", "2022_TEOS_XML_02A"],
   2023: months(2023, 12),
   2024: months(2024, 12),
   2025: [...months(2025, 12), "2025_TEOS_XML_05B", "2025_TEOS_XML_11B", "2025_TEOS_XML_11C", "2025_TEOS_XML_11D"],
