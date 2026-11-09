@@ -593,11 +593,12 @@ async function main() {
     ok("manual add, edit and single delete are unchanged in what they call", /addConnection/.test(read("app/(dashboard)/network/network-workspace.tsx")) && /updateConnection\(connection\.id, input\)/.test(read("app/(dashboard)/network/network-workspace.tsx")) && /deleteConnection\(connection\.id\)/.test(read("app/(dashboard)/network/network-workspace.tsx")));
     let migrationsTouched = "unknown";
     try {
-      // Item 103 added no migration. Migration 0083 (STATE item 107, ruling
-      // 0044) and migration 0085 (STATE item 112, the same ruling's slice B) are
-      // the later, deliberate additions: they are allowed to appear here; no OTHER
-      // migration may be added, and none may be changed.
-      const ALLOWED = /supabase\/migrations\/(0083_network_identity|0085_network_person_findings)\.sql$/;
+      // Item 103 added no migration. Migrations 0083 (STATE item 107, ruling
+      // 0044), 0084 (STATE item 110, ruling 0045) and 0085 (STATE item 112, the
+      // same ruling's slice B) are the later, deliberate additions: they are
+      // allowed to appear here; no OTHER migration may be added, and none may be
+      // changed.
+      const ALLOWED = /supabase\/migrations\/(0083_network_identity|0084_funder_reference|0085_network_person_findings)\.sql$/;
       const out = execSync("git status --porcelain -- supabase/migrations", { cwd: root, encoding: "utf8" })
         .split("\n")
         .filter((l) => l.trim() && !ALLOWED.test(l))
@@ -612,7 +613,7 @@ async function main() {
     } catch (e) {
       migrationsTouched = `git failed: ${(e as Error).message}`;
     }
-    ok("no migration file was added or changed other than 0083_network_identity.sql and 0085_network_person_findings.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
+    ok("no migration file was added or changed other than 0083_network_identity.sql, 0084_funder_reference.sql and 0085_network_person_findings.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
   }
 
   console.log(`\n${pass} passed, ${fail} failed.`);
