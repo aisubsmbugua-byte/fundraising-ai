@@ -184,6 +184,7 @@ const failures: string[] = [];
 let currentEin = "";
 // what the returns carry that is not stored, accumulated over every funder verified
 const uncovered = new Map<string, number>();
+const ssnFieldHoldsEin: string[] = [];
 let leafTotal = 0;
 let leafStored = 0;
 function norm(v: unknown): string | null {
@@ -500,7 +501,14 @@ async function verifyOne(db: ReadDb, ein: string, xmlDir: string | undefined, pp
     for (const t of [f, fig, app, ...mine, ...mineG].filter(Boolean)) everyText.push(JSON.stringify(t));
     // The IRS publishes the field masked; a value with no digits (a placeholder) is not an SSN,
     // and filers sometimes type the same placeholder into their own text.
-    if (ssn && /\d{3}-?\d{2}-?\d{4}|\d{9}/.test(ssn)) check(`${tag} the signing officer's SSN field is not stored anywhere`, !everyText.join("\n").includes(ssn), `value ${ssn.replace(/\d/g, "#")} found`);
+    if (ssn && /\d{3}-?\d{2}-?\d{4}|\d{9}/.test(ssn)) {
+      // Item 114 (found on the first real multi-state run, 2026-11-09): some filers type their own EIN into the
+      // signing officer's SSN field (EIN 112001717 does). The EIN is public and is stored on purpose, so finding it
+      // in what was stored is not a leak, and the check reported a false mismatch. A field that holds the return's
+      // own EIN is not a person's number: it is counted and listed in the report, and not scanned for.
+      if (ssn.replace(/\D/g, "") === (txt(header, "Filer/EIN") ?? "")) ssnFieldHoldsEin.push(tag);
+      else check(`${tag} the signing officer's SSN field is not stored anywhere`, !everyText.join("\n").includes(ssn), `value ${ssn.replace(/\d/g, "#")} found`);
+    }
   }
 
   eq("total people rows for the EIN", people.length, expectedPeople, "int");
@@ -643,6 +651,7 @@ async function main() {
   // ---- report ----
   console.log(`\ncompared ${compared} stored values/properties with the filing(s) of ${chosen.length} funder(s); ${mismatches} mismatch(es)`);
   for (const x of failures) console.log(`  MISMATCH ${x}`);
+  if (ssnFieldHoldsEin.length) console.log(`\nNOTE: ${ssnFieldHoldsEin.length} return(s) carry the filer's own EIN in the signing officer's SSN field (a filer's entry error); that is a public identifier, so it was not scanned for as an SSN: ${ssnFieldHoldsEin.slice(0, 5).join(" ")}${ssnFieldHoldsEin.length > 5 ? " ..." : ""}`);
   console.log(`\nwhat the filing(s) carry that is NOT stored (leaf elements, by section): ${leafTotal - leafStored} of ${leafTotal} (${leafStored} stored)`);
   for (const [k, n] of [...uncovered.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40)) console.log(`  ${String(n).padStart(5)}  ${k}`);
   if (ppLines.length) {

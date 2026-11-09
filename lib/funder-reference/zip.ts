@@ -177,17 +177,32 @@ export class ZipArchive {
   }
 }
 
+/**
+ * Which members of the archive's directory are kept as entries. Default: all of them.
+ * An IRS archive can list several hundred thousand members; building an object, a name
+ * and two map entries for each, just to look at a handful, was the loader's largest
+ * single use of memory (item 114). `keep` is called with each member's name and the
+ * member is listed only if it returns true. A member that is kept is identical to the
+ * one an unfiltered open would give (same offsets, same checks); the others are simply
+ * absent, so find() and findObject() answer for the kept ones only.
+ */
+export interface OpenZipOptions {
+  keep?: (memberName: string) => boolean;
+}
+/** Pass as `keep` to list no members at all (the caller already holds the entries it will read). */
+export const KEEP_NONE = () => false;
+
 /** Opens an archive; if it cannot be opened the source is closed, never leaked. */
-export async function openZip(source: ByteSource): Promise<ZipArchive> {
+export async function openZip(source: ByteSource, opts: OpenZipOptions = {}): Promise<ZipArchive> {
   try {
-    return await openZipInner(source);
+    return await openZipInner(source, opts.keep);
   } catch (e) {
     await source.close?.();
     throw e;
   }
 }
 
-async function openZipInner(source: ByteSource): Promise<ZipArchive> {
+async function openZipInner(source: ByteSource, keep?: (memberName: string) => boolean): Promise<ZipArchive> {
   const tailLen = Math.min(source.size, 65_535 + 22 + 20 + 56 + 64);
   const tailStart = source.size - tailLen;
   const tail = await source.read(tailStart, tailLen);
@@ -247,8 +262,16 @@ async function openZipInner(source: ByteSource): Promise<ZipArchive> {
     const xlen = u16(cd, p + 30);
     const clen = u16(cd, p + 32);
     let lho = u32(cd, p + 42);
-    const name = dec.decode(cd.subarray(p + 46, p + 46 + nlen));
     void flags;
+    if (keep === KEEP_NONE) {
+      p += 46 + nlen + xlen + clen;
+      continue;
+    }
+    const name = dec.decode(cd.subarray(p + 46, p + 46 + nlen));
+    if (keep && !keep(name)) {
+      p += 46 + nlen + xlen + clen;
+      continue;
+    }
     // ZIP64 extended information, in the order the spec fixes: size, csize, offset.
     let x = p + 46 + nlen;
     const xend = x + xlen;

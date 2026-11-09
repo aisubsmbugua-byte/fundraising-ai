@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "authorized_by": "ruling 0046 clause 3 (item 114)",
+  "what_this_is": "The written list of verifier differences that are EXPLAINED. The all-states command (scripts/load-all-states.ts) checks a sample of each state's funders against the IRS filings with scripts/verify-funder-reference-example.ts. A difference it prints is explained only if one entry below matches it; every other difference is unexplained, and an unexplained difference marks the state NOT VERIFIED and stops the run before the next state. The list starts empty: no difference is known to be harmless until someone has found its cause and written it down here.",
+  "fields": {
+    "id": "A short unique name, e.g. mover-coverage-year. Recorded on the state's run each time the entry explains a difference.",
+    "cause": "In plain words, why the difference happens and why it does not mean a stored value is wrong.",
+    "pattern": "A regular expression (JavaScript syntax, written as a JSON string, so backslashes are doubled) tested against ONE mismatch line exactly as the checker prints it after the word MISMATCH, for example: [582218044] [202343189349103439 2023-12-31] foundation.city: stored \"X\" but the filing gives \"Y\". It must name what it explains. A pattern that matches an empty line, or matches unrelated lines such as any city mismatch and any amount mismatch alike, is refused when the command starts.",
+    "evidence": "Where the cause was established: the EIN and object id of an example, the filing element, the build report or ruling that records it. Enough for a stranger to check.",
+    "date": "The date the entry was written, YYYY-MM-DD."
+  },
+  "how_to_add": "Find the cause first. Then add one object with all five fields to the list below and commit the file; the next run re-checks the not-verified state with the new entry in force, and the run record lists every entry that explained something (id, count, examples). Never add an entry to make a run pass without a cause.",
+  "exceptions": [
+    {
+      "id": "funder-in-two-states",
+      "cause": "The funder has returns filed from addresses in more than one state. Each state's run judges the size threshold on the returns of its own state, so a small return filed from another state can be held below the threshold while the funder is in scope through a larger return in this state. The checker then notes that no filing for the EIN is held below the threshold. Nothing stored is wrong; one small return from the other state is simply not stored. Owner's decision 2026-11-09 (accept now; deciding scope per funder across states is item 115).",
+      "pattern": "^\\[\\d{9}\\] no filing for this EIN is skipped below the threshold",
+      "evidence": "EIN 462502407: one return filed from Idaho loaded, two filed from Hawaii held below the threshold (scratch run 2026-11-09, docs/reviews/0033-all-states-loader-build-report.md section 5). Five of 34 real states (WA, UT, LA, ID, NM) showed one such funder each; 5,491 of 136,543 funder numbers have returns in more than one state.",
+      "date": "2026-11-09"
+    }
+  ]
+}

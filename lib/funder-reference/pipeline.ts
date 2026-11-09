@@ -17,6 +17,21 @@
 // Independently, each stored row was either written now or already identical
 // (`rows_written`, `rows_unchanged`).
 //
+// ITEM 114 (ruling 0046): this pipeline now runs one STATE per process, many times over, on a
+// small server. Four rules follow from that and are enforced by scripts/test-funder-reference-
+// memory.ts and scripts/test-all-states.ts:
+//   * MEMORY. Nothing kept for the whole run may refer into a return's text (a 13-character
+//     substring points into the whole document; see strings.ts), the archives' directories are
+//     listed only for the members wanted (zip.ts), and the index is read without building a
+//     character-by-character string per field (sources.ts). A state peaks at about 1.3 GB.
+//   * SHARED FILES. pass-a-cache.jsonl records name the state they were made for, so every
+//     state's run can share one work directory; header-scan-cache.jsonl is the same for all.
+//   * OTHER STATES' ROWS. A run replaces the coverage rows of the funders IT considered, not of
+//     every funder in the index, and works a funder's coverage out from every row the index has
+//     for it (this run's outcome for the rows it decided, the database's for the rest).
+//   * OVERSIZE. A return over maxReturnBytes is not parsed, and a filing whose write document is
+//     over maxWriteBytes is not written; each is recorded as unread with the reason.
+//
 // RESUMABLE. State lives in the database (a filing already stored identically
 // costs one comparison) and in an append-only header cache on disk, so a killed
 // run restarts without redoing finished work. IDEMPOTENT. A filing is replaced
@@ -32,7 +47,8 @@ import { FilingRejected, parseFiling990PF, peekHeader, type ParsedFiling } from 
 import type { ArchiveProvider } from "./sources";
 import { archiveUrl, indexUrl } from "./sources";
 import type { CoverageRow, ExistingFiling, Sink } from "./sink";
-import type { ZipArchive, ZipEntry } from "./zip";
+import { KEEP_NONE, type ZipArchive, type ZipEntry } from "./zip";
+import { detach } from "./strings";
 
 export interface PipelineParams {
   periodYears: number[];
@@ -46,7 +62,16 @@ export interface PipelineParams {
   dryRun?: boolean;
   /** Read this many of the returns the header ruled out, chosen repeatably at random, to check the header peek. */
   auditHeaderSample?: number;
+  /**
+   * Item 114. A return whose XML is larger than this is recorded as unread, not parsed (default 64 MB). One Washington
+   * return was 279 MB with 363,675 listed grants; parsing it needs gigabytes, and the loader promises to run in about 1.5 GB.
+   */
+  maxReturnBytes?: number;
+  /** A filing whose write document would exceed this many bytes is recorded as unread, not written (default 16 MB): one database call carries a whole filing. */
+  maxWriteBytes?: number;
 }
+export const DEFAULT_MAX_RETURN_BYTES = 64_000_000;
+export const DEFAULT_MAX_WRITE_BYTES = 16_000_000;
 
 export interface Counts {
   index_rows_considered: number;
@@ -113,7 +138,7 @@ type Located = { archive: string; entry: ZipEntry };
 type XmlFacts = { sha256: string; bytes: number };
 type Assessed = { row: IndexRow; loc: Located; xml: XmlFacts; head: Pick<ParsedFiling, "taxPeriodEnd" | "taxPeriodBegin" | "taxYr" | "returnVersion" | "returnTs">; a: ThresholdResult };
 
-interface ScanRecord {
+export interface ScanRecord {
   objectId: string;
   state: string | null;
   ein: string | null;
@@ -152,6 +177,8 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     universe_sensitivity: null,
   };
   const rejected: RunSummary["rejected"] = [];
+  const maxReturnBytes = p.maxReturnBytes ?? DEFAULT_MAX_RETURN_BYTES;
+  const maxWriteBytes = p.maxWriteBytes ?? DEFAULT_MAX_WRITE_BYTES;
   mkdirSync(p.workDir, { recursive: true });
 
   if (!p.dryRun) {
@@ -187,7 +214,9 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
       member: loc ? loc.entry.name : `(not found in any archive) ${r.objectId}_public.xml`,
     });
     const earlyDocs: FilingDoc[] = []; // unread and skipped filings, small
-    const unread = (r: IndexRow, loc: Located | undefined, reason: string, xml?: XmlFacts) => {
+    const unread = (r: IndexRow, loc: Located | undefined, reasonIn: string, xml?: XmlFacts) => {
+      // A reason is built from text cut out of a return; detached, it does not keep the return in memory.
+      const reason = detach(reasonIn);
       counts.status_unread++;
       rejected.push({ object_id: r.objectId, ein: r.ein, reason });
       earlyDocs.push(unreadDoc(prov(r, loc), reason, xml));
@@ -196,6 +225,7 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     // ---- 1. locate every row's member ----------------------------------------------------
     log(`locating ${p.rows.length} index row(s) in the IRS archives ...`);
     const located = await locateAll(p.rows, provider, log);
+    log(`located ${located.size} of ${p.rows.length} ${memLine()}`);
     for (const r of p.rows) {
       if (located.has(r.objectId)) continue;
       counts.unread_not_located++;
@@ -207,25 +237,9 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     const useState = !!p.state && !p.eins;
     const scanCache = join(p.workDir, "header-scan-cache.jsonl");
     const scanned = loadScanCache(scanCache);
-    if (useState) {
-      const toScan = [...located.keys()].filter((id) => !scanned.has(id));
-      log(`reading ${toScan.length} header(s) (${located.size - toScan.length} already cached) to find ${p.state} filers ...`);
-      await forEachArchive(located, toScan, provider, async (zip, ids, archive) => {
-        for (const id of ids) {
-          let rec: ScanRecord = { objectId: id, state: null, ein: null };
-          try {
-            const bytes = await zip.readPrefix(located.get(id)!.entry, PEEK_BYTES);
-            const peek = peekHeader(Buffer.from(bytes).toString("utf8"));
-            if (peek && peek.ein) rec = { objectId: id, state: peek.foreign ? null : peek.state, ein: peek.ein };
-          } catch {
-            // a header that cannot be peeked is read in full below and judged there
-          }
-          scanned.set(id, rec);
-          appendFileSync(scanCache, JSON.stringify(rec) + "\n");
-        }
-        log(`  headers ${archive}: ${ids.length}`);
-      });
-    }
+    log(`header cache loaded: ${scanned.size} ${memLine()}`);
+    if (useState) await scanMissingHeaders(located, scanned, scanCache, provider, p.state, log);
+    log(`headers read ${memLine()}`);
     const inStateIds: string[] = [];
     const headerOutIds: string[] = [];
     for (const id of located.keys()) {
@@ -286,7 +300,11 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     // threshold is applied afresh. It is valid only for this loader version and for an
     // archive member of the same size; bump LOADER_VERSION whenever the parser changes.
     const passACachePath = join(p.workDir, "pass-a-cache.jsonl");
-    const passACache = loadPassACache(passACachePath);
+    // A cached outcome ("in this state", "not in this state") is a statement about ONE state's run:
+    // the same file is shared by every state's run in one work directory, so each record names the
+    // state it was made for and is used only by a run for that state (item 114).
+    const cacheState = useState ? p.state : null;
+    const passACache = loadPassACache(passACachePath, cacheState);
     const rememberPassA = (rec: PassARecord) => appendFileSync(passACachePath, JSON.stringify(rec) + "\n");
     await forEachArchive(located, inStateIds, provider, async (zip, ids, archive) => {
       let done = 0;
@@ -312,6 +330,11 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
         }
 
         if (loc.entry.size > LARGE_RETURN_BYTES) log(`  large return ${id}: ${(loc.entry.size / 1e6).toFixed(1)} MB uncompressed ${memLine()}`);
+        if (loc.entry.size > maxReturnBytes) {
+          // not cached: the verdict depends on a limit that can be raised
+          unread(row, loc, `the return is ${(loc.entry.size / 1e6).toFixed(1)} MB of XML, over the loader's ${(maxReturnBytes / 1e6).toFixed(0)} MB limit for reading one return (reading it would not fit the loader's memory); it was not parsed or stored`);
+          continue;
+        }
         let bytes: Uint8Array;
         try {
           bytes = await zip.read(loc.entry);
@@ -329,18 +352,19 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
             if (st !== p.state) {
               counts.out_of_scope_state++;
               if (scanned.get(id)?.ein) counts.header_said_in_state_but_return_disagrees++;
-              rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, objectId: id, xmlBytes: loc.entry.size, outcome: "out_of_state" });
+              rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, state: cacheState, objectId: id, xmlBytes: loc.entry.size, outcome: "out_of_state" });
               continue;
             }
           }
-          const head = { taxPeriodEnd: f.taxPeriodEnd, taxPeriodBegin: f.taxPeriodBegin, taxYr: f.taxYr, returnVersion: f.returnVersion, returnTs: f.returnTs };
+          // detached: a timestamp cut from the return would otherwise keep the whole return in memory for the rest of the run
+          const head = { taxPeriodEnd: detach(f.taxPeriodEnd), taxPeriodBegin: detach(f.taxPeriodBegin), taxYr: detach(f.taxYr), returnVersion: detach(f.returnVersion), returnTs: detach(f.returnTs) };
           const a = assessThreshold(f, p.threshold);
           assessed.set(id, { row, loc, xml, head, a });
-          rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, objectId: id, xmlBytes: loc.entry.size, outcome: "assessed", xml, head, assets: a.assetsUsed, giving: a.givingUsed });
+          rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, state: cacheState, objectId: id, xmlBytes: loc.entry.size, outcome: "assessed", xml, head, assets: a.assetsUsed, giving: a.givingUsed });
         } catch (e) {
           const reason = reasonOf(e);
           unread(row, loc, reason, xml);
-          rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, objectId: id, xmlBytes: loc.entry.size, outcome: "unread", xml, reason });
+          rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, state: cacheState, objectId: id, xmlBytes: loc.entry.size, outcome: "unread", xml, reason });
         }
       }
       log(`  pass A ${archive}: ${ids.length} ${memLine()}`);
@@ -431,7 +455,9 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
       if (p.dryRun) {
         counts.rows_written++;
         finalStatus.set(id, String(f.status));
-        if (f.status === "loaded") dryLoaded.push(doc);
+        // only the filing row is needed to work out which return stands; the figures, people and grants of a dry run are not kept
+        // (detached: the timestamp is cut from the return and would keep the whole return in memory)
+        if (f.status === "loaded") dryLoaded.push({ filing: { object_id: id, ein: f.ein, tax_period_end: f.tax_period_end, return_ts: detach(f.return_ts as string | null), status: "loaded" }, foundation: null, figures: null, people: [], grants: [], application: null });
         return;
       }
       const result = await sink.applyFiling(doc);
@@ -467,7 +493,15 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
         if (f.grantsPaid.concat(f.grantsApproved).some((g) => Object.keys(g.unmappedFields).length)) counts.loaded_filings_with_unmapped_grant_fields++;
         if (f.grantsPaid.length === 0 && stated !== null && stated > 0) counts.loaded_filings_with_stated_grants_and_no_listed_rows++;
         else if (f.grantsPaid.length > 0 && stated !== null && listedSum !== stated) counts.loaded_filings_whose_listed_grants_differ_from_stated_total++;
-        await apply(loadedDoc(prov(x.row, x.loc), f, facts));
+        const doc = loadedDoc(prov(x.row, x.loc), f, facts);
+        const docBytes = JSON.stringify(doc).length;
+        if (docBytes > maxWriteBytes) {
+          // one database call carries a whole filing; a filing too big for one call is recorded as unread with the reason, never dropped silently
+          unread(x.row, x.loc, `the filing lists ${f.grantsPaid.length + f.grantsApproved.length} grants and ${f.people.length} people; its write document is ${(docBytes / 1e6).toFixed(1)} MB, over the loader's ${(maxWriteBytes / 1e6).toFixed(0)} MB limit for one database call; it was not stored`, facts);
+          await apply(earlyDocs[earlyDocs.length - 1]);
+          continue;
+        }
+        await apply(doc);
         if (++applied % 500 === 0) log(`  written ${applied}/${inScopeIds.length}`);
       }
       log(`  pass B ${archive}: ${ids.length}`);
@@ -502,22 +536,37 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
       counts.index_rows_considered ===
       counts.out_of_scope_state + counts.status_unread + counts.status_skipped_below_threshold + counts.status_loaded + counts.status_superseded;
 
-    // ---- 6. coverage: which periods are held and which are not, per funder in scope ----------------
+    // ---- 6. coverage: which periods are held and which are not, per funder ------------------------
+    // A funder's rows can be split across states (it moved: its returns carry addresses in more
+    // than one state), and each state is a separate run. So a funder's coverage is worked out from
+    // every row the index has for it, with this run's outcome for the rows it decided and the
+    // database's for the rest, and a run touches only the funders IT considered (item 114): an
+    // earlier version replaced the coverage of every funder in the index, which would have erased
+    // the coverage written by every other state's run. For a single-state database the result is
+    // what it always was.
     const coverage: CoverageRow[] = [];
     const checkedAt = new Date().toISOString();
-    const rowsByEin = new Map<string, IndexRow[]>();
+    const consideredEins = new Set<string>();
+    for (const id of inStateIds) consideredEins.add(byId.get(id)!.ein);
+    const rowsByEin = new Map<string, IndexRow[]>(); // only the funders this run considered
     for (const r of p.rows) {
+      if (!consideredEins.has(r.ein)) continue;
       const a = rowsByEin.get(r.ein) ?? [];
       a.push(r);
       rowsByEin.set(r.ein, a);
     }
+    const notDecidedHere: string[] = [];
+    for (const ein of consideredEins) for (const r of rowsByEin.get(ein) ?? []) if (!finalStatus.has(r.objectId)) notDecidedHere.push(r.objectId);
+    const heldElsewhere: Map<string, ExistingFiling> = p.dryRun ? new Map() : await sink.existingFilings(notDecidedHere);
+    const statusOf = (id: string): string | undefined => finalStatus.get(id) ?? heldElsewhere.get(id)?.status;
+    const coverageEins = [...consideredEins].filter((ein) => inScopeEins.has(ein) || (rowsByEin.get(ein) ?? []).some((r) => statusOf(r.objectId) === "loaded")).sort();
     const rejectedIds = new Set(rejected.map((r) => r.object_id));
     const indexFiles = [...new Set(p.rows.map((r) => r.indexFile))].sort().join(", ");
-    for (const ein of [...inScopeEins].sort()) {
+    for (const ein of coverageEins) {
       for (const year of p.periodYears) {
         const inYear = (rowsByEin.get(ein) ?? []).filter((r) => Number(r.taxPeriod.slice(0, 4)) === year);
-        const standing = inYear.filter((r) => finalStatus.get(r.objectId) === "loaded");
-        const unreadRows = inYear.filter((r) => rejectedIds.has(r.objectId));
+        const standing = inYear.filter((r) => statusOf(r.objectId) === "loaded");
+        const unreadRows = inYear.filter((r) => rejectedIds.has(r.objectId) || statusOf(r.objectId) === "unread");
         let row: CoverageRow;
         if (standing.length) {
           counts.coverage_loaded++;
@@ -525,6 +574,11 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
         } else if (unreadRows.length) {
           counts.coverage_unread++;
           row = { ein, period_year: year, status: "unread", filing_object_id: unreadRows[0].objectId, note: `the IRS index lists ${unreadRows.length} return(s) for a period ending in ${year} and none could be read; see funder_reference_filings`, run_id: runId, checked_at: checkedAt };
+        } else if (inYear.some((r) => statusOf(r.objectId) === "skipped_below_threshold")) {
+          // The index has a return for this year and another state's run held it below the threshold:
+          // "not in the index" would be false, and the schema has no other status for it. No coverage
+          // row is written; the filing row says what happened.
+          continue;
         } else {
           counts.coverage_no_filing_in_index++;
           row = {
@@ -540,9 +594,9 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
         coverage.push(row);
       }
     }
-    // Every EIN this run considered is replaced, so a funder that has dropped out of scope
+    // Every funder this run considered is replaced, so one that has dropped out of scope
     // (a raised threshold) does not keep coverage rows that claim periods are held.
-    if (!p.dryRun) await sink.replaceCoverage([...rowsByEin.keys()], coverage);
+    if (!p.dryRun) await sink.replaceCoverage([...consideredEins], coverage);
 
     if (!p.dryRun) {
       await sink.finishRun(runId, { status: "completed", counts: counts as unknown as Record<string, unknown>, rejected_filings: rejected, sources: p.sources });
@@ -575,6 +629,8 @@ const LARGE_RETURN_BYTES = 20_000_000;
 interface PassARecord {
   v: number;
   loader: string;
+  /** The state this record was made for (null: a run for named EINs, with no state test). */
+  state: string | null;
   objectId: string;
   /** The archive member's uncompressed size; a different size means a different file, so the record is not used. */
   xmlBytes: number;
@@ -586,14 +642,14 @@ interface PassARecord {
   reason?: string;
 }
 
-function loadPassACache(path: string): Map<string, PassARecord> {
+function loadPassACache(path: string, state: string | null): Map<string, PassARecord> {
   const m = new Map<string, PassARecord>();
   if (!existsSync(path)) return m;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (!line) continue;
     try {
       const r = JSON.parse(line) as PassARecord;
-      if (r.v === PASS_A_CACHE_VERSION && r.loader === LOADER_VERSION) m.set(r.objectId, r);
+      if (r.v === PASS_A_CACHE_VERSION && r.loader === LOADER_VERSION && r.state === state) m.set(r.objectId, r);
     } catch {
       // a torn last line from a killed run; that return is simply read again
     }
@@ -608,7 +664,19 @@ function memLine(): string {
   return `[rss ${mb(m.rss)}, heap ${mb(m.heapUsed)}, machine free ${mb(freemem())}]`;
 }
 
-function loadScanCache(path: string): Map<string, ScanRecord> {
+/** The header records one at a time, for a caller that wants a lighter structure than a Map of objects (item 114). */
+export function streamScanCache(path: string, onRecord: (r: ScanRecord) => void): void {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line) continue;
+    try {
+      onRecord(JSON.parse(line) as ScanRecord);
+    } catch {
+      // a torn last line from a killed run; that row is simply scanned again
+    }
+  }
+}
+export function loadScanCache(path: string): Map<string, ScanRecord> {
   const m = new Map<string, ScanRecord>();
   if (!existsSync(path)) return m;
   for (const line of readFileSync(path, "utf8").split("\n")) {
@@ -624,6 +692,54 @@ function loadScanCache(path: string): Map<string, ScanRecord> {
 }
 
 /**
+ * Reads the first bytes of every located return that has no header record yet and appends
+ * one record each to the cache file (state and EIN as the header states them). Records
+ * are written as they are made, so a killed scan resumes where it stopped.
+ */
+async function scanMissingHeaders(
+  located: Map<string, Located>,
+  scanned: Map<string, ScanRecord>,
+  scanCache: string,
+  provider: ArchiveProvider,
+  state: string | null,
+  log: (s: string) => void
+) {
+  const toScan = [...located.keys()].filter((id) => !scanned.has(id));
+  log(`reading ${toScan.length} header(s) (${located.size - toScan.length} already cached) to find ${state ?? "every state's"} filers ...`);
+  await forEachArchive(located, toScan, provider, async (zip, ids, archive) => {
+    for (const id of ids) {
+      let rec: ScanRecord = { objectId: id, state: null, ein: null };
+      try {
+        const bytes = await zip.readPrefix(located.get(id)!.entry, PEEK_BYTES);
+        const peek = peekHeader(Buffer.from(bytes).toString("utf8"));
+        if (peek && peek.ein) rec = { objectId: id, state: peek.foreign ? null : detach(peek.state), ein: detach(peek.ein) };
+      } catch {
+        // a header that cannot be peeked is read in full below and judged there
+      }
+      scanned.set(id, rec);
+      appendFileSync(scanCache, JSON.stringify(rec) + "\n");
+    }
+    log(`  headers ${archive}: ${ids.length}`);
+  });
+}
+
+/**
+ * Item 114: only the header scan, for the all-states command. Locates every row in the
+ * archives and reads the header of each return not yet in <workDir>/header-scan-cache.jsonl.
+ * Touches no database. Returns how many rows were located and how many headers were scanned
+ * by this call.
+ */
+export async function scanHeadersOnly(rows: IndexRow[], provider: ArchiveProvider, workDir: string, log: (s: string) => void): Promise<{ rows: number; located: number; scannedNow: number }> {
+  mkdirSync(workDir, { recursive: true });
+  const located = await locateAll(rows, provider, log);
+  const scanCache = join(workDir, "header-scan-cache.jsonl");
+  const scanned = loadScanCache(scanCache);
+  const before = scanned.size;
+  await scanMissingHeaders(located, scanned, scanCache, provider, null, log);
+  return { rows: rows.length, located: located.size, scannedNow: scanned.size - before };
+}
+
+/**
  * Finds each row's archive member. A row with a batch id is looked for in that
  * archive; one without, in the archives that can hold its submission year, and,
  * failing that, in every archive. Each archive is opened at most once.
@@ -634,11 +750,24 @@ async function locateAll(rows: IndexRow[], provider: ArchiveProvider, log: (s: s
   const tried = new Set<string>();
   const all = provider.candidates(null);
 
+  // A member is named <OBJECT_ID>_public.xml, in a folder or not. Only the members that
+  // are still wanted are listed from each archive (item 114: listing every member of an
+  // archive that holds several hundred thousand was the loader's largest use of memory).
+  const idOf = (member: string): string | null => {
+    const base = member.slice(member.lastIndexOf("/") + 1);
+    return base.endsWith("_public.xml") ? base.slice(0, base.length - "_public.xml".length) : null;
+  };
+
   async function resolveIn(name: string) {
     tried.add(name);
     let zip: ZipArchive | null = null;
     try {
-      zip = await provider.open(name);
+      zip = await provider.open(name, {
+        keep: (member) => {
+          const id = idOf(member);
+          return id !== null && pending.has(id);
+        },
+      });
     } catch (e) {
       log(`  could not open ${name}: ${(e as Error).message}`);
       return;
@@ -649,13 +778,13 @@ async function locateAll(rows: IndexRow[], provider: ArchiveProvider, log: (s: s
     }
     let n = 0;
     try {
-      for (const id of [...pending.keys()]) {
-        const entry = zip.findObject(id);
-        if (entry) {
-          found.set(id, { archive: name, entry });
-          pending.delete(id);
-          n++;
-        }
+      // Two members with one file name (in different folders): the last listed wins, as findObject did.
+      const byId = new Map<string, ZipEntry>();
+      for (const entry of zip.entries) byId.set(idOf(entry.name)!, entry);
+      for (const [id, entry] of byId) {
+        found.set(id, { archive: name, entry });
+        pending.delete(id);
+        n++;
       }
     } finally {
       await zip.close();
@@ -695,7 +824,7 @@ async function forEachArchive(
     groups.set(a, g);
   }
   for (const [archive, list] of groups) {
-    const zip = await provider.open(archive);
+    const zip = await provider.open(archive, { keep: KEEP_NONE });
     if (!zip) throw new Error(`archive ${archive} was located earlier and is no longer available`);
     try {
       list.sort((a, b) => located.get(a)!.entry.localHeaderOffset - located.get(b)!.entry.localHeaderOffset);

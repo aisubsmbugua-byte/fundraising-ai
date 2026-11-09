@@ -18,11 +18,17 @@
 //     reading the archives' directories;
 //   * archive members are named <OBJECT_ID>_public.xml, with or without a folder.
 
+// ITEM 114: readIndex/parseCsvLine build no per-character strings (a fast path for lines with no
+// quote, identical output, tested against the old reader on generated lines), kept fields are
+// copied so they do not hold their input line, readIndexEach hands rows over one at a time, and
+// ArchiveProvider.open can list only some members (see zip.ts) to keep the loader's memory flat.
+
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { basename } from "node:path";
 import type { IndexRow } from "./document";
-import { ZipArchive, fileSource, httpSource, openZip } from "./zip";
+import { ZipArchive, fileSource, httpSource, openZip, type OpenZipOptions } from "./zip";
+import { detach } from "./strings";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -64,6 +70,11 @@ export function indexUrl(year: number): string {
 }
 
 export function parseCsvLine(line: string): string[] {
+  // Fast path (item 114, the memory fix): a line with no quote character is cut at its
+  // commas. The general loop below builds each field one character at a time, which
+  // leaves every field of 13 or more characters as a chain of one-character string
+  // nodes (about 1.3 KB per index row, 500 MB for the national index). Same result.
+  if (line.indexOf('"') < 0) return line.split(",");
   const out: string[] = [];
   let cur = "";
   let q = false;
@@ -94,10 +105,16 @@ export interface IndexFilter {
 
 /** Streams one index CSV and yields the rows that pass the filter. */
 export async function readIndex(path: string, filter: IndexFilter): Promise<{ rows: IndexRow[]; totalRows: number }> {
+  const rows: IndexRow[] = [];
+  const { totalRows } = await readIndexEach(path, filter, (r) => void rows.push(r));
+  return { rows, totalRows };
+}
+
+/** The same, one row at a time, for a caller that does not need them all in memory at once (item 114). */
+export async function readIndexEach(path: string, filter: IndexFilter, onRow: (row: IndexRow) => void): Promise<{ totalRows: number }> {
   const rl = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
   let header: string[] | null = null;
   const col: Record<string, number> = {};
-  const rows: IndexRow[] = [];
   let total = 0;
   const file = basename(path);
   const einSet = filter.eins ? new Set(filter.eins) : null;
@@ -117,26 +134,31 @@ export async function readIndex(path: string, filter: IndexFilter): Promise<{ ro
     const ein = f[col.EIN].padStart(9, "0");
     if (einSet && !einSet.has(ein)) continue;
     const sub = col.SUB_DATE !== undefined ? Number(f[col.SUB_DATE]) : NaN;
-    rows.push({
-      returnId: col.RETURN_ID !== undefined ? f[col.RETURN_ID] || null : null,
+    // detach(): a kept field must not hold the whole input line alive (a slice of 13+ characters does)
+    onRow({
+      returnId: col.RETURN_ID !== undefined ? detach(f[col.RETURN_ID] || null) : null,
       ein,
       taxPeriod,
       subYear: Number.isFinite(sub) ? sub : null,
-      taxpayerName: f[col.TAXPAYER_NAME] ?? "",
+      taxpayerName: detach(f[col.TAXPAYER_NAME] ?? ""),
       returnType: f[col.RETURN_TYPE],
-      objectId: f[col.OBJECT_ID],
-      batchId: col.XML_BATCH_ID !== undefined && f[col.XML_BATCH_ID] ? canonicalArchiveName(f[col.XML_BATCH_ID]) : null,
+      objectId: detach(f[col.OBJECT_ID]),
+      batchId: col.XML_BATCH_ID !== undefined && f[col.XML_BATCH_ID] ? detach(canonicalArchiveName(f[col.XML_BATCH_ID])) : null,
       indexFile: file,
     });
   }
-  return { rows, totalRows: total };
+  return { totalRows: total };
 }
 
 // --- archive access --------------------------------------------------------------
 
 export interface ArchiveProvider {
-  /** Opens an archive by IRS name, or null when it is neither on disk nor allowed/able to be fetched. */
-  open(name: string): Promise<ZipArchive | null>;
+  /**
+   * Opens an archive by IRS name, or null when it is neither on disk nor allowed/able to be fetched.
+   * `opts.keep` limits which members are listed (see OpenZipOptions): the loader asks for only the
+   * members it is looking for, or none when it already holds the entries it will read.
+   */
+  open(name: string, opts?: OpenZipOptions): Promise<ZipArchive | null>;
   /** Archive names that may hold a return submitted in `subYear` (all of them if unknown). */
   candidates(subYear: number | null): string[];
 }
@@ -147,15 +169,15 @@ export function archiveProvider(opts: { dir: string | null; remote: boolean; use
   const remoteCache = new Map<string, ZipArchive | null>();
   return {
     candidates: (subYear) => (subYear && IRS_ARCHIVES[subYear] ? IRS_ARCHIVES[subYear] : all),
-    async open(name) {
+    async open(name, zopts) {
       if (opts.dir) {
         const p = join(opts.dir, `${name}.zip`);
-        if (existsSync(p)) return openZip(await fileSource(p));
+        if (existsSync(p)) return openZip(await fileSource(p), zopts);
       }
       if (!opts.remote) return null;
       if (remoteCache.has(name)) return remoteCache.get(name)!;
       try {
-        const z = await openZip(await httpSource(archiveUrl(name), opts.userAgent));
+        const z = await openZip(await httpSource(archiveUrl(name), opts.userAgent), zopts);
         remoteCache.set(name, z);
         return z;
       } catch (e) {

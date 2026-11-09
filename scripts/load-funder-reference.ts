@@ -1,29 +1,37 @@
-// Item 110 (ruling 0045): the offline loader for the funder reference database.
+// Item 110 (ruling 0045), extended by item 114 (ruling 0046): the offline loader
+// for the funder reference database. ONE STATE (or a list of EINs) PER RUN; the
+// all-states command (scripts/load-all-states.ts) runs this once per state, each in
+// its own process.
 //
 // Reads IRS Form 990-PF e-file returns from the IRS's bulk downloads (index CSVs
 // and monthly ZIP archives) and writes the shared reference tables. It runs
 // outside the web application and is never called from a request. It is
 // repeatable and resumable: a filing already stored identically is left alone,
-// and a killed run picks up where the database and the header cache say it
-// stopped.
+// and a killed run picks up where the database and the caches in the work
+// directory say it stopped.
 //
 // Where it writes (--target):
 //   pglite:<dir>   a local PostgreSQL in <dir> with every project migration
-//                  applied. This is how the pilot is loaded in this item: no
-//                  migration is applied to production, so there is no production
-//                  table to write to yet. Statements run as service_role.
+//                  applied (development and tests). Statements run as service_role.
 //   supabase       the real project, with SUPABASE_SERVICE_ROLE_KEY (server-side
-//                  only, read from the environment, never written to a file).
-//                  Refused unless --confirm-write-to-supabase is given, and it
-//                  will fail unless migration 0084 has been applied.
+//                  only, read from the environment, never written to a file or
+//                  printed). Refused unless --confirm-write-to-supabase is given.
+//   none           with --dry-run only: no database at all. Reads and parses
+//                  everything and writes nothing; used to measure memory without a
+//                  database's own footprint.
+//
+// Memory (item 114, measured in docs/reviews/0033-all-states-loader-build-report.md):
+//   A state now loads inside a bounded footprint: peak resident memory about
+//   1.7 GB for California with a local test database, well under that when the
+//   target is the hosted database, instead of 5.8 GB before. Run with
+//   NODE_OPTIONS=--max-old-space-size=1536 (what the server uses); the loader
+//   prints its heap limit and its peak resident memory, and a warning only if the
+//   heap limit is under 1 GB.
 //
 // Environment notes (learned loading California to production, 2026-11-09):
 //   * The service key must be the NEW secret key (it starts sb_secret_). A legacy
 //     JWT key (it starts eyJ) is rejected by a project whose legacy keys are
 //     disabled ("Legacy API keys are disabled"); the loader warns when it sees one.
-//   * Node's default heap is about 4 GB and the full California header scan has
-//     needed about 5 GB. Run with NODE_OPTIONS=--max-old-space-size=10240 and at
-//     least that much free memory; the loader prints its heap limit and warns.
 //   * In an environment that reaches the network through a proxy (a cloud
 //     session), Node 22 needs NODE_USE_ENV_PROXY=1 or the proxy is bypassed.
 //   * A run leaves <work-dir>/run-diary.log: every progress line and, on every exit,
@@ -31,8 +39,11 @@
 //     or finished line, that run was killed without notice (the out-of-memory killer,
 //     SIGKILL or a container restart) and the next run says so and quotes its last
 //     progress. Pass A (every in-state return read whole) is cached in
-//     <work-dir>/pass-a-cache.jsonl as it goes, so a restart replays it instead of
-//     reading tens of thousands of returns again.
+//     <work-dir>/pass-a-cache.jsonl as it goes (each record names its state, so
+//     every state's run can share one directory), so a restart replays it instead
+//     of reading tens of thousands of returns again. The header of every return in
+//     the index is cached in <work-dir>/header-scan-cache.jsonl and is the same for
+//     every state.
 //
 // Usage (all paths absolute; the project folder name has spaces, quote it):
 //   npx tsx scripts/load-funder-reference.ts \
@@ -40,25 +51,36 @@
 //     [--archives-dir <dir of IRS zips>] [--remote] \
 //     [--years 2022,2023,2024] [--state CA] [--ein 582218044[,..]] \
 //     [--min-assets 1000000] [--min-giving 100000] [--audit-header-sample 3000] \
-//     [--target pglite:<dir>|supabase] [--confirm-write-to-supabase] [--dry-run]
+//     [--target pglite:<dir>|supabase|none] [--confirm-write-to-supabase] [--dry-run] \
+//     [--result-file <path>] [--scan-headers-only]
 //
 //   --ein      restrict to these EINs and ignore --state (the worked example)
 //   --remote   read any archive not found in --archives-dir directly from the IRS
 //              with HTTP range requests (only the bytes needed)
 //   --audit-header-sample N   after the state check by header, read N random returns the
 //              header ruled out in full and report any that are in the state after all
-//   --min-assets / --min-giving   THE SIZE THRESHOLD. The owner has not set it;
-//              these defaults are the decision doc's suggestion (see lib/
-//              funder-reference/derive.ts). They are recorded on every run.
+//   --min-assets / --min-giving   THE SIZE THRESHOLD, set by the owner on 2026-11-06
+//              (at least $1,000,000 in assets or $100,000 in yearly giving); they
+//              are recorded on every run.
+//   --max-return-mb N / --max-write-mb N   a return whose XML is over N MB (default 64) is recorded as
+//              unread and not parsed; a filing whose write document is over N MB (default 16) is
+//              recorded as unread and not written. Both exist because one Washington return was
+//              279 MB with 363,675 listed grants; the reason is on the filing and the run record.
+//   --result-file   write a small JSON file when the run ends (run id, counts, peak
+//              memory, or the error): how the all-states command learns what the
+//              run did without parsing its output
+//   --scan-headers-only   read the first bytes of every return in the index that is
+//              not yet in the header cache, then stop. No database is touched. The
+//              all-states command uses it to learn which state each return is in.
 
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
 import { getHeapStatistics } from "node:v8";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { archiveProvider, readIndex } from "../lib/funder-reference/sources";
 import { DEFAULT_THRESHOLD } from "../lib/funder-reference/derive";
-import { runPipeline } from "../lib/funder-reference/pipeline";
+import { runPipeline, scanHeadersOnly } from "../lib/funder-reference/pipeline";
 import { pgliteSink, supabaseSink, type Sink } from "../lib/funder-reference/sink";
 import type { IndexRow } from "../lib/funder-reference/document";
 
@@ -67,6 +89,19 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 const flag = (name: string) => process.argv.includes(`--${name}`);
+
+const peakRssMb = () => Math.round(process.resourceUsage().maxRSS / 1024); // maxRSS is in kilobytes
+
+/** The run's outcome as a small JSON file, for a parent process. Never contains the environment. */
+function writeResult(obj: Record<string, unknown>) {
+  const path = arg("result-file");
+  if (!path) return;
+  try {
+    writeFileSync(path, JSON.stringify({ ...obj, peak_rss_mb: peakRssMb(), heap_limit_mb: Math.round(getHeapStatistics().heap_size_limit / 1048576), pid: process.pid, at: new Date().toISOString() }, null, 2));
+  } catch {
+    // the result file must never be the reason a run fails
+  }
+}
 
 async function sha256File(path: string): Promise<string> {
   const h = createHash("sha256");
@@ -109,8 +144,8 @@ function startDiary(workDir: string) {
   const heapGb = getHeapStatistics().heap_size_limit / 1073741824;
   note("start", `node ${process.version} heap limit ${heapGb.toFixed(1)} GB, machine memory ${(totalmem() / 1073741824).toFixed(1)} GB (${(freemem() / 1073741824).toFixed(1)} GB free)`);
   console.log(`memory: heap limit ${heapGb.toFixed(1)} GB; machine ${(totalmem() / 1073741824).toFixed(1)} GB, ${(freemem() / 1073741824).toFixed(1)} GB free`);
-  if (heapGb < 8) {
-    console.warn("WARNING: Node's heap limit is under 8 GB. A full California run has needed about 5 GB; set NODE_OPTIONS=--max-old-space-size=10240 and use a machine with that much free.");
+  if (heapGb < 1) {
+    console.warn("WARNING: Node's heap limit is under 1 GB. A state needs about 0.5 GB of heap; set NODE_OPTIONS=--max-old-space-size=1536.");
   }
   process.on("exit", (code) => {
     if (finished) return;
@@ -156,12 +191,23 @@ async function main() {
   };
   const dryRun = flag("dry-run");
   const auditHeaderSample = Number(arg("audit-header-sample") ?? 0);
+  const maxReturnBytes = arg("max-return-mb") ? Number(arg("max-return-mb")) * 1_000_000 : undefined;
+  const maxWriteBytes = arg("max-write-mb") ? Number(arg("max-write-mb")) * 1_000_000 : undefined;
+
+  const scanOnly = flag("scan-headers-only");
 
   // --- the target ---
-  const targetArg = arg("target") ?? `pglite:${join(workDir, "db")}`;
+  const targetArg = scanOnly ? "none" : (arg("target") ?? `pglite:${join(workDir, "db")}`);
   let sink: Sink;
   let closeDb: (() => Promise<void>) | null = null;
-  if (targetArg === "supabase") {
+  if (targetArg === "none") {
+    if (!dryRun && !scanOnly) {
+      console.error("refusing: --target none holds no database, so it is only valid with --dry-run or --scan-headers-only");
+      process.exit(2);
+    }
+    const nothing = () => Promise.reject(new Error("--target none: nothing may be written"));
+    sink = { label: "none", startRun: nothing, finishRun: nothing, existingFilings: () => Promise.resolve(new Map()), applyFiling: nothing, replaceCoverage: nothing };
+  } else if (targetArg === "supabase") {
     if (!flag("confirm-write-to-supabase")) {
       console.error("refusing: --target supabase writes to the real project; pass --confirm-write-to-supabase after migration 0084 has been applied");
       process.exit(2);
@@ -208,16 +254,26 @@ async function main() {
     console.log(`index ${f}: ${totalRows} rows, ${added} Form 990-PF return(s) with a period ending in ${periodYears.join("/")}${eins ? ` for ${eins.join(",")}` : ""}`);
   }
 
+  console.log(`index read: ${rows.length} rows [rss ${Math.round(process.memoryUsage().rss / 1048576)} MB, heap ${Math.round(process.memoryUsage().heapUsed / 1048576)} MB]`);
   const provider = archiveProvider({
     dir: arg("archives-dir") ?? null,
     remote: flag("remote"),
     userAgent: "FundraisingAI-funder-reference-loader/1.0 (offline loader for public IRS returns)",
   });
 
-  const summary = await runPipeline(sink, provider, { periodYears, state, eins, threshold, workDir, rows, sources, dryRun, auditHeaderSample }, progress);
+  if (scanOnly) {
+    const r = await scanHeadersOnly(rows, provider, workDir, progress);
+    console.log(`header scan: ${r.located} of ${r.rows} index rows located in the archives; ${r.scannedNow} header(s) read now [peak ${peakRssMb()} MB]`);
+    writeResult({ ok: true, mode: "scan-headers-only", ...r });
+    finished = true;
+    note("finished", `header scan: ${r.scannedNow} read now`);
+    return;
+  }
+
+  const summary = await runPipeline(sink, provider, { periodYears, state, eins, threshold, workDir, rows, sources, dryRun, auditHeaderSample, maxReturnBytes, maxWriteBytes }, progress);
 
   console.log("\n=== run summary ===");
-  console.log(`run ${summary.runId}${dryRun ? " (DRY RUN, nothing written)" : ""} in ${summary.seconds.toFixed(1)}s`);
+  console.log(`run ${summary.runId}${dryRun ? " (DRY RUN, nothing written)" : ""} in ${summary.seconds.toFixed(1)}s; peak resident memory ${peakRssMb()} MB`);
   console.log(JSON.stringify(summary.counts, null, 2));
   console.log(`rejected (unread) filings: ${summary.rejected.length}`);
   for (const r of summary.rejected.slice(0, 50)) console.log(`  ${r.object_id} EIN ${r.ein}: ${r.reason}`);
@@ -228,12 +284,14 @@ async function main() {
   }
   if (closeDb) await closeDb();
   finished = true;
-  note("finished", `run ${summary.runId} completed in ${summary.seconds.toFixed(1)}s`);
+  writeResult({ ok: true, outcomes_sum_check: summary.counts.outcomes_sum_check, mode: dryRun ? "dry-run" : "load", run_id: summary.runId, state, seconds: summary.seconds, counts: summary.counts, rejected: summary.rejected.length });
+  note("finished", `run ${summary.runId} completed in ${summary.seconds.toFixed(1)}s, peak resident memory ${peakRssMb()} MB`);
 }
 
 main().catch((e) => {
   console.error(e);
   note("exit", `main failed: ${String((e as Error)?.stack ?? e)}`);
+  writeResult({ ok: false, error: String((e as Error)?.message ?? e).slice(0, 2000) });
   finished = true;
   process.exit(1);
 });
