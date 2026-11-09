@@ -388,6 +388,46 @@ async function main() {
     ok("each run is its own record (2 so far), the reference data is not duplicated", runs.c === 2);
   }
 
+  section("pass A is cached, so a restart does not read every return again (item 110, production load)");
+  {
+    const wd = join(world.archivesDir, "..", "work-passa");
+    const cachePath = join(wd, "pass-a-cache.jsonl");
+    const same = (c: Record<string, unknown>) => JSON.stringify({ ...c, pass_a_cache_hits: 0 });
+    const dry = (over: Partial<PipelineParams> = {}) => runPipeline(pgliteSink(new PGlite()), provider, params(world, rows, sources, { dryRun: true, workDir: wd, ...over }), silent);
+    const cold = await dry();
+    ok("a cold run answers nothing from the cache", cold.counts.pass_a_cache_hits === 0 && cold.counts.full_reads > 0);
+    const cached = readFileSync(cachePath, "utf8").split("\n").filter(Boolean);
+    ok("it remembered the returns it read, one line each, and not the one that failed to decompress", cached.length > 0 && cached.length === cold.counts.full_reads - 1, `${cached.length} cached of ${cold.counts.full_reads} read`);
+    const warm = await dry();
+    ok("a warm run answers those from the cache", warm.counts.pass_a_cache_hits === cached.length, `${warm.counts.pass_a_cache_hits}`);
+    ok("…and reaches exactly the outcomes of the cold run, and they add up", same(warm.counts as never) === same(cold.counts as never) && warm.counts.outcomes_sum_check, "");
+    ok("…and the unread reasons are the same, in the same words", JSON.stringify(warm.rejected.map((r) => r.reason).sort()) === JSON.stringify(cold.rejected.map((r) => r.reason).sort()));
+
+    // a record for a member of a different size is not used (the archive changed)
+    const lines = readFileSync(cachePath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    lines[0].xmlBytes += 1;
+    writeFileSync(cachePath, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+    const tampered = await dry();
+    ok("a cached record whose member size differs from the archive's is read again, not trusted", tampered.counts.pass_a_cache_hits === cached.length - 1 && same(tampered.counts as never) === same(cold.counts as never));
+
+    // a torn last line from a killed run costs only that return
+    writeFileSync(cachePath, readFileSync(cachePath, "utf8") + '{"v":1,"loader":"x","objectId":"1234');
+    const torn = await dry();
+    ok("a torn last line is ignored, and the run still reaches the same outcomes", torn.counts.pass_a_cache_hits >= cached.length - 1 && same(torn.counts as never) === same(cold.counts as never));
+
+    // a cache written by another loader version is not used
+    writeFileSync(cachePath, readFileSync(cachePath, "utf8").split("\n").filter(Boolean).filter((l) => l.startsWith('{"v":1,"loader":"funder')).map((l) => l.replace(/"loader":"[^"]+"/, '"loader":"funder-reference-loader/0.0.1"')).join("\n") + "\n");
+    const other = await dry();
+    ok("a cache written by a different loader version is not used at all", other.counts.pass_a_cache_hits === 0 && same(other.counts as never) === same(cold.counts as never));
+
+    // the cache holds figures, not the verdict: a different cutoff is applied afresh
+    const lowT = { minAssetsFmvAmt: 100_000, minContributionsPaidPerBooksAmt: 10_000 };
+    await dry(); // refill the cache at the default cutoff
+    const warmLow = await dry({ threshold: lowT });
+    const coldLow = await dry({ threshold: lowT, workDir: join(world.archivesDir, "..", "work-passa-low") });
+    ok("with a warm cache, a LOWER cutoff gives the verdicts a cold run at that cutoff gives (the old verdict is not reused)", warmLow.counts.pass_a_cache_hits > 0 && JSON.stringify(warmLow.counts.universe_sensitivity) === JSON.stringify(coldLow.counts.universe_sensitivity) && warmLow.counts.status_skipped_below_threshold === coldLow.counts.status_skipped_below_threshold && warmLow.counts.foundations_in_scope === coldLow.counts.foundations_in_scope, `${warmLow.counts.foundations_in_scope} vs ${coldLow.counts.foundations_in_scope}`);
+  }
+
   section("the size threshold is a parameter, re-evaluated on every run");
   {
     const lowered = await runPipeline(sink, provider, params(world, rows, sources, { threshold: { minAssetsFmvAmt: 100_000, minContributionsPaidPerBooksAmt: 10_000 } }), silent);

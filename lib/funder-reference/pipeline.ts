@@ -23,10 +23,11 @@
 // whole through one database function; running twice cannot duplicate a row.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { freemem } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { LOADER_VERSION, loadedDoc, skippedDoc, sha256Hex, unreadDoc, type FilingDoc, type IndexRow, type Provenance } from "./document";
-import { assessThreshold, type Threshold, type ThresholdResult } from "./derive";
+import { assessThreshold, thresholdFromFigures, type Threshold, type ThresholdResult } from "./derive";
 import { FilingRejected, parseFiling990PF, peekHeader, type ParsedFiling } from "./parse-990pf";
 import type { ArchiveProvider } from "./sources";
 import { archiveUrl, indexUrl } from "./sources";
@@ -59,6 +60,8 @@ export interface Counts {
   rows_written: number;
   rows_unchanged: number;
   full_reads: number;
+  /** Of full_reads, how many were answered from the pass-A cache of an earlier run rather than read again. */
+  pass_a_cache_hits: number;
   header_reads_used: number;
   foundations_in_scope: number;
   foundations_below_threshold: number;
@@ -134,6 +137,7 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     rows_written: 0,
     rows_unchanged: 0,
     full_reads: 0,
+    pass_a_cache_hits: 0,
     header_reads_used: 0,
     foundations_in_scope: 0,
     foundations_below_threshold: 0,
@@ -276,15 +280,43 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     // ---- 3. pass A: read each in-state return whole, check it, assess its size -------------
     log(`pass A: reading ${inStateIds.length} return(s) in full to assess size ...`);
     const assessed = new Map<string, Assessed>();
+    // A restart must not redo tens of thousands of full reads: every outcome that came from
+    // a successfully decompressed return is appended to this cache as it is reached, and a
+    // later run replays it. The cache holds the FIGURES, not the verdict, so the current
+    // threshold is applied afresh. It is valid only for this loader version and for an
+    // archive member of the same size; bump LOADER_VERSION whenever the parser changes.
+    const passACachePath = join(p.workDir, "pass-a-cache.jsonl");
+    const passACache = loadPassACache(passACachePath);
+    const rememberPassA = (rec: PassARecord) => appendFileSync(passACachePath, JSON.stringify(rec) + "\n");
     await forEachArchive(located, inStateIds, provider, async (zip, ids, archive) => {
+      let done = 0;
       for (const id of ids) {
         const row = byId.get(id)!;
         const loc = located.get(id)!;
         counts.full_reads++;
+        done++;
+        if (done % 1000 === 0) log(`  pass A ${archive}: ${done} of ${ids.length} ${memLine()}`);
+
+        const hit = passACache.get(id);
+        if (hit && hit.xmlBytes === loc.entry.size) {
+          counts.pass_a_cache_hits++;
+          if (hit.outcome === "out_of_state") {
+            counts.out_of_scope_state++;
+            if (scanned.get(id)?.ein) counts.header_said_in_state_but_return_disagrees++;
+          } else if (hit.outcome === "unread") {
+            unread(row, loc, hit.reason ?? "unread (reason not cached)", hit.xml);
+          } else if (hit.head) {
+            assessed.set(id, { row, loc, xml: hit.xml!, head: hit.head, a: thresholdFromFigures(hit.assets ?? null, hit.giving ?? null, p.threshold) });
+          }
+          continue;
+        }
+
+        if (loc.entry.size > LARGE_RETURN_BYTES) log(`  large return ${id}: ${(loc.entry.size / 1e6).toFixed(1)} MB uncompressed ${memLine()}`);
         let bytes: Uint8Array;
         try {
           bytes = await zip.read(loc.entry);
         } catch (e) {
+          // not remembered: a failure to decompress may be this machine's, so it is tried again
           unread(row, loc, `archive member could not be decompressed: ${(e as Error).message}`);
           continue;
         }
@@ -297,22 +329,23 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
             if (st !== p.state) {
               counts.out_of_scope_state++;
               if (scanned.get(id)?.ein) counts.header_said_in_state_but_return_disagrees++;
+              rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, objectId: id, xmlBytes: loc.entry.size, outcome: "out_of_state" });
               continue;
             }
           }
-          assessed.set(id, {
-            row,
-            loc,
-            xml,
-            head: { taxPeriodEnd: f.taxPeriodEnd, taxPeriodBegin: f.taxPeriodBegin, taxYr: f.taxYr, returnVersion: f.returnVersion, returnTs: f.returnTs },
-            a: assessThreshold(f, p.threshold),
-          });
+          const head = { taxPeriodEnd: f.taxPeriodEnd, taxPeriodBegin: f.taxPeriodBegin, taxYr: f.taxYr, returnVersion: f.returnVersion, returnTs: f.returnTs };
+          const a = assessThreshold(f, p.threshold);
+          assessed.set(id, { row, loc, xml, head, a });
+          rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, objectId: id, xmlBytes: loc.entry.size, outcome: "assessed", xml, head, assets: a.assetsUsed, giving: a.givingUsed });
         } catch (e) {
-          unread(row, loc, reasonOf(e), xml);
+          const reason = reasonOf(e);
+          unread(row, loc, reason, xml);
+          rememberPassA({ v: PASS_A_CACHE_VERSION, loader: LOADER_VERSION, objectId: id, xmlBytes: loc.entry.size, outcome: "unread", xml, reason });
         }
       }
-      log(`  pass A ${archive}: ${ids.length}`);
+      log(`  pass A ${archive}: ${ids.length} ${memLine()}`);
     });
+    if (counts.pass_a_cache_hits > 0) log(`pass A: ${counts.pass_a_cache_hits} of ${counts.full_reads} answered from the cache of an earlier run`);
 
     // ---- 4. decide scope per funder -------------------------------------------------------------
     const byEin = new Map<string, Assessed[]>();
@@ -534,6 +567,45 @@ function checkAgainstIndex(f: ParsedFiling, row: IndexRow) {
   if (f.ein !== row.ein) throw new FilingRejected(`the return's EIN is ${f.ein}; the IRS index says ${row.ein}`);
   if (f.taxPeriodEnd.slice(0, 7).replace("-", "") !== row.taxPeriod)
     throw new FilingRejected(`the return's tax period end is ${f.taxPeriodEnd}; the IRS index says ${row.taxPeriod}`);
+}
+
+const PASS_A_CACHE_VERSION = 1;
+const LARGE_RETURN_BYTES = 20_000_000;
+
+interface PassARecord {
+  v: number;
+  loader: string;
+  objectId: string;
+  /** The archive member's uncompressed size; a different size means a different file, so the record is not used. */
+  xmlBytes: number;
+  outcome: "assessed" | "out_of_state" | "unread";
+  xml?: XmlFacts;
+  head?: Assessed["head"];
+  assets?: number | null;
+  giving?: number | null;
+  reason?: string;
+}
+
+function loadPassACache(path: string): Map<string, PassARecord> {
+  const m = new Map<string, PassARecord>();
+  if (!existsSync(path)) return m;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line) continue;
+    try {
+      const r = JSON.parse(line) as PassARecord;
+      if (r.v === PASS_A_CACHE_VERSION && r.loader === LOADER_VERSION) m.set(r.objectId, r);
+    } catch {
+      // a torn last line from a killed run; that return is simply read again
+    }
+  }
+  return m;
+}
+
+/** Memory, in one short phrase for the progress log: the loader's own footprint and what is left on the machine. */
+function memLine(): string {
+  const m = process.memoryUsage();
+  const mb = (n: number) => `${Math.round(n / 1048576)} MB`;
+  return `[rss ${mb(m.rss)}, heap ${mb(m.heapUsed)}, machine free ${mb(freemem())}]`;
 }
 
 function loadScanCache(path: string): Map<string, ScanRecord> {

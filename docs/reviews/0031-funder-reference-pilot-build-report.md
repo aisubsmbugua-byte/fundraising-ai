@@ -720,3 +720,23 @@ So the local imitation of Supabase's default privileges matched the platform on 
 **The security advisor** reports one new finding from this migration: the write function has a mutable search_path (WARN, the same class as 11 existing functions). The function runs with the caller's rights and only `service_role` can call it, so it is not reachable by members or the public; adding a fixed search_path would be a small follow-up migration. It was not changed here.
 
 **Not done:** no data is loaded into production, and the Supabase write path of the loader has still not run against the live project. Nothing was committed or pushed; the STATE item for 110 has not been written.
+
+## 14. The full California load: status, the silent exit, and what changed (2026-11-09)
+
+**Status as handed over.** Migration 0084 and one funder (EIN 582218044: 3 filings, outcomes add up, verifier PASS, a second run wrote 0 rows) are live in production, so the Supabase write path is proven. The other California funders (about 6,164, about 17,000 filings) are NOT loaded. The full-load verification, the idempotence rerun at that scale and the row counts are NOT done.
+
+**The blocker.** The full load stopped, four times, with no error and no summary, partway through pass A (reading all 36,138 in-state returns whole). Memory on that container was about 2.5 GB free when sampled. What can and cannot be said:
+- Pass A's reading and decompression are synchronous (zlib's sync call and the loader's own inflater), so an unsettled promise in that code is not the likely cause, though the new exit handler would now report one (it logs "exited before it finished" with the code).
+- A process killed from outside (the out-of-memory killer, SIGKILL, a container restart) cannot be caught by the process. It is now detectable the next day instead: every run writes a diary, and a run whose last line is not an exit or finished line is reported as killed, with its last progress.
+- Not established: which of those it was. Not claimed.
+
+**What changed (loader only; no migration, no schema, no ledger edit).**
+1. `scripts/load-funder-reference.ts`: a run diary (`<work-dir>/run-diary.log`) of every progress line; a logged reason and exit code on every exit (exit, SIGTERM, SIGINT, SIGHUP, uncaught exception, unhandled rejection, and a normal exit before the loader finished); at start, the heap limit and machine memory, with a warning under 8 GB; a warning when the key looks like a legacy `eyJ` key; the environment notes in the header (new `sb_secret_` key; `NODE_OPTIONS=--max-old-space-size=10240`; `NODE_USE_ENV_PROXY=1` behind a proxy).
+2. `lib/funder-reference/pipeline.ts`: pass A is cached as it goes in `<work-dir>/pass-a-cache.jsonl` (one line per return whose bytes decompressed). A restart replays it. The cache stores the figures, not the verdict, so the current cutoff is applied afresh. A record is used only for the same loader version and the same archive-member size; a decompress failure is not cached (it may be that machine's) and is tried again; a torn last line from a killed run is ignored. Memory is logged every 1,000 returns and per archive, and any return over 20 MB is named before it is read (a very large return is the likeliest single cause of a memory spike). A new count, `pass_a_cache_hits`, says how many were answered from the cache.
+3. `lib/funder-reference/derive.ts`: `thresholdFromFigures`, so a cached figure pair can be judged again (`assessThreshold` now calls it).
+
+**Verification.** `scripts/test-funder-reference-migration.ts` 105 to 124 passing (a cold run answers nothing from the cache; a warm run reaches exactly the cold run's outcomes and unread reasons; a record for a different member size is read again; a torn last line is ignored; a cache from a different loader version is not used; with a warm cache a lower cutoff gives what a cold run at that cutoff gives). Three mutations (trust the cache regardless of size; ignore the loader version; reuse a stale verdict) are each caught by a named assertion. `scripts/test-funder-reference.ts` 161 passing. The diary and the killed-run warning were exercised on a failing run and a simulated kill. NOT verified: any of this at the scale of 36,138 returns; whether the container's death was memory; whether a 10 GB heap is enough.
+
+**Still unmeasured** (needs the full load): milliseconds per filing against live Supabase, the largest single write call (2,382 grant rows) against the service's limits, and total duration against the four-hour guide.
+
+**Where to run it.** A machine with plenty of free memory and disk avoids the question. The owner's Mac has 64 GB of memory and over 700 GB of free disk; the IRS download is about 18 GB.

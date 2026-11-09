@@ -35,12 +35,19 @@ export interface ThresholdResult {
   givingUsed: number | null;
 }
 
-export function assessThreshold(f: ParsedFiling, t: Threshold): ThresholdResult {
-  const assets = f.figures.total_assets_eoy_fmv_amt ?? f.figures.fmv_assets_eoy_amt;
-  const giving = f.figures.contributions_paid_per_books_amt;
+// The judgement from the two figures alone, so that a cached pass-A result (the
+// figures, not the verdict) can be judged again against the CURRENT cutoff: a
+// resumed run with a different threshold must not reuse an old verdict.
+export function thresholdFromFigures(assets: number | null, giving: number | null, t: Threshold): ThresholdResult {
   const byAssets = assets !== null && assets >= t.minAssetsFmvAmt;
   const byGiving = giving !== null && giving >= t.minContributionsPaidPerBooksAmt;
   return { meets: byAssets || byGiving, byAssets, byGiving, assetsUsed: assets, givingUsed: giving };
+}
+
+export function assessThreshold(f: ParsedFiling, t: Threshold): ThresholdResult {
+  const assets = f.figures.total_assets_eoy_fmv_amt ?? f.figures.fmv_assets_eoy_amt;
+  const giving = f.figures.contributions_paid_per_books_amt;
+  return thresholdFromFigures(assets, giving, t);
 }
 
 export interface GrantStats {

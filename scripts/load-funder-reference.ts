@@ -17,6 +17,23 @@
 //                  Refused unless --confirm-write-to-supabase is given, and it
 //                  will fail unless migration 0084 has been applied.
 //
+// Environment notes (learned loading California to production, 2026-11-09):
+//   * The service key must be the NEW secret key (it starts sb_secret_). A legacy
+//     JWT key (it starts eyJ) is rejected by a project whose legacy keys are
+//     disabled ("Legacy API keys are disabled"); the loader warns when it sees one.
+//   * Node's default heap is about 4 GB and the full California header scan has
+//     needed about 5 GB. Run with NODE_OPTIONS=--max-old-space-size=10240 and at
+//     least that much free memory; the loader prints its heap limit and warns.
+//   * In an environment that reaches the network through a proxy (a cloud
+//     session), Node 22 needs NODE_USE_ENV_PROXY=1 or the proxy is bypassed.
+//   * A run leaves <work-dir>/run-diary.log: every progress line and, on every exit,
+//     the reason and exit code. If the LAST line of a previous run is not an exit
+//     or finished line, that run was killed without notice (the out-of-memory killer,
+//     SIGKILL or a container restart) and the next run says so and quotes its last
+//     progress. Pass A (every in-state return read whole) is cached in
+//     <work-dir>/pass-a-cache.jsonl as it goes, so a restart replays it instead of
+//     reading tens of thousands of returns again.
+//
 // Usage (all paths absolute; the project folder name has spaces, quote it):
 //   npx tsx scripts/load-funder-reference.ts \
 //     --work-dir <dir> --index-dir <dir of index_YYYY.csv> \
@@ -34,7 +51,9 @@
 //              these defaults are the decision doc's suggestion (see lib/
 //              funder-reference/derive.ts). They are recorded on every run.
 
-import { createReadStream, mkdirSync, readdirSync, statSync } from "node:fs";
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { freemem, totalmem } from "node:os";
+import { getHeapStatistics } from "node:v8";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { archiveProvider, readIndex } from "../lib/funder-reference/sources";
@@ -55,6 +74,70 @@ async function sha256File(path: string): Promise<string> {
   return h.digest("hex");
 }
 
+// A line in the run diary, and the reason for every exit. A process that dies with no
+// error and no summary is one of: killed from outside (nothing in-process can see
+// SIGKILL), or exited by itself. The diary tells them apart: a kill leaves no exit line.
+let diaryPath: string | null = null;
+let lastProgress = "(nothing logged yet)";
+let finished = false;
+function note(event: string, text: string) {
+  const line = `${new Date().toISOString()} pid=${process.pid} EVENT=${event} ${text}`;
+  if (diaryPath) {
+    try {
+      appendFileSync(diaryPath, line + "\n");
+    } catch {
+      // the diary must never be the reason a run stops
+    }
+  }
+}
+function progress(s: string) {
+  lastProgress = s;
+  console.log(s);
+  note("progress", s.replace(/\n/g, " "));
+}
+function startDiary(workDir: string) {
+  diaryPath = join(workDir, "run-diary.log");
+  if (existsSync(diaryPath)) {
+    const lines = readFileSync(diaryPath, "utf8").split("\n").filter(Boolean);
+    const last = lines[lines.length - 1] ?? "";
+    if (last && !/EVENT=(exit|finished)\b/.test(last)) {
+      console.warn(
+        `WARNING: the previous run left no exit line, so it was killed without notice (the out-of-memory killer, SIGKILL or a container restart). Its last words were:\n  ${last}`
+      );
+    }
+  }
+  const heapGb = getHeapStatistics().heap_size_limit / 1073741824;
+  note("start", `node ${process.version} heap limit ${heapGb.toFixed(1)} GB, machine memory ${(totalmem() / 1073741824).toFixed(1)} GB (${(freemem() / 1073741824).toFixed(1)} GB free)`);
+  console.log(`memory: heap limit ${heapGb.toFixed(1)} GB; machine ${(totalmem() / 1073741824).toFixed(1)} GB, ${(freemem() / 1073741824).toFixed(1)} GB free`);
+  if (heapGb < 8) {
+    console.warn("WARNING: Node's heap limit is under 8 GB. A full California run has needed about 5 GB; set NODE_OPTIONS=--max-old-space-size=10240 and use a machine with that much free.");
+  }
+  process.on("exit", (code) => {
+    if (finished) return;
+    const m = process.memoryUsage();
+    const msg = `the loader exited before it finished, with code ${code}. Last progress: ${lastProgress} [rss ${Math.round(m.rss / 1048576)} MB, heap ${Math.round(m.heapUsed / 1048576)} MB]`;
+    note("exit", msg);
+    console.error(msg);
+  });
+  for (const [sig, n] of [["SIGTERM", 15], ["SIGINT", 2], ["SIGHUP", 1]] as const) {
+    process.on(sig, () => {
+      note("signal", `received ${sig}`);
+      console.error(`received ${sig}: stopping. Last progress: ${lastProgress}`);
+      process.exit(128 + n);
+    });
+  }
+  process.on("uncaughtException", (e) => {
+    note("uncaughtException", String((e as Error)?.stack ?? e));
+    console.error("uncaughtException:", e);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (e) => {
+    note("unhandledRejection", String((e as Error)?.stack ?? e));
+    console.error("unhandledRejection:", e);
+    process.exit(1);
+  });
+}
+
 async function main() {
   const workDir = arg("work-dir");
   const indexDir = arg("index-dir");
@@ -63,6 +146,7 @@ async function main() {
     process.exit(2);
   }
   mkdirSync(workDir, { recursive: true });
+  startDiary(workDir);
   const periodYears = (arg("years") ?? "2022,2023,2024").split(",").map(Number);
   const eins = arg("ein") ? arg("ein")!.split(",").map((e) => e.replace(/\D/g, "").padStart(9, "0")) : null;
   const state = eins ? null : (arg("state") ?? "CA").toUpperCase();
@@ -87,6 +171,9 @@ async function main() {
     if (!url || !key) {
       console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in the environment.");
       process.exit(2);
+    }
+    if (key.startsWith("eyJ")) {
+      console.warn("WARNING: SUPABASE_SERVICE_ROLE_KEY looks like a legacy JWT key (it starts eyJ). A project with legacy API keys disabled rejects it with 'Legacy API keys are disabled'; use the new secret key (sb_secret_...).");
     }
     const { createClient } = await import("@supabase/supabase-js");
     sink = supabaseSink(createClient(url, key, { auth: { persistSession: false } }) as never, "supabase");
@@ -127,7 +214,7 @@ async function main() {
     userAgent: "FundraisingAI-funder-reference-loader/1.0 (offline loader for public IRS returns)",
   });
 
-  const summary = await runPipeline(sink, provider, { periodYears, state, eins, threshold, workDir, rows, sources, dryRun, auditHeaderSample }, (s) => console.log(s));
+  const summary = await runPipeline(sink, provider, { periodYears, state, eins, threshold, workDir, rows, sources, dryRun, auditHeaderSample }, progress);
 
   console.log("\n=== run summary ===");
   console.log(`run ${summary.runId}${dryRun ? " (DRY RUN, nothing written)" : ""} in ${summary.seconds.toFixed(1)}s`);
@@ -140,9 +227,13 @@ async function main() {
     process.exitCode = 1;
   }
   if (closeDb) await closeDb();
+  finished = true;
+  note("finished", `run ${summary.runId} completed in ${summary.seconds.toFixed(1)}s`);
 }
 
 main().catch((e) => {
   console.error(e);
+  note("exit", `main failed: ${String((e as Error)?.stack ?? e)}`);
+  finished = true;
   process.exit(1);
 });
