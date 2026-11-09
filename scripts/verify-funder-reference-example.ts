@@ -99,6 +99,16 @@ function leafPaths(n: VNode, prefix: string, out: Array<[string, string]> = []):
 // reading the database
 // ---------------------------------------------------------------------------
 type Row = Record<string, unknown>;
+// Each table's primary key, in order: the stable order a paged read of a live database needs.
+const PRIMARY_KEY_ORDER: Record<string, string[]> = {
+  funder_reference_filings: ["object_id"],
+  funder_reference_foundations: ["ein"],
+  funder_reference_figures: ["ein", "tax_period_end"],
+  funder_reference_people: ["filing_object_id", "listed_in", "ordinal"],
+  funder_reference_grants: ["filing_object_id", "kind", "ordinal"],
+  funder_reference_application_terms: ["filing_object_id"],
+  funder_reference_period_coverage: ["ein", "period_year"],
+};
 interface ReadDb {
   label: string;
   rows(table: string, ein: string): Promise<Row[]>;
@@ -130,10 +140,24 @@ async function openDb(spec: string): Promise<ReadDb> {
     const c = createClient(url, key, { auth: { persistSession: false } });
     return {
       label: "supabase",
+      // A live Supabase project caps every response at its configured maximum (1000
+      // rows by default) whatever .limit() says, so a funder with more than 1000
+      // grants came back truncated and was reported as 7,895 false mismatches on
+      // 2026-11-09. Page explicitly, in a stable order (the table's primary key), and
+      // keep going until a page comes back short.
       rows: async (table, ein) => {
-        const { data, error } = await c.from(table).select("*").eq("ein", ein).limit(10000);
-        if (error) throw new Error(`${table}: ${error.message}`);
-        return data as Row[];
+        const order = PRIMARY_KEY_ORDER[table];
+        if (!order) throw new Error(`verifier: no stable order known for ${table}`);
+        const out: Row[] = [];
+        for (let from = 0; ; from += 1000) {
+          let q = c.from(table).select("*").eq("ein", ein);
+          for (const col of order) q = q.order(col, { ascending: true });
+          const { data, error } = await q.range(from, from + 999);
+          if (error) throw new Error(`${table}: ${error.message}`);
+          out.push(...(data as Row[]));
+          if (data.length < 1000) break;
+        }
+        return out;
       },
       listEins: async () => {
         const out: string[] = [];
