@@ -45,6 +45,12 @@ export async function searchFunders(
   return { rows, total, error: null };
 }
 
+/** When the search list was last refreshed from the loader's tables (it can lag the loader), or null if never. */
+export async function loadDirectoryRefreshedAt(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase.rpc("funder_reference_directory_refreshed_at");
+  return error || !data ? null : String(data);
+}
+
 /** The status of every state, from the loader's own run records. */
 export async function loadStateStatuses(supabase: SupabaseClient): Promise<Record<string, StateStatus>> {
   // Runs are a few hundred rows at most; one page of the API is enough, and a run

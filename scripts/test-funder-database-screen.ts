@@ -21,7 +21,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { bootDatabase } from "./funder-reference-support";
 import {
   NOT_HELD, NOT_STATED, PAGE_SIZE, SIZE_BANDS, US_STATES, coverageText, describeStates, formatAmount, formatEin,
-  formatPeriodEnd, pageCount, parseSearch, placeLine, preselectedText, searchHref, sizeBandValue, stateStatuses, type RunRow,
+  formatPeriodEnd, formatRefreshed, pageCount, parseSearch, placeLine, preselectedText, searchHref, sizeBandValue, stateStatuses, type RunRow,
 } from "../lib/funder-reference/browse";
 
 const root = join(__dirname, "..");
@@ -117,6 +117,9 @@ async function main() {
   ok("it creates no table and no index, and writes nothing (additive, read-only: ruling 0048 clauses 1 and 7)", !/create\s+(unique\s+)?(table|index)/i.test(sql) && !/\b(insert\s+into|update\s+\w+\s+set|delete\s+from|truncate|drop\s)/i.test(sql.replace(/--.*$/gm, "")));
 
   ok("0087 (the faster search) is among them", boot.applied.some((f) => f.startsWith("0087_funder_reference_search_pages_first")));
+  ok("0088 (the snapshot) is among them", boot.applied.some((f) => f.startsWith("0088_funder_reference_directory_snapshot")));
+  const sql88 = readFileSync(join(root, "supabase/migrations/0088_funder_reference_directory_snapshot.sql"), "utf8").replace(/--.*$/gm, "");
+  ok("0088 touches none of the loader's tables: it creates one materialized view with its own indexes and three functions, and writes no row", /create materialized view funder_reference_directory_snapshot/.test(sql88) && [...sql88.matchAll(/create\s+(unique\s+)?index\s+\w+\s+on\s+(\w+)/gi)].every((m) => m[2] === "funder_reference_directory_snapshot") && !/\b(insert\s+into|update\s+\w+\s+set|delete\s+from|truncate|drop\s)/i.test(sql88) && !/alter\s+table/i.test(sql88));
   const sql87 = readFileSync(join(root, "supabase/migrations/0087_funder_reference_search_pages_first.sql"), "utf8").replace(/--.*$/gm, "");
   ok("0087 creates no table or index and writes nothing; it only replaces the search function", !/create\s+(unique\s+)?(table|index|view)/i.test(sql87) && !/\b(insert\s+into|update\s+\w+\s+set|delete\s+from|truncate|drop\s)/i.test(sql87) && /create or replace function funder_reference_search/.test(sql87));
 
@@ -154,6 +157,11 @@ async function main() {
   await seed(db, { ein: "555555555", name: "100% KIND_HEARTS FUND", city: "RENO", state: "NV", periods: [{ end: "2024-12-31", fmv: 5_000_000, paid: 0 }] });
   await seed(db, { ein: "666666666", name: "O'BRIEN & SONS FOUNDATION", city: "ST. PAUL", state: "MN", periods: [{ end: "2024-12-31", fmv: 5_000_000, paid: 100_000 }] });
   await seed(db, { ein: "777777777", name: "ZETA TWIN FOUNDATION", city: "TULSA", state: "OK", periods: [{ end: "2024-12-31", fmv: 5_000_000, paid: 100_000 }] });
+
+  // the search reads a snapshot (0088); it holds nothing until the service key refreshes it
+  const preRefresh = (await db.query(`select count(*)::int c from funder_reference_directory_snapshot`)).rows[0] as { c: number };
+  ok("before a refresh the snapshot is empty: the search lags the loader until it is refreshed", preRefresh.c === 0);
+  await db.query(`select funder_reference_refresh_directory()`);
 
   section("the directory shows one funder per row with the figures of its LATEST period only");
   {
@@ -255,10 +263,24 @@ async function main() {
     ok("anon cannot call the search", (await as("anon", null, () => refused(`select * from funder_reference_search()`))).length > 0);
     ok("a member cannot insert into, update or delete through the view", (await as("authenticated", MEMBER, () => refused(`insert into funder_reference_directory (ein) values ('999999999')`))).length > 0 && (await as("authenticated", MEMBER, () => refused(`update funder_reference_directory set city = 'X'`))).length > 0 && (await as("authenticated", MEMBER, () => refused(`delete from funder_reference_directory`))).length > 0);
     const meta = (await db.query(`select p.provolatile, p.prosecdef, (select reloptions::text from pg_class where relname = 'funder_reference_directory') as vopts from pg_proc p where proname = 'funder_reference_search'`)).rows[0] as { provolatile: string; prosecdef: boolean; vopts: string };
-    ok("the search is STABLE (it cannot write) and runs as the caller, not the owner", meta.provolatile === "s" && meta.prosecdef === false, JSON.stringify(meta));
-    ok("the view runs as the caller (security_invoker), so row-level security still decides what is read", /security_invoker=true/.test(meta.vopts ?? ""), meta.vopts);
+    ok("the search is STABLE (it cannot write); it is SECURITY DEFINER only because the snapshot has no row-level security, and it checks membership first", meta.provolatile === "s" && meta.prosecdef === true && /my_organization_id\(\) is null/.test(sql88), JSON.stringify(meta));
+    ok("the live view still runs as the caller (security_invoker)", /security_invoker=true/.test(meta.vopts ?? ""), meta.vopts);
+    ok("nobody can read the snapshot directly (it has no row-level security, so no privilege is granted)", (await as("authenticated", MEMBER, () => refused(`select * from funder_reference_directory_snapshot`))).length > 0 && (await as("anon", null, () => refused(`select * from funder_reference_directory_snapshot`))).length > 0);
+    ok("only the service role can refresh it", (await as("authenticated", MEMBER, () => refused(`select funder_reference_refresh_directory()`))).length > 0 && (await as("anon", null, () => refused(`select funder_reference_refresh_directory()`))).length > 0);
+    const when = await as("authenticated", MEMBER, async () => (await db.query(`select funder_reference_directory_refreshed_at() as t`)).rows[0] as { t: unknown });
+    ok("a member can read when the snapshot was last refreshed", when.t !== null && when.t !== undefined);
+    const whenStranger = await as("authenticated", STRANGER, async () => (await db.query(`select funder_reference_directory_refreshed_at() as t`)).rows[0] as { t: unknown });
+    ok("a signed-in user with no organization is told nothing", whenStranger.t === null);
+    ok("anon cannot ask when it was refreshed", (await as("anon", null, () => refused(`select funder_reference_directory_refreshed_at()`))).length > 0);
     const count = ((await db.query(`select count(*)::int c from funder_reference_foundations`)).rows[0] as { c: number }).c;
     ok("the reference tables are exactly as they were (nothing the screen did wrote)", count === 7);
+
+    // lag and refresh: a funder loaded after the snapshot is not in the search until the next refresh
+    await seed(db, { ein: "888888888", name: "ETA LATE ARRIVAL FUND", city: "BOISE", state: "ID", periods: [{ end: "2024-12-31", fmv: 2_000_000, paid: 10_000 }] });
+    ok("a funder loaded after the snapshot is NOT in the search yet (the screen says when it was refreshed)", (await search({ p_query: "late arrival" })).length === 0);
+    await db.query(`select funder_reference_refresh_directory()`);
+    ok("after a refresh it is", eins(await search({ p_query: "late arrival" })).join() === "888888888");
+    ok("a refresh does not duplicate or lose funders", (await search({ p_limit: 100 })).length === 8);
   }
   await db.close();
 
@@ -305,6 +327,7 @@ async function main() {
 
   section("absent, not held and zero are never confused");
   {
+    ok("when the search list was refreshed is said in words, and 'not yet' when it never was", formatRefreshed("2026-11-10T22:00:51.469Z") === "November 10, 2026, 22:00 UTC" && formatRefreshed(null) === "not yet" && formatRefreshed("junk") === "not yet");
     ok("a figure the return does not carry reads as not stated, never $0", formatAmount(null) === NOT_STATED && formatAmount(undefined) === NOT_STATED && formatAmount("") === NOT_STATED);
     ok("a real zero reads as $0", formatAmount(0) === "$0");
     ok("a stored amount is whole dollars with separators", formatAmount(1234567) === "$1,234,567" && formatAmount("250000000") === "$250,000,000");
@@ -328,7 +351,7 @@ async function main() {
     const all = files.map((f) => [f, src(f)] as const);
     ok("the screen has pages, a gate, a loading and an error state", ["page.tsx", "layout.tsx", "loading.tsx", "error.tsx", "not-found.tsx"].every((n) => files.some((f) => f.endsWith(`funders/${n}`))));
     ok("no write call anywhere (insert, update, delete, upsert)", all.every(([, s]) => !/\.(insert|update|delete|upsert)\s*\(/.test(s)), all.filter(([, s]) => /\.(insert|update|delete|upsert)\s*\(/.test(s)).map(([f]) => f).join());
-    ok("the only rpc is the read-only search", all.every(([, s]) => [...s.matchAll(/\.rpc\(\s*["']([^"']+)["']/g)].every((m) => m[1] === "funder_reference_search")));
+    ok("the only rpcs are the read-only search and the read-only 'when was it refreshed'; the screen never calls the refresh", all.every(([, s]) => [...s.matchAll(/\.rpc\(\s*["']([^"']+)["']/g)].every((m) => m[1] === "funder_reference_search" || m[1] === "funder_reference_directory_refreshed_at")) && all.every(([, s]) => !/funder_reference_refresh_directory/.test(s)));
     ok("every table read is a reference table (or the profile's own superadmin flag in the door)", all.every(([, s]) => [...s.matchAll(/\.from\(\s*["']([^"']+)["']/g)].every((m) => /^funder_reference_/.test(m[1]) || m[1] === "profiles")));
     ok("the service key and the admin client are never imported", all.every(([, s]) => !/supabase\/admin|SERVICE_ROLE|createAdminClient|process\.env/.test(s)));
     ok("no server action: nothing on the screen can be posted to", all.every(([, s]) => !/["']use server["']/.test(s)));

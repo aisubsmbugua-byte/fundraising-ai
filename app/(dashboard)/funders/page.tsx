@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { loadStateStatuses, searchFunders } from "@/lib/funder-reference/read";
+import { loadDirectoryRefreshedAt, loadStateStatuses, searchFunders } from "@/lib/funder-reference/read";
 import {
   NOT_STATED,
   PAGE_SIZE,
@@ -11,6 +11,7 @@ import {
   formatAmount,
   formatEin,
   formatPeriodEnd,
+  formatRefreshed,
   funderName,
   pageCount,
   parseSearch,
@@ -42,7 +43,7 @@ const muted = { color: colors.textMuted, fontSize: typeScale.meta } as const;
 export default async function FunderSearchPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const supabase = createClient();
   const input = parseSearch(searchParams);
-  const [statuses, result] = await Promise.all([loadStateStatuses(supabase), searchFunders(supabase, input)]);
+  const [statuses, result, refreshedAt] = await Promise.all([loadStateStatuses(supabase), searchFunders(supabase, input), loadDirectoryRefreshedAt(supabase)]);
   const states = describeStates(statuses);
   const selectedStatus = input.state ? statuses[input.state] : null;
   const pages = pageCount(result.total);
@@ -75,6 +76,9 @@ export default async function FunderSearchPage({ searchParams }: { searchParams:
               Not yet verified: <span style={{ fontWeight: 600 }}>{states.notVerified.join(", ")}</span>.
             </>
           )}
+        </div>
+        <div style={{ ...muted, marginTop: spacing.xs }}>
+          The search list was last refreshed {formatRefreshed(refreshedAt)}. A funder loaded since then appears in search after the next refresh; its own page is always current.
         </div>
         {states.notLoaded.length > 0 && (
           <details style={{ marginTop: spacing.sm }}>

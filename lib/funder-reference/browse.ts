@@ -180,6 +180,15 @@ export function formatPeriodEnd(iso: string | null | undefined): string {
   return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
 }
 
+/** A timestamp as "November 10, 2026, 22:00 UTC"; the search list says when it was last refreshed in this form. */
+export function formatRefreshed(iso: string | null | undefined): string {
+  if (!iso) return "not yet";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "not yet";
+  const day = formatPeriodEnd(d.toISOString().slice(0, 10));
+  return `${day}, ${d.toISOString().slice(11, 16)} UTC`;
+}
+
 export function formatEin(ein: string): string {
   return /^\d{9}$/.test(ein) ? `${ein.slice(0, 2)}-${ein.slice(2)}` : ein;
 }
