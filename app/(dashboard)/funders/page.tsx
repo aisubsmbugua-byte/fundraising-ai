@@ -227,13 +227,13 @@ export default async function FunderSearchPage({ searchParams }: { searchParams:
                   <tbody>
                     {result.rows.map((r) => (
                       <tr key={r.ein}>
-                        <th scope="row" style={{ ...tdStyle, textAlign: "left", fontWeight: 500 }}>
+                        <th scope="row" style={{ ...tdStyle, textAlign: "left", fontWeight: 500, minWidth: 240 }}>
                           <Link href={`/funders/${r.ein}`} style={{ color: colors.primary, fontWeight: 600 }}>
                             {funderName(r.name)}
                           </Link>
                           <div style={muted}>EIN {formatEin(r.ein)}</div>
                         </th>
-                        <td style={tdStyle}>{placeLine(r.city, r.state)}</td>
+                        <td style={{ ...tdStyle, minWidth: 140 }}>{placeLine(r.city, r.state)}</td>
                         <td style={{ ...tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                           <Amount value={r.fmv_assets_eoy_amt} />
                         </td>

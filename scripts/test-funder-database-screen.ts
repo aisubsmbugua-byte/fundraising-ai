@@ -116,6 +116,10 @@ async function main() {
   const sql = readFileSync(join(root, "supabase/migrations/0086_funder_reference_directory.sql"), "utf8");
   ok("it creates no table and no index, and writes nothing (additive, read-only: ruling 0048 clauses 1 and 7)", !/create\s+(unique\s+)?(table|index)/i.test(sql) && !/\b(insert\s+into|update\s+\w+\s+set|delete\s+from|truncate|drop\s)/i.test(sql.replace(/--.*$/gm, "")));
 
+  ok("0087 (the faster search) is among them", boot.applied.some((f) => f.startsWith("0087_funder_reference_search_pages_first")));
+  const sql87 = readFileSync(join(root, "supabase/migrations/0087_funder_reference_search_pages_first.sql"), "utf8").replace(/--.*$/gm, "");
+  ok("0087 creates no table or index and writes nothing; it only replaces the search function", !/create\s+(unique\s+)?(table|index|view)/i.test(sql87) && !/\b(insert\s+into|update\s+\w+\s+set|delete\s+from|truncate|drop\s)/i.test(sql87) && /create or replace function funder_reference_search/.test(sql87));
+
   await db.query(`insert into organizations (id, name) values ($1, 'Org A')`, [ORG]);
   await db.query(`insert into auth.users (id, email) values ($1, 'a1@test'), ($2, 'x@test')`, [MEMBER, STRANGER]);
   await db.query(`insert into profiles (id, organization_id, email) values ($1, $2, 'a1@test')`, [MEMBER, ORG]);
@@ -223,6 +227,22 @@ async function main() {
     ok("a limit above 100 is held to 100; a limit below 1 is held to 1", (await search({ p_limit: 100000 })).length === 7 && (await search({ p_limit: 0 })).length === 1);
     ok("unknown sort is refused, not quietly replaced", (await as("authenticated", MEMBER, () => refused(`select * from funder_reference_search(null, null, null, null, 'any', 'name; drop table x', false, 25, 0)`))).includes("unknown p_sort"));
     ok("unknown pre-selected filter is refused", (await as("authenticated", MEMBER, () => refused(`select * from funder_reference_search(null, null, null, null, 'bogus', 'name', false, 25, 0)`))).includes("unknown p_preselected"));
+  }
+
+  section("the search gives the same row for every funder as the directory view (two code paths, one meaning)");
+  {
+    const viewRows = (await as("authenticated", MEMBER, async () => (await db.query(`select ein, name, city, state, figures_period_end, figures_filing_object_id, fmv_assets_eoy_amt, contributions_paid_per_books_amt, grants_listed_count, only_preselected_charities_box_checked, periods_held from funder_reference_directory order by ein`)).rows)) as Array<Record<string, unknown>>;
+    const key = (r: Record<string, unknown>) => JSON.stringify(Object.entries(r).filter(([k]) => k !== "total_matches").sort(([a], [b]) => a.localeCompare(b)));
+    const variants: Array<Record<string, unknown>> = [
+      {}, { p_sort: "assets" }, { p_sort: "grants_paid", p_descending: true }, { p_min_assets: 1 }, { p_preselected: "marked" }, { p_preselected: "not_marked", p_sort: "assets" },
+    ];
+    for (const v of variants) {
+      const got = (await search({ ...v, p_limit: 100 })).sort((a, b) => String(a.ein).localeCompare(String(b.ein)));
+      const want = viewRows.filter((r) => got.some((g) => g.ein === r.ein));
+      ok(`every funder returned matches the view's row, field for field: ${JSON.stringify(v)}`, got.length > 0 && got.length === want.length && got.every((g, i) => key(g) === key(want[i])), `${got.length} vs ${want.length}`);
+    }
+    const names = (await search({ p_sort: "name", p_limit: 100 })).map((r) => r.ein);
+    ok("name order uses the light path (no figures) and still returns each funder's full row", names.length === 7 && (await search({ p_sort: "name", p_limit: 1 }))[0].figures_period_end !== undefined);
   }
 
   section("access: read-only, signed-in members only (ruling 0045 clause 1 is untouched)");

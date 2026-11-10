@@ -598,7 +598,7 @@ async function main() {
       // same ruling's slice B) are the later, deliberate additions: they are
       // allowed to appear here; no OTHER migration may be added, and none may be
       // changed.
-      const ALLOWED = /supabase\/migrations\/(0083_network_identity|0084_funder_reference|0085_network_person_findings|0086_funder_reference_directory)\.sql$/;
+      const ALLOWED = /supabase\/migrations\/(0083_network_identity|0084_funder_reference|0085_network_person_findings|0086_funder_reference_directory|0087_funder_reference_search_pages_first)\.sql$/;
       const out = execSync("git status --porcelain -- supabase/migrations", { cwd: root, encoding: "utf8" })
         .split("\n")
         .filter((l) => l.trim() && !ALLOWED.test(l))
@@ -613,7 +613,7 @@ async function main() {
     } catch (e) {
       migrationsTouched = `git failed: ${(e as Error).message}`;
     }
-    ok("no migration file was added or changed other than 0083_network_identity.sql, 0084_funder_reference.sql, 0085_network_person_findings.sql and 0086_funder_reference_directory.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
+    ok("no migration file was added or changed other than 0083_network_identity.sql, 0084_funder_reference.sql, 0085_network_person_findings.sql and 0086_funder_reference_directory.sql and 0087_funder_reference_search_pages_first.sql (git status and git diff HEAD over supabase/migrations are otherwise empty)", migrationsTouched === "", migrationsTouched);
   }
 
   console.log(`\n${pass} passed, ${fail} failed.`);
