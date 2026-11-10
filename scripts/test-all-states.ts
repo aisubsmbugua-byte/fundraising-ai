@@ -720,11 +720,15 @@ async function main() {
     const lib = files.filter((f) => f.includes("lib/funder-reference/"));
     ok("the library reads no environment variable (the new files too)", lib.every((f) => !/process\.env/.test(readFileSync(f, "utf8"))), lib.filter((f) => /process\.env/.test(readFileSync(f, "utf8"))).join());
     ok("the library imports nothing from the web application", lib.every((f) => !/from ["'](next|react|@\/|\.\.\/\.\.\/app)/.test(readFileSync(f, "utf8"))));
-    ok("nothing under app/ imports the loader library or its command", files.filter((f) => f.startsWith(join(root, "app")) || (f.startsWith(join(root, "lib")) && !f.includes("lib/funder-reference/"))).every((f) => !/funder-reference|load-all-states/.test(readFileSync(f, "utf8").replace(/\/\/.*$/gm, ""))), "");
+    // Ruling 0048 (item 113) authorizes ONE read-only screen to read the reference tables through
+// lib/funder-reference/{access,browse,read}.ts and nothing else; it must still import none of the loader.
+const screenFile = (f: string) => f.startsWith(join(root, "app/(dashboard)/funders") + "/") || f === join(root, "app/(dashboard)/layout.tsx");
+const loaderModule = /funder-reference\/(pipeline|sink|run-store|sources|parse-990pf|zip|inflate|document|derive|xml|strings|supervisor)\b|load-all-states/;
+ok("nothing under app/ imports the loader library or its command (the ruling-0048 screen reads only through access, browse and read)", files.filter((f) => f.startsWith(join(root, "app")) || (f.startsWith(join(root, "lib")) && !f.includes("lib/funder-reference/"))).every((f) => (screenFile(f) ? !loaderModule.test(readFileSync(f, "utf8").replace(/\/\/.*$/gm, "")) : !/funder-reference|load-all-states/.test(readFileSync(f, "utf8").replace(/\/\/.*$/gm, "")))), "");
     const cmd = readFileSync(join(root, "scripts/load-all-states.ts"), "utf8");
     ok("the command never prints the key (no log or console call mentions the key variable)", !/(log|console\.\w+)\([^)]*(SERVICE_ROLE_KEY|\bkey\b)/.test(cmd.replace(/^\s*\/\/.*$/gm, "")));
     ok("the command has no way to send anything: no mail or messaging import", !/postmark|resend|nodemailer|sendgrid|fetch\(/i.test(cmd));
-    ok("no migration was added by this item", !readdirSync(join(root, "supabase/migrations")).some((f) => /^008[5-9]|^009/.test(f) && /funder|state|supervis/i.test(f)));
+    ok("no migration was added by this item (the later ones are item 113's, ruling 0048: 0086 to 0088, and item 116's, ruling 0047: 0089)", !readdirSync(join(root, "supabase/migrations")).some((f) => /^008[5-9]|^009/.test(f) && /funder|state|supervis/i.test(f) && !/^(0086_funder_reference_directory|0087_funder_reference_search_pages_first|0088_funder_reference_directory_snapshot|0089_)/.test(f)));
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);
