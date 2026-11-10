@@ -466,7 +466,13 @@ export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: Pipe
     };
 
     log(`writing ${earlyDocs.length} unread/skipped filing record(s) ...`);
-    for (const d of earlyDocs) await apply(d);
+    // one database call per record: New York's 16,307 took 33 minutes (8 a second), which is longer than the
+    // supervisor's 30 minutes of silence, so a healthy run was stopped on 2026-11-10; say how far it is
+    let earlyDone = 0;
+    for (const d of earlyDocs) {
+      await apply(d);
+      if (++earlyDone % 500 === 0) log(`  recorded ${earlyDone}/${earlyDocs.length} unread/skipped filing record(s)`);
+    }
 
     log(`pass B: re-reading ${inScopeIds.length} in-scope return(s) and writing ...`);
     let applied = 0;
