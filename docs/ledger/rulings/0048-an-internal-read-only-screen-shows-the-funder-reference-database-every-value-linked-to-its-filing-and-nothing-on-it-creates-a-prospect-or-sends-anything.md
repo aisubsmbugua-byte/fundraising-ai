@@ -1,14 +1,7 @@
-# DRAFT — not a ruling until the owner approves it
-
-Drafted 2026-11-10 at the owner's request ("Yes, draft the ruling"). On approval it is
-copied into `docs/ledger/rulings/` as ruling 0048 with `status: settled`, sealed with
-`npx tsx scripts/ledger-check.ts --seal`, and STATE item 113 moves to "approved".
-Until then nothing in it authorizes any code, migration or screen.
-
 ---
 id: 0048
 title: An internal, read-only screen shows the funder reference database, every value linked to its filing, and nothing on it creates a prospect or sends anything
-status: draft
+status: settled
 provenance: verbatim
 supersedes:
 date: 2026-11-10
@@ -126,11 +119,12 @@ discovery or scoring, access for ordinary organization members, any web or perso
 enrichment, any change to the loader, or the loading of public charities and
 donor-advised funds (item 116).
 
-## Open decisions for the owner before this is settled
+## Owner's confirmations, 2026-11-10
 
-- Confirm the screen is superadmin-only (clause 1), not open to every signed-in member.
-- Confirm it is built to customer-facing design standards from day one (clause 6), with
-  the access rule as the single switch for opening it later.
-- Confirm stage two (statistics) waits until stage one is accepted (clause 3).
-- Confirm no new index or view is applied to the live tables until you say the
-  national load can take it (clause 7).
+The owner approved this ruling as drafted. They confirmed that the screen is
+superadmin-only for now (clause 1), that statistics wait until stage one is accepted
+(clause 3), that no new index or view is applied to the live tables until the owner
+says the national load can take it (clause 7), and that it is built to customer-facing
+design standards from day one, with the access rule as the single switch for opening it
+later (clause 6). Opening it to ordinary members of an organization remains a separate
+decision and needs its own ruling.
