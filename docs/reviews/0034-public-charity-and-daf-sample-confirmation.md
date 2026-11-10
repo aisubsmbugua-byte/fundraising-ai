@@ -51,8 +51,12 @@ federation, which is who this ruling expected.
   `DonorAdvisedFundsContriAmt`, `DonorAdvisedFundsGrantsAmt`, `DonorAdvisedFundsVlEOYAmt`. Nothing
   in them names a donor, which is what ruling 0047 clause 3 requires.
 - **Yes/no values are written two ways** (`true`/`false` and `1`/`0`), so the reader must accept both.
-- **Main form**: the `TotalAmt` inside `GrantsToDomesticOrgsGrp` and inside `GrantsToForeignOrgsGrp` (Part IX
-  line 1; found in 297 of the 753 returns read) carry the grants-to-organizations totals used for the $100,000 line.
+- **Main form**: the `TotalAmt` inside `GrantsToDomesticOrgsGrp` (Part IX line 1, grants to domestic
+  organizations and governments) carries the grants-to-organizations total used for the $100,000 line.
+  **Correction (2026-11-10, found by the build in report 0035):** an earlier version of this report also
+  named a foreign-organizations total; that element does not exist, and the real Part IX line 3 mixes
+  organizations and individuals outside the United States, so it cannot be tested as grants to
+  organizations. The 8.9% above was therefore measured on line 1 alone, which is what the reader tests.
   `CYGrantsAndSimilarPaidAmt` (Part I line 13) also covers grants to individuals, so it is not the test.
   Only 297 of the 753 returns state a Part IX line 1 total; the others state none, and those are
   treated as "not stated", not as zero.
