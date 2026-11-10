@@ -17,7 +17,7 @@
 // read on 2026-11-06). A name the IRS does not serve (HTTP 404) is reported, not
 // fatal.
 
-import { createWriteStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -30,18 +30,44 @@ const arg = (n: string) => {
 };
 const flag = (n: string) => process.argv.includes(`--${n}`);
 
+// Ask for the file as stored, never compressed in transit: with a compressed answer a server can
+// report the size of the compressed form for a HEAD request while a GET delivers the real file.
+const PLAIN = { "user-agent": UA, "accept-encoding": "identity" };
+
 async function remoteSize(url: string): Promise<number | null> {
-  const r = await fetch(url, { method: "HEAD", headers: { "user-agent": UA } });
+  const r = await fetch(url, { method: "HEAD", headers: PLAIN });
   if (r.status === 404) return null;
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
   return Number(r.headers.get("content-length"));
 }
 
+// An index CSV is replaced whole every time and is NOT checked against the size a HEAD request
+// reports. On 2026-11-09 the IRS reported 21,699,229 bytes for a file of 72,228,246 (and 17,021,004
+// for one of 58,906,208) while the first download of the same files had agreed, and a strict size
+// comparison then rejected a complete, correct file for ever. A downloaded index file is accepted if it
+// is at least 1 MB and ends at the end of a line; the loader checks every row it reads. Archives are
+// zip files (they do not compress), so their size stays strictly checked and they resume.
+async function fetchIndex(url: string, dest: string): Promise<"downloaded"> {
+  if (existsSync(dest)) unlinkSync(dest);
+  const res = await fetch(url, { headers: PLAIN });
+  if (!res.ok || !res.body) throw new Error(`${url}: HTTP ${res.status}`);
+  await pipeline(Readable.fromWeb(res.body as never), createWriteStream(dest, { flags: "w" }));
+  const now = statSync(dest).size;
+  if (now < 1_000_000) throw new Error(`${dest}: only ${now} bytes arrived`);
+  const fd = openSync(dest, "r");
+  const last = Buffer.alloc(1);
+  readSync(fd, last, 0, 1, now - 1);
+  closeSync(fd);
+  if (last[0] !== 0x0a) throw new Error(`${dest}: the file does not end at the end of a line (${now} bytes); it was cut short`);
+  return "downloaded";
+}
+
 async function fetchOne(url: string, dest: string, size: number): Promise<"skipped" | "downloaded" | "resumed"> {
+  if (dest.endsWith(".csv")) return fetchIndex(url, dest);
   const have = existsSync(dest) ? statSync(dest).size : 0;
   if (have === size) return "skipped";
   if (have > size) throw new Error(`${dest} is larger (${have}) than the server's file (${size}); remove it and retry`);
-  const res = await fetch(url, { headers: { "user-agent": UA, ...(have > 0 ? { range: `bytes=${have}-` } : {}) } });
+  const res = await fetch(url, { headers: { ...PLAIN, ...(have > 0 ? { range: `bytes=${have}-` } : {}) } });
   if (have > 0 && res.status !== 206) throw new Error(`${url}: asked to resume at ${have}, server answered ${res.status}`);
   if (!res.ok || !res.body) throw new Error(`${url}: HTTP ${res.status}`);
   await pipeline(Readable.fromWeb(res.body as never), createWriteStream(dest, { flags: have > 0 ? "a" : "w" }));
