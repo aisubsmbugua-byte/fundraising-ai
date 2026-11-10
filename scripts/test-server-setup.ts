@@ -185,7 +185,7 @@ async function main() {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { engines?: { node?: string } };
     ok("the repository declares no Node engine range that excludes it", !pkg.engines?.node || /^>=?\s*(1[89]|2\d)/.test(pkg.engines.node), String(pkg.engines?.node));
     ok("a 4 GB swap file is added", /SWAP_GB="4"/.test(setupText) && /swapon/.test(setupText) && /\/etc\/fstab/.test(setupText));
-    ok("the wrapper uses only flags the scripts it calls really have", ["--index-only", "--parallel", "--out"].every((f) => readFileSync(join(root, "scripts/fetch-funder-reference-sources.ts"), "utf8").includes(f)) && ["--work-dir", "--index-dir", "--archives-dir", "--target", "--confirm-write-to-supabase"].every((f) => readFileSync(join(root, "scripts/load-all-states.ts"), "utf8").includes(f)));
+    ok("the wrapper uses only flags the scripts it calls really have", ["--index-only", "--zips-only", "--parallel", "--out"].every((f) => readFileSync(join(root, "scripts/fetch-funder-reference-sources.ts"), "utf8").includes(f)) && ["--work-dir", "--index-dir", "--archives-dir", "--target", "--confirm-write-to-supabase"].every((f) => readFileSync(join(root, "scripts/load-all-states.ts"), "utf8").includes(f)));
     ok("the wrapper replaces the index files whole (staged, then moved), never appends to them", /staging/.test(runText) && /mv -f/.test(runText));
     ok("a failed download exits 5 so that systemd, and only for that, retries by itself", (runText.match(/exit 5/g) ?? []).length >= 3);
     ok("the memory setting the service uses is the one the memory suite proves", /NODE_HEAP_MB="1536"/.test(setupText) && /max-old-space-size=1536/.test(readFileSync(join(root, "scripts/test-funder-reference-memory.ts"), "utf8")));

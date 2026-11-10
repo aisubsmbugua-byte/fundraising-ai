@@ -404,7 +404,14 @@ if want download; then
     if [ -n "$FREE" ] && [ "$FREE" -lt "$MIN_FREE_GB" ]; then
       if [ "$CHECK" = 1 ]; then say "a real run would REFUSE to download: $FREE GB free, need $MIN_FREE_GB GB"; else say "Only $FREE GB free; need $MIN_FREE_GB GB. Not downloading."; exit 1; fi
     fi
-    as_svc bash -c "cd '$APP_DIR' && './node_modules/.bin/tsx' scripts/fetch-funder-reference-sources.ts --out '$DATA_DIR' --parallel 2"
+    # the index files only when they are not all on disk yet (a re-run must not compare them again);
+    # the archives always (resumable)
+    if [ "$CHECK" = 0 ] && [ "$(ls "$DATA_DIR"/index/index_*.csv 2>/dev/null | wc -l)" -ge 5 ]; then
+      say "the index files are already on disk"
+    else
+      as_svc bash -c "cd '$APP_DIR' && './node_modules/.bin/tsx' scripts/fetch-funder-reference-sources.ts --out '$DATA_DIR' --index-only --parallel 2"
+    fi
+    as_svc bash -c "cd '$APP_DIR' && './node_modules/.bin/tsx' scripts/fetch-funder-reference-sources.ts --out '$DATA_DIR' --zips-only --parallel 2"
   fi
 fi
 

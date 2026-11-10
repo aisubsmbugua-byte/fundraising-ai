@@ -34,7 +34,10 @@ done
 rm -rf "$DATA/staging"
 
 echo "== 2. IRS archives not yet on disk =="
-"$TSX" scripts/fetch-funder-reference-sources.ts --out "$DATA" --parallel 2 || { echo "the archive download failed"; exit 5; }
+# --zips-only: the index files were just replaced whole in step 1 and must not be compared again
+# (on 2026-11-09 a second comparison reported a smaller size than the file just downloaded and
+# stopped the first run on the server)
+"$TSX" scripts/fetch-funder-reference-sources.ts --out "$DATA" --zips-only --parallel 2 || { echo "the archive download failed"; exit 5; }
 
 echo "== 3. every state =="
 exec "$TSX" scripts/load-all-states.ts --work-dir "$WORK" --index-dir "$DATA/index" --archives-dir "$DATA/zips" --target supabase --confirm-write-to-supabase "$@"

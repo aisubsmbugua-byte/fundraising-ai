@@ -8,7 +8,9 @@
 //
 // Usage:
 //   npx tsx scripts/fetch-funder-reference-sources.ts --out <dir> \
-//     [--years 2022,2023,2024,2025,2026] [--index-only] [--parallel 2] [--list]
+//     [--years 2022,2023,2024,2025,2026] [--index-only | --zips-only] [--parallel 2] [--list]
+//   --index-only  fetch only the index CSVs; --zips-only  fetch only the archives (used when the
+//                 index files were just replaced whole, so they are not compared again)
 //   --list   print what would be fetched with sizes, download nothing
 //
 // The archive names come from lib/funder-reference/sources.ts (the IRS page as
@@ -51,7 +53,7 @@ async function fetchOne(url: string, dest: string, size: number): Promise<"skipp
 async function main() {
   const out = arg("out");
   if (!out) {
-    console.error("usage: --out <dir> [--years ...] [--index-only] [--parallel n] [--list]");
+    console.error("usage: --out <dir> [--years ...] [--index-only | --zips-only] [--parallel n] [--list]");
     process.exit(2);
   }
   const years = (arg("years") ?? "2022,2023,2024,2025,2026").split(",").map(Number);
@@ -61,7 +63,11 @@ async function main() {
   mkdirSync(indexDir, { recursive: true });
   mkdirSync(zipDir, { recursive: true });
 
-  const jobs: Array<{ url: string; dest: string; label: string }> = years.map((y) => ({ url: indexUrl(y), dest: join(indexDir, `index_${y}.csv`), label: `index_${y}.csv` }));
+  if (flag("index-only") && flag("zips-only")) {
+    console.error("--index-only and --zips-only cannot be used together");
+    process.exit(2);
+  }
+  const jobs: Array<{ url: string; dest: string; label: string }> = flag("zips-only") ? [] : years.map((y) => ({ url: indexUrl(y), dest: join(indexDir, `index_${y}.csv`), label: `index_${y}.csv` }));
   if (!flag("index-only")) for (const y of years) for (const n of IRS_ARCHIVES[y] ?? []) jobs.push({ url: archiveUrl(n), dest: join(zipDir, `${n}.zip`), label: `${n}.zip` });
 
   let total = 0;
