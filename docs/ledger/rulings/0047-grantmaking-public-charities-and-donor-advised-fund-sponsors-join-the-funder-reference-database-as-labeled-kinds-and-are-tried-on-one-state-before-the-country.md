@@ -1,14 +1,7 @@
-# DRAFT — not a ruling until the owner approves it
-
-Drafted 2026-11-10 at the owner's request ("Yes, draft the ruling"). On approval it is
-copied into `docs/ledger/rulings/` as ruling 0047 with `status: settled`, sealed with
-`npx tsx scripts/ledger-check.ts --seal`, and STATE item 116 moves to "approved".
-Until then nothing in it authorizes any code, migration or data load.
-
 ---
 id: 0047
 title: Grantmaking public charities and donor-advised fund sponsors join the funder reference database as labeled kinds, loaded from the same IRS archives and tried on one state before the country
-status: draft
+status: settled
 provenance: verbatim
 supersedes:
 date: 2026-11-10
@@ -119,9 +112,9 @@ that reads the data (item 113), any use of it in matching, discovery or scoring,
 Exempt Organizations master file, any attempt to identify donors behind donor-advised
 funds, Form 990-EZ or 990-N filers, or any change to rulings 0045 or 0046.
 
-## Open decisions for the owner before this is settled
+## Owner's confirmations, 2026-11-10
 
-- Confirm or change the $100,000 grants threshold (clause 8).
-- Confirm that Form 990-EZ and 990-N filers stay out of the first stage (clause 1).
-- Confirm that the national run waits for the stage-one numbers and the owner's
-  storage decision (clause 6).
+The owner approved this ruling as drafted. They confirmed the $100,000 grants
+threshold of clause 8, and that Form 990-EZ and Form 990-N filers stay out of this
+stage (clause 1). The national run waits for the stage-one numbers and a separate
+decision by the owner, as clause 6 states.
