@@ -41,7 +41,7 @@ national foundation load is complete and verified and the owner says so.
   the foundation pipeline, the supervisor, the all-states command or the server scripts changed, and a
   test asserts none of them mentions the new loader.
 
-## Decisions I made that the ruling does not spell out (please confirm or change)
+## Decisions I made that the ruling does not spell out (CONFIRMED by the owner on 2026-11-10: the table names, returns outside scope counted and not stored, the Part IX line 1 test, the donor-advised fund box rule, and the $50,000 just-under floor, with people not stored this stage)
 
 1. **Table names are `charity_reference_*`, not `funder_reference_*`.** The older suites count the
    `funder_reference_*` tables (eight) and policies, so a shared prefix would have forced edits to them.
