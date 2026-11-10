@@ -1,0 +1,510 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2022v5.0">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2024-02-06T14:49:48-05:00</ReturnTs>
+    <TaxPeriodEndDt>2023-05-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>810922225</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>AMD ACCOUNTING</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>20 EXECUTIVE PARK 100</AddressLine1Txt>
+        <CityNm>IRVINE</CityNm>
+        <StateAbbreviationCd>CA</StateAbbreviationCd>
+        <ZIPCd>92614</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2022-06-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>330514612</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>LILLIAN H COREY CHARITABLE TRUST</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>LILL</BusinessNameControlTxt>
+      <PhoneNum>7145434185</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>2200 W ORANGEWOOD SUITE 130</AddressLine1Txt>
+        <CityNm>ORANGE</CityNm>
+        <StateAbbreviationCd>CA</StateAbbreviationCd>
+        <ZIPCd>92868</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>PAUL H HAGOPIAN</PersonNm>
+      <PersonTitleTxt>TRUSTEE</PersonTitleTxt>
+      <PhoneNum>7146331222</PhoneNum>
+      <SignatureDt>2024-02-01</SignatureDt>
+      <DiscussWithPaidPreparerInd>true</DiscussWithPaidPreparerInd>
+    </BusinessOfficerGrp>
+    <SigningOfficerGrp>
+      <PersonFullName>
+        <PersonFirstNm>PAUL</PersonFirstNm>
+        <PersonLastNm>HAGOPIAN</PersonLastNm>
+      </PersonFullName>
+      <SSN>XXX-XX-XXXX</SSN>
+    </SigningOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>false</IRSResponsiblePrtyInfoCurrInd>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>ADAM DAYTON</PreparerPersonNm>
+      <PTIN>P01356122</PTIN>
+      <PhoneNum>9494120592</PhoneNum>
+      <PreparationDt>2024-02-06</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2022</TaxYr>
+    <BuildTS>2023-04-26 12:10:37Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="5">
+    <IRS990 documentId="RetDoc1" referenceDocumentId="RetDoc4">
+      <PrincipalOfficerNm>PAUL H HAGOPIAN</PrincipalOfficerNm>
+      <USAddress>
+        <AddressLine1Txt>2200 W ORANGEWOOD SUITE 130</AddressLine1Txt>
+        <CityNm>ORANGE</CityNm>
+        <StateAbbreviationCd>CA</StateAbbreviationCd>
+        <ZIPCd>92868</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>100582</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501c3Ind>X</Organization501c3Ind>
+      <TypeOfOrganizationTrustInd>X</TypeOfOrganizationTrustInd>
+      <FormationYr>1991</FormationYr>
+      <LegalDomicileStateCd>CA</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>PROVIDE FOR THE DESIGN, CONSTRUCTION, FURNISHING, EQUIPPING AND MAINTENANCE OF AN ADDITION OR WING TO THE CALIFORNIA HOME FOR THE AGED, INC</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>2</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>2</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>0</TotalEmployeeCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <CYContributionsGrantsAmt>0</CYContributionsGrantsAmt>
+      <CYProgramServiceRevenueAmt>0</CYProgramServiceRevenueAmt>
+      <PYInvestmentIncomeAmt>911392</PYInvestmentIncomeAmt>
+      <CYInvestmentIncomeAmt>75382</CYInvestmentIncomeAmt>
+      <PYOtherRevenueAmt>-494</PYOtherRevenueAmt>
+      <CYOtherRevenueAmt>659</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>910898</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>76041</CYTotalRevenueAmt>
+      <PYGrantsAndSimilarPaidAmt>60000</PYGrantsAndSimilarPaidAmt>
+      <CYGrantsAndSimilarPaidAmt>80000</CYGrantsAndSimilarPaidAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <PYSalariesCompEmpBnftPaidAmt>36000</PYSalariesCompEmpBnftPaidAmt>
+      <CYSalariesCompEmpBnftPaidAmt>41000</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>0</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>14452</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>59655</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>110452</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>180655</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>800446</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>-104614</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>2476520</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>2371906</TotalAssetsEOYAmt>
+      <TotalLiabilitiesEOYAmt>0</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>2476520</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>2371906</NetAssetsOrFundBalancesEOYAmt>
+      <InfoInScheduleOPartIIIInd>X</InfoInScheduleOPartIIIInd>
+      <MissionDesc>PROVIDE FOR THE DESIGN, CONSTRUCTION, FURNISHING, EQUIPPING AND MAINTENANCE OF AN ADDITION OR WING TO THE CALIFORNIA HOME FOR THE AGED, INC</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <ExpenseAmt>50</ExpenseAmt>
+      <Desc>ALLOCATED EXPENSES RELATED TO THE TAXPAYER'S SUPPORT TO THE CALIFORNIA HOME FOR THE AGED, INC.</Desc>
+      <ProgSrvcAccomActyOtherGrp>
+        <ExpenseAmt>146778</ExpenseAmt>
+        <GrantAmt>80000</GrantAmt>
+        <Desc>ALLOCATED EXPENSES RELATED TO THE TRUST'S SUPPORT TO THE CALIFORNIA HOME FOR THE AGED, INC</Desc>
+      </ProgSrvcAccomActyOtherGrp>
+      <TotalOtherProgSrvcExpenseAmt>146778</TotalOtherProgSrvcExpenseAmt>
+      <TotalOtherProgSrvcGrantAmt>80000</TotalOtherProgSrvcGrantAmt>
+      <TotalProgramServiceExpensesAmt>146828</TotalProgramServiceExpensesAmt>
+      <DescribedInSection501c3Ind referenceDocumentId="RetDoc5">true</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd>false</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>false</LobbyingActivitiesInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd referenceDocumentId="RetDoc2">false</DonorAdvisedFundInd>
+      <ConservationEasementsInd referenceDocumentId="RetDoc2">false</ConservationEasementsInd>
+      <CollectionsOfArtInd referenceDocumentId="RetDoc2">false</CollectionsOfArtInd>
+      <CreditCounselingInd referenceDocumentId="RetDoc2">false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd referenceDocumentId="RetDoc2">false</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd referenceDocumentId="RetDoc2">true</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd referenceDocumentId="RetDoc2">false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd referenceDocumentId="RetDoc2">false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd referenceDocumentId="RetDoc2">false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd referenceDocumentId="RetDoc2">false</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd referenceDocumentId="RetDoc2">false</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd referenceDocumentId="RetDoc2">false</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd referenceDocumentId="RetDoc2">false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd referenceDocumentId="RetDoc3">true</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd referenceDocumentId="RetDoc3">false</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <EngagedInExcessBenefitTransInd>false</EngagedInExcessBenefitTransInd>
+      <PYExcessBenefitTransInd>false</PYExcessBenefitTransInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd>false</DisregardedEntityInd>
+      <RelatedEntityInd>false</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd>false</TrnsfrExmptNonChrtblRltdOrgInd>
+      <ActivitiesConductedPrtshpInd>false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>false</ScheduleORequiredInd>
+      <IRPDocumentCnt>2</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <EmployeeCnt>0</EmployeeCnt>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <QuidProQuoContributionsInd>false</QuidProQuoContributionsInd>
+      <Form8282PropertyDisposedOfInd>false</Form8282PropertyDisposedOfInd>
+      <RcvFndsToPayPrsnlBnftCntrctInd>false</RcvFndsToPayPrsnlBnftCntrctInd>
+      <PayPremiumsPrsnlBnftCntrctInd>false</PayPremiumsPrsnlBnftCntrctInd>
+      <Form8899Filedind>false</Form8899Filedind>
+      <Form1098CFiledInd>false</Form1098CFiledInd>
+      <DAFExcessBusinessHoldingsInd>false</DAFExcessBusinessHoldingsInd>
+      <TaxableDistributionsInd>false</TaxableDistributionsInd>
+      <DistributionToDonorInd>false</DistributionToDonorInd>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <InfoInScheduleOPartVIInd>X</InfoInScheduleOPartVIInd>
+      <GoverningBodyVotingMembersCnt>2</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>2</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>true</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>true</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>false</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>true</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>false</ConflictOfInterestPolicyInd>
+      <WhistleblowerPolicyInd>false</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>false</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>false</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <StatesWhereCopyOfReturnIsFldCd>CA</StatesWhereCopyOfReturnIsFldCd>
+      <UponRequestInd>X</UponRequestInd>
+      <BooksInCareOfDetail>
+        <PersonNm>PAUL H HAGOPIAN</PersonNm>
+        <PhoneNum>7145434185</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>2200 W ORANGEWOOD SUITE 130</AddressLine1Txt>
+          <CityNm>ORANGE</CityNm>
+          <StateAbbreviationCd>CA</StateAbbreviationCd>
+          <ZIPCd>92868</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>PAUL H HAGOPIAN</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>31500</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>KRISTEN ADAMS</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>9500</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <TotalReportableCompFromOrgAmt>41000</TotalReportableCompFromOrgAmt>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <InvestmentIncomeGrp>
+        <TotalRevenueColumnAmt>62011</TotalRevenueColumnAmt>
+        <ExclusionAmt>62011</ExclusionAmt>
+      </InvestmentIncomeGrp>
+      <GrossRentsGrp>
+        <RealAmt>25200</RealAmt>
+      </GrossRentsGrp>
+      <LessRentalExpensesGrp>
+        <RealAmt>24541</RealAmt>
+      </LessRentalExpensesGrp>
+      <RentalIncomeOrLossGrp>
+        <RealAmt>659</RealAmt>
+      </RentalIncomeOrLossGrp>
+      <NetRentalIncomeOrLossGrp>
+        <TotalRevenueColumnAmt>659</TotalRevenueColumnAmt>
+        <ExclusionAmt>659</ExclusionAmt>
+      </NetRentalIncomeOrLossGrp>
+      <GrossAmountSalesAssetsGrp>
+        <OtherAmt>13371</OtherAmt>
+      </GrossAmountSalesAssetsGrp>
+      <GainOrLossGrp>
+        <OtherAmt>13371</OtherAmt>
+      </GainOrLossGrp>
+      <NetGainOrLossInvestmentsGrp>
+        <TotalRevenueColumnAmt>13371</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>13371</RelatedOrExemptFuncIncomeAmt>
+      </NetGainOrLossInvestmentsGrp>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>76041</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>13371</RelatedOrExemptFuncIncomeAmt>
+        <ExclusionAmt>62670</ExclusionAmt>
+      </TotalRevenueGrp>
+      <InfoInScheduleOPartIXInd>X</InfoInScheduleOPartIXInd>
+      <GrantsToDomesticOrgsGrp>
+        <TotalAmt>80000</TotalAmt>
+        <ProgramServicesAmt>80000</ProgramServicesAmt>
+      </GrantsToDomesticOrgsGrp>
+      <OtherSalariesAndWagesGrp>
+        <TotalAmt>41000</TotalAmt>
+        <ProgramServicesAmt>27000</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>14000</ManagementAndGeneralAmt>
+      </OtherSalariesAndWagesGrp>
+      <FeesForServicesLegalGrp>
+        <TotalAmt>27915</TotalAmt>
+        <ProgramServicesAmt>13958</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>13957</ManagementAndGeneralAmt>
+      </FeesForServicesLegalGrp>
+      <FeesForServicesAccountingGrp>
+        <TotalAmt>6840</TotalAmt>
+        <ProgramServicesAmt>3420</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>3420</ManagementAndGeneralAmt>
+      </FeesForServicesAccountingGrp>
+      <FeesForServicesOtherGrp>
+        <TotalAmt>24800</TotalAmt>
+        <ProgramServicesAmt>22400</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>2400</ManagementAndGeneralAmt>
+      </FeesForServicesOtherGrp>
+      <OtherExpensesGrp>
+        <Desc>OFFICE EXPENSE</Desc>
+        <TotalAmt>100</TotalAmt>
+        <ProgramServicesAmt>50</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>50</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>180655</TotalAmt>
+        <ProgramServicesAmt>146828</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>33827</ManagementAndGeneralAmt>
+        <FundraisingAmt>0</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <SavingsAndTempCashInvstGrp>
+        <BOYAmt>1640130</BOYAmt>
+        <EOYAmt>25216</EOYAmt>
+      </SavingsAndTempCashInvstGrp>
+      <LandBldgEquipCostOrOtherBssAmt>100000</LandBldgEquipCostOrOtherBssAmt>
+      <LandBldgEquipBasisNetGrp>
+        <BOYAmt>100000</BOYAmt>
+        <EOYAmt>100000</EOYAmt>
+      </LandBldgEquipBasisNetGrp>
+      <InvestmentsPubTradedSecGrp>
+        <BOYAmt>736390</BOYAmt>
+        <EOYAmt>2246690</EOYAmt>
+      </InvestmentsPubTradedSecGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>2476520</BOYAmt>
+        <EOYAmt>2371906</EOYAmt>
+      </TotalAssetsGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>0</BOYAmt>
+        <EOYAmt>0</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrgDoesNotFollowFASB117Ind>X</OrgDoesNotFollowFASB117Ind>
+      <CapStkTrPrinCurrentFundsGrp>
+        <BOYAmt>2476520</BOYAmt>
+        <EOYAmt>2371906</EOYAmt>
+      </CapStkTrPrinCurrentFundsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>2476520</BOYAmt>
+        <EOYAmt>2371906</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>2476520</BOYAmt>
+        <EOYAmt>2371906</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <ReconcilationRevenueExpnssAmt>-104614</ReconcilationRevenueExpnssAmt>
+      <MethodOfAccountingCashInd>X</MethodOfAccountingCashInd>
+      <AccountantCompileOrReviewInd>true</AccountantCompileOrReviewInd>
+      <FSAuditedInd>false</FSAuditedInd>
+      <AuditCommitteeInd>true</AuditCommitteeInd>
+      <FederalGrantAuditRequiredInd>false</FederalGrantAuditRequiredInd>
+    </IRS990>
+    <IRS990ScheduleA documentId="RetDoc5">
+      <SupportingOrganization509a3Ind>X</SupportingOrganization509a3Ind>
+      <SupportingOrgType3FuncIntInd>X</SupportingOrgType3FuncIntInd>
+      <SupportedOrganizationsCnt>1</SupportedOrganizationsCnt>
+      <SupportedOrgInformationGrp>
+        <SupportedOrganizationName>
+          <BusinessNameLine1Txt>CALIFORNIA HOME FOR THE AGED INC</BusinessNameLine1Txt>
+          <BusinessNameLine2Txt>CALIFORNIA HOME FOR THE AGED INC</BusinessNameLine2Txt>
+        </SupportedOrganizationName>
+        <EIN>941193572</EIN>
+        <OrganizationTypeCd>10</OrganizationTypeCd>
+        <GoverningDocumentListedInd>true</GoverningDocumentListedInd>
+        <SupportAmt>80000</SupportAmt>
+        <OtherSupportAmt>0</OtherSupportAmt>
+      </SupportedOrgInformationGrp>
+      <SupportedOrganizationsTotalCnt>1</SupportedOrganizationsTotalCnt>
+      <SupportSumAmt>80000</SupportSumAmt>
+      <OtherSupportSumAmt>0</OtherSupportSumAmt>
+      <Form990SchASupportingOrgGrp>
+        <ListedByNameGoverningDocInd>true</ListedByNameGoverningDocInd>
+        <SuprtOrgNoIRSDeterminationInd>false</SuprtOrgNoIRSDeterminationInd>
+        <SupportedOrgSectionC456Ind>false</SupportedOrgSectionC456Ind>
+        <SupportedOrgNotOrganizedUSInd>false</SupportedOrgNotOrganizedUSInd>
+        <OrganizationChangeSuprtOrgInd>false</OrganizationChangeSuprtOrgInd>
+        <SupportNonSupportedOrgInd>false</SupportNonSupportedOrgInd>
+        <PaymentSubstantialContribtrInd>false</PaymentSubstantialContribtrInd>
+        <LoanDisqualifiedPersonInd>false</LoanDisqualifiedPersonInd>
+        <ControlledDisqualifiedPrsnInd>false</ControlledDisqualifiedPrsnInd>
+        <DisqualifiedPrsnControllIntInd>false</DisqualifiedPrsnControllIntInd>
+        <DisqualifiedPrsnOwnrIntInd>false</DisqualifiedPrsnOwnrIntInd>
+        <ExcessBusinessHoldingsRulesInd>false</ExcessBusinessHoldingsRulesInd>
+        <ContributionControllerInd>false</ContributionControllerInd>
+        <ContributionFamilyInd>false</ContributionFamilyInd>
+        <Contribution35ControlledInd>false</Contribution35ControlledInd>
+      </Form990SchASupportingOrgGrp>
+      <Form990SchAType3SprtOrgAllGrp>
+        <TimelyProvidedDocumentsInd>true</TimelyProvidedDocumentsInd>
+        <OfficersCloseRelationshipInd>false</OfficersCloseRelationshipInd>
+        <SupportedOrgVoiceInvestmentInd>true</SupportedOrgVoiceInvestmentInd>
+      </Form990SchAType3SprtOrgAllGrp>
+      <Form990SchAType3FuncIntGrp>
+        <ActivitiesTestInd>X</ActivitiesTestInd>
+        <ActivitiesFurtherExemptPrpsInd>true</ActivitiesFurtherExemptPrpsInd>
+        <ActivitiesEngagedOrgInvlmntInd>true</ActivitiesEngagedOrgInvlmntInd>
+      </Form990SchAType3FuncIntGrp>
+      <Form990ScheduleAPartVIGrp>
+        <FormAndLineReferenceDesc>PART IV, SECTION D, LINE 2</FormAndLineReferenceDesc>
+        <ExplanationTxt>THE LILLIAN HAGOPIAN COREY CHARITABLE TRUST (THE "TRUST") WAS ESTABLISHED TO PROVIDE FOR THE "DESIGN, CONSTRUCTION, FURNISHING, EQUIPPING AND MAINTENANCE OF AN ADDITIONAL FACILITY FOR THE CALIFORNIA HOME FOR THE AGED, INC (THE "HOME"). A TRUST ADVISORY COMMITTEE WAS ESTABLISHED CONSISTING OF TWO MEMBERS FROM THE BOARD OF DIRECTORS OF THE HOME, AND THE TWO CO-TRUSTEES OF THE TRUST. THE COMMITTEE'S ROLE IS TO "DISCUSS THE STATUS AND ADMINISTRATION OF THE TRUST, THE STATUS OF THE TRUST ACCOUNT HELD BY THE HOME, AND THE STATUS OF THE HOME'S PLANS TO CONSTRUCT THE ADDITION CONTEMPLATED IN THE TRUST". THE TRUST ADVISORY COMMITTEE HAS MET FROM TIME TO TIME TO CONSIDER AND ADDRESS PROJECTS INVOLVING THE SUPPORTED ORGANIZATION.</ExplanationTxt>
+      </Form990ScheduleAPartVIGrp>
+      <Form990ScheduleAPartVIGrp>
+        <FormAndLineReferenceDesc>PART IV, SECTION D, LINE 3</FormAndLineReferenceDesc>
+        <ExplanationTxt>SEE ANSWER TO SECTION D, LINE 2 ABOVE THE TRUST IS OPEN TO ANY REQUESTS BY THE HOME.</ExplanationTxt>
+      </Form990ScheduleAPartVIGrp>
+      <Form990ScheduleAPartVIGrp>
+        <FormAndLineReferenceDesc>PART IV, SECTION E, LINE 2A</FormAndLineReferenceDesc>
+        <ExplanationTxt>SEE ANSWER TO SECTION D, QUESTION 2. IN ADDITION, SUBSTANTIALLY ALL OF THE ACTIVITIES OF THE TRUST FURTHERED THE EXEMPT PURPOSES OF THE HOME BY PROVIDING CONSTRUCTION EXPERTISE AND FUNDING FOR AGREED TO CONSTRUCTION RELATED PROJECTS. THE HOME IS THE ONLY ORGANIZATION SUPPORTED BY THE TRUST. THE TRUSTEES HAVE DIRECT COMMUNICATION WITH THE MEMBERS OF THE BOARD AND THE CEO OF THE HOME.</ExplanationTxt>
+      </Form990ScheduleAPartVIGrp>
+      <Form990ScheduleAPartVIGrp>
+        <FormAndLineReferenceDesc>PART IV, SECTION E, LINE 2B</FormAndLineReferenceDesc>
+        <ExplanationTxt>SEE ANSWER TO SECTION E, QUESTION 2A ABOVE FOR A NUMBER OF PROJECTS OVER THE YEARS, THE TRUST PROVIDED THE CONSTRUCTION EXPERTISE AND FUNDING IN ORDER FOR THE HOME TO COMPLETE THE NEEDED CONSTRUCTION ACTIVITIES. IF THE TRUST WERE NOT ENGAGED, THE HOME ITSELF WOULD HAVE NEEDED TO BE DIRECTLY INVOLVED IN THE CONSTRUCTION AND FUNDING.</ExplanationTxt>
+      </Form990ScheduleAPartVIGrp>
+    </IRS990ScheduleA>
+    <IRS990ScheduleD documentId="RetDoc2">
+      <BuildingsGrp>
+        <InvestmentCostOrOtherBasisAmt>100000</InvestmentCostOrOtherBasisAmt>
+        <BookValueAmt>100000</BookValueAmt>
+      </BuildingsGrp>
+      <TotalBookValueLandBuildingsAmt>100000</TotalBookValueLandBuildingsAmt>
+    </IRS990ScheduleD>
+    <IRS990ScheduleI documentId="RetDoc3">
+      <GrantRecordsMaintainedInd>false</GrantRecordsMaintainedInd>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>CA HOME FOR THE AGED INC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>6720 E KINGS CANYON RD</AddressLine1Txt>
+          <CityNm>FRESNO</CityNm>
+          <StateAbbreviationCd>CA</StateAbbreviationCd>
+          <ZIPCd>93720</ZIPCd>
+        </USAddress>
+        <RecipientEIN>941193572</RecipientEIN>
+        <CashGrantAmt>20000</CashGrantAmt>
+        <PurposeOfGrantTxt>SEE PART I, Q 1</PurposeOfGrantTxt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>CA HOME FOR THE AGED INC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>6720 E KINGS CANYON RD</AddressLine1Txt>
+          <CityNm>FRESNO</CityNm>
+          <StateAbbreviationCd>CA</StateAbbreviationCd>
+          <ZIPCd>93720</ZIPCd>
+        </USAddress>
+        <RecipientEIN>941193572</RecipientEIN>
+        <CashGrantAmt>20000</CashGrantAmt>
+        <PurposeOfGrantTxt>SEE PART I, Q 1</PurposeOfGrantTxt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>CA HOME FOR THE AGED INC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>6720 E KINGS CANYON RD</AddressLine1Txt>
+          <CityNm>FRESNO</CityNm>
+          <StateAbbreviationCd>CA</StateAbbreviationCd>
+          <ZIPCd>93720</ZIPCd>
+        </USAddress>
+        <RecipientEIN>941193572</RecipientEIN>
+        <CashGrantAmt>20000</CashGrantAmt>
+        <PurposeOfGrantTxt>SEE PART I, Q 1</PurposeOfGrantTxt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>CA HOME FOR THE AGED INC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>6720 E KINGS CANYON RD</AddressLine1Txt>
+          <CityNm>FRESNO</CityNm>
+          <StateAbbreviationCd>CA</StateAbbreviationCd>
+          <ZIPCd>93720</ZIPCd>
+        </USAddress>
+        <RecipientEIN>941193572</RecipientEIN>
+        <CashGrantAmt>20000</CashGrantAmt>
+        <PurposeOfGrantTxt>SEE PART I, Q 1</PurposeOfGrantTxt>
+      </RecipientTable>
+    </IRS990ScheduleI>
+    <IRS990ScheduleO documentId="RetDoc4">
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 2, PART III, LINE 4D</FormAndLineReferenceDesc>
+        <ExplanationTxt>ALLOCATED EXPENSES RELATED TO THE TRUST'S SUPPORT TO THE CALIFORNIA HOME FOR THE AGED, INC</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PART VI</FormAndLineReferenceDesc>
+        <ExplanationTxt>FORM 990, PART VI, LINE 12A - WRITTEN CONFLICT OF INTEREST POLICY THE CHARITABLE TRUST IS SUBJECT TO, AND COMPLIES WITH, ALL THE LAWS, REGULATIONS AND RULES FOR SUCH AN ENTITY, INCLUDING SELF-DEALING, AND IS UNDER THE SUPERVISION BY THE ATTORNEY GENERAL OF THE STATE OF CA. FORM 990, PART VI, LINE 13 - WRITTEN WHITLEBLOWER POLICY AS THE CHARITABLE TRUST HAS ONLY 2 TRUSTEES, NO WHISTLEBLOWER POLICY IS NEEDED. FORM 990, PART VI, LINE 14 - WRITTEN DOCUMENT RETENTION AND DESTRUCTION THE CHARITABLE TRUST RETAINS ALL ITS WRITTEN DOCUMENTS AS REQUIRED BY THE GOVERNING AGENCIES.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 6</FormAndLineReferenceDesc>
+        <ExplanationTxt>THE ORGANIZATION HAS TWO MEMBERS (TRUSTEES)</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 7A</FormAndLineReferenceDesc>
+        <ExplanationTxt>THE TWO MEMBERS (TRUSTEES) HAVE POWER TO ELECT OR APPOINT THE GOVERNING BODY.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 11B</FormAndLineReferenceDesc>
+        <ExplanationTxt>NO REVIEW WAS OR WILL BE CONDUCTED.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 19</FormAndLineReferenceDesc>
+        <ExplanationTxt>NO DOCUMENTS AVAILABLE TO THE PUBLIC</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PART IX, LINE 11G</FormAndLineReferenceDesc>
+        <ExplanationTxt>CLERICAL/ADMINISTRATIVE 2,400 2,400 0 DEPOSIT CORRECTION 20,000 0 0 TOTAL 22,400 2,400 0</ExplanationTxt>
+      </SupplementalInformationDetail>
+    </IRS990ScheduleO>
+  </ReturnData>
+</Return>

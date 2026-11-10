@@ -1,0 +1,963 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Return xmlns="http://www.irs.gov/efile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" returnVersion="2023v5.0">
+  <ReturnHeader binaryAttachmentCnt="0">
+    <ReturnTs>2024-06-14T10:20:33-04:00</ReturnTs>
+    <TaxPeriodEndDt>2023-12-31</TaxPeriodEndDt>
+    <PreparerFirmGrp>
+      <PreparerFirmEIN>310998651</PreparerFirmEIN>
+      <PreparerFirmName>
+        <BusinessNameLine1Txt>HOLBROOK &amp; MANTER INC</BusinessNameLine1Txt>
+      </PreparerFirmName>
+      <PreparerUSAddress>
+        <AddressLine1Txt>103 PROFESSIONAL PARKWAY</AddressLine1Txt>
+        <CityNm>MARYSVILLE</CityNm>
+        <StateAbbreviationCd>OH</StateAbbreviationCd>
+        <ZIPCd>43040</ZIPCd>
+      </PreparerUSAddress>
+    </PreparerFirmGrp>
+    <ReturnTypeCd>990</ReturnTypeCd>
+    <TaxPeriodBeginDt>2023-01-01</TaxPeriodBeginDt>
+    <Filer>
+      <EIN>310628641</EIN>
+      <BusinessName>
+        <BusinessNameLine1Txt>COMMUNITY FOUNDATION OF UNION COUNT</BusinessNameLine1Txt>
+      </BusinessName>
+      <BusinessNameControlTxt>COMM</BusinessNameControlTxt>
+      <PhoneNum>9376429618</PhoneNum>
+      <USAddress>
+        <AddressLine1Txt>126 N MARION ST PO BOX 608</AddressLine1Txt>
+        <CityNm>MARYSVILLE</CityNm>
+        <StateAbbreviationCd>OH</StateAbbreviationCd>
+        <ZIPCd>43040</ZIPCd>
+      </USAddress>
+    </Filer>
+    <BusinessOfficerGrp>
+      <PersonNm>ADAM HODNICHAK</PersonNm>
+      <PersonTitleTxt>EXEC. DIRECTOR</PersonTitleTxt>
+      <PhoneNum>9376429618</PhoneNum>
+      <SignatureDt>2024-06-10</SignatureDt>
+    </BusinessOfficerGrp>
+    <SigningOfficerGrp>
+      <PersonFullName>
+        <PersonFirstNm>ADAM</PersonFirstNm>
+        <PersonLastNm>HODINCHAK</PersonLastNm>
+      </PersonFullName>
+      <SSN>999009999</SSN>
+    </SigningOfficerGrp>
+    <IRSResponsiblePrtyInfoCurrInd>true</IRSResponsiblePrtyInfoCurrInd>
+    <PreparerPersonGrp>
+      <PreparerPersonNm>MARK A WELP CPA</PreparerPersonNm>
+      <PTIN>P01856047</PTIN>
+      <PhoneNum>9376448175</PhoneNum>
+      <PreparationDt>2024-06-10</PreparationDt>
+    </PreparerPersonGrp>
+    <TaxYr>2023</TaxYr>
+    <BuildTS>2023-04-26 12:10:37Z</BuildTS>
+  </ReturnHeader>
+  <ReturnData documentCnt="6">
+    <IRS990 documentId="RetDoc2" referenceDocumentId="RetDoc5">
+      <DoingBusinessAsName>
+        <BusinessNameLine1Txt>COMMUNITY FOUNDATION OF UNION COUNT</BusinessNameLine1Txt>
+      </DoingBusinessAsName>
+      <PrincipalOfficerNm>ADAM HODNICHAK</PrincipalOfficerNm>
+      <USAddress>
+        <AddressLine1Txt>PO BOX 608</AddressLine1Txt>
+        <CityNm>MARYSVILLE</CityNm>
+        <StateAbbreviationCd>OH</StateAbbreviationCd>
+        <ZIPCd>43040</ZIPCd>
+      </USAddress>
+      <GrossReceiptsAmt>1911109</GrossReceiptsAmt>
+      <GroupReturnForAffiliatesInd>false</GroupReturnForAffiliatesInd>
+      <Organization501c3Ind>X</Organization501c3Ind>
+      <WebsiteAddressTxt>WWW.UNIONCOUNTYFOUNDATION.ORG</WebsiteAddressTxt>
+      <TypeOfOrganizationCorpInd>X</TypeOfOrganizationCorpInd>
+      <FormationYr>1993</FormationYr>
+      <LegalDomicileStateCd>OH</LegalDomicileStateCd>
+      <ActivityOrMissionDesc>THE CHARITABLE ORGANIZATION ASSISTS INDIVIDUALS AND ORGANIZATIONS WITH FULLFILLING THEIR CHARITABLE GOALS. THE FOUNDATION SUPPORTS AND ENABLES THE ACCUMULATION, INVESTMENT, AND DISTRIBUTION OF CHARITABLE DOLLARS TO BENEFIT THE CITIZENS OF UNION COUNTY, OH.</ActivityOrMissionDesc>
+      <VotingMembersGoverningBodyCnt>15</VotingMembersGoverningBodyCnt>
+      <VotingMembersIndependentCnt>15</VotingMembersIndependentCnt>
+      <TotalEmployeeCnt>4</TotalEmployeeCnt>
+      <TotalGrossUBIAmt>0</TotalGrossUBIAmt>
+      <PYContributionsGrantsAmt>1649438</PYContributionsGrantsAmt>
+      <CYContributionsGrantsAmt>1344495</CYContributionsGrantsAmt>
+      <CYProgramServiceRevenueAmt>0</CYProgramServiceRevenueAmt>
+      <PYInvestmentIncomeAmt>396692</PYInvestmentIncomeAmt>
+      <CYInvestmentIncomeAmt>437544</CYInvestmentIncomeAmt>
+      <PYOtherRevenueAmt>124584</PYOtherRevenueAmt>
+      <CYOtherRevenueAmt>129070</CYOtherRevenueAmt>
+      <PYTotalRevenueAmt>2170714</PYTotalRevenueAmt>
+      <CYTotalRevenueAmt>1911109</CYTotalRevenueAmt>
+      <PYGrantsAndSimilarPaidAmt>1373897</PYGrantsAndSimilarPaidAmt>
+      <CYGrantsAndSimilarPaidAmt>1806433</CYGrantsAndSimilarPaidAmt>
+      <CYBenefitsPaidToMembersAmt>0</CYBenefitsPaidToMembersAmt>
+      <PYSalariesCompEmpBnftPaidAmt>148975</PYSalariesCompEmpBnftPaidAmt>
+      <CYSalariesCompEmpBnftPaidAmt>167528</CYSalariesCompEmpBnftPaidAmt>
+      <CYTotalProfFndrsngExpnsAmt>0</CYTotalProfFndrsngExpnsAmt>
+      <CYTotalFundraisingExpenseAmt>21349</CYTotalFundraisingExpenseAmt>
+      <PYOtherExpensesAmt>202527</PYOtherExpensesAmt>
+      <CYOtherExpensesAmt>227763</CYOtherExpensesAmt>
+      <PYTotalExpensesAmt>1725399</PYTotalExpensesAmt>
+      <CYTotalExpensesAmt>2201724</CYTotalExpensesAmt>
+      <PYRevenuesLessExpensesAmt>445315</PYRevenuesLessExpensesAmt>
+      <CYRevenuesLessExpensesAmt>-290615</CYRevenuesLessExpensesAmt>
+      <TotalAssetsBOYAmt>17837867</TotalAssetsBOYAmt>
+      <TotalAssetsEOYAmt>19286287</TotalAssetsEOYAmt>
+      <TotalLiabilitiesBOYAmt>147393</TotalLiabilitiesBOYAmt>
+      <TotalLiabilitiesEOYAmt>147430</TotalLiabilitiesEOYAmt>
+      <NetAssetsOrFundBalancesBOYAmt>17690474</NetAssetsOrFundBalancesBOYAmt>
+      <NetAssetsOrFundBalancesEOYAmt>19138857</NetAssetsOrFundBalancesEOYAmt>
+      <InfoInScheduleOPartIIIInd>X</InfoInScheduleOPartIIIInd>
+      <MissionDesc>THE CHARITABLE ORGANIZATION ASSISTS INDIVIDUALS AND ORGANIZATIONS WITH FULLFILLING THEIR CHARITABLE GOALS. THE FOUNDATION SUPPORTS AND ENABLES THE ACCUMULATION, INVESTMENT, AND DISTRIBUTION OF CHARITABLE DOLLARS TO BENEFIT THE CITIZENS OF UNION COUNTY, OH.</MissionDesc>
+      <SignificantNewProgramSrvcInd>false</SignificantNewProgramSrvcInd>
+      <SignificantChangeInd>false</SignificantChangeInd>
+      <ExpenseAmt>2134619</ExpenseAmt>
+      <GrantAmt>1806433</GrantAmt>
+      <RevenueAmt>1344495</RevenueAmt>
+      <Desc>THE FOUNDATION SUPPORTS PROGRAMS AND PROJECTS OF PROMISE THAT ARE RESPONSIVE TO COMMUNITY NEEDS. ITS ASSETS PROVIDE A TYPE OF VENTURE CAPITAL FOR CREATIVE PROBLEM SOLVING AND STRENGTHENING KEY COMMUNITY INSTITUTIONS TO ACCOMPLISH THEIR MISSIONS MORE EFFECTIVELY AND INDEPENDENTLY.</Desc>
+      <TotalProgramServiceExpensesAmt>2134619</TotalProgramServiceExpensesAmt>
+      <DescribedInSection501c3Ind referenceDocumentId="RetDoc6">true</DescribedInSection501c3Ind>
+      <ScheduleBRequiredInd referenceDocumentId="RetDoc1">true</ScheduleBRequiredInd>
+      <PoliticalCampaignActyInd>false</PoliticalCampaignActyInd>
+      <LobbyingActivitiesInd>false</LobbyingActivitiesInd>
+      <SubjectToProxyTaxInd>false</SubjectToProxyTaxInd>
+      <DonorAdvisedFundInd referenceDocumentId="RetDoc3">true</DonorAdvisedFundInd>
+      <ConservationEasementsInd referenceDocumentId="RetDoc3">false</ConservationEasementsInd>
+      <CollectionsOfArtInd referenceDocumentId="RetDoc3">false</CollectionsOfArtInd>
+      <CreditCounselingInd referenceDocumentId="RetDoc3">false</CreditCounselingInd>
+      <DonorRstrOrQuasiEndowmentsInd referenceDocumentId="RetDoc3">true</DonorRstrOrQuasiEndowmentsInd>
+      <ReportLandBuildingEquipmentInd referenceDocumentId="RetDoc3">true</ReportLandBuildingEquipmentInd>
+      <ReportInvestmentsOtherSecInd referenceDocumentId="RetDoc3">false</ReportInvestmentsOtherSecInd>
+      <ReportProgramRelatedInvstInd referenceDocumentId="RetDoc3">false</ReportProgramRelatedInvstInd>
+      <ReportOtherAssetsInd referenceDocumentId="RetDoc3">false</ReportOtherAssetsInd>
+      <ReportOtherLiabilitiesInd referenceDocumentId="RetDoc3">true</ReportOtherLiabilitiesInd>
+      <IncludeFIN48FootnoteInd referenceDocumentId="RetDoc3">true</IncludeFIN48FootnoteInd>
+      <IndependentAuditFinclStmtInd referenceDocumentId="RetDoc3">true</IndependentAuditFinclStmtInd>
+      <ConsolidatedAuditFinclStmtInd referenceDocumentId="RetDoc3">false</ConsolidatedAuditFinclStmtInd>
+      <SchoolOperatingInd>false</SchoolOperatingInd>
+      <ForeignOfficeInd>false</ForeignOfficeInd>
+      <ForeignActivitiesInd>false</ForeignActivitiesInd>
+      <MoreThan5000KToOrgInd>false</MoreThan5000KToOrgInd>
+      <MoreThan5000KToIndividualsInd>false</MoreThan5000KToIndividualsInd>
+      <ProfessionalFundraisingInd>false</ProfessionalFundraisingInd>
+      <FundraisingActivitiesInd>false</FundraisingActivitiesInd>
+      <GamingActivitiesInd>false</GamingActivitiesInd>
+      <OperateHospitalInd>false</OperateHospitalInd>
+      <GrantsToOrganizationsInd referenceDocumentId="RetDoc4">true</GrantsToOrganizationsInd>
+      <GrantsToIndividualsInd referenceDocumentId="RetDoc4">true</GrantsToIndividualsInd>
+      <ScheduleJRequiredInd>false</ScheduleJRequiredInd>
+      <TaxExemptBondsInd>false</TaxExemptBondsInd>
+      <EngagedInExcessBenefitTransInd>false</EngagedInExcessBenefitTransInd>
+      <PYExcessBenefitTransInd>false</PYExcessBenefitTransInd>
+      <LoanOutstandingInd>false</LoanOutstandingInd>
+      <GrantToRelatedPersonInd>false</GrantToRelatedPersonInd>
+      <BusinessRlnWithOrgMemInd>false</BusinessRlnWithOrgMemInd>
+      <BusinessRlnWithFamMemInd>false</BusinessRlnWithFamMemInd>
+      <BusinessRlnWith35CtrlEntInd>false</BusinessRlnWith35CtrlEntInd>
+      <DeductibleNonCashContriInd>false</DeductibleNonCashContriInd>
+      <DeductibleArtContributionInd>false</DeductibleArtContributionInd>
+      <TerminateOperationsInd>false</TerminateOperationsInd>
+      <PartialLiquidationInd>false</PartialLiquidationInd>
+      <DisregardedEntityInd>false</DisregardedEntityInd>
+      <RelatedEntityInd>false</RelatedEntityInd>
+      <RelatedOrganizationCtrlEntInd>false</RelatedOrganizationCtrlEntInd>
+      <TrnsfrExmptNonChrtblRltdOrgInd>false</TrnsfrExmptNonChrtblRltdOrgInd>
+      <ActivitiesConductedPrtshpInd>false</ActivitiesConductedPrtshpInd>
+      <ScheduleORequiredInd>true</ScheduleORequiredInd>
+      <IRPDocumentCnt>2</IRPDocumentCnt>
+      <IRPDocumentW2GCnt>0</IRPDocumentW2GCnt>
+      <EmployeeCnt>4</EmployeeCnt>
+      <EmploymentTaxReturnsFiledInd>true</EmploymentTaxReturnsFiledInd>
+      <UnrelatedBusIncmOverLimitInd>false</UnrelatedBusIncmOverLimitInd>
+      <ForeignFinancialAccountInd>false</ForeignFinancialAccountInd>
+      <ProhibitedTaxShelterTransInd>false</ProhibitedTaxShelterTransInd>
+      <TaxablePartyNotificationInd>false</TaxablePartyNotificationInd>
+      <NondeductibleContributionsInd>false</NondeductibleContributionsInd>
+      <QuidProQuoContributionsInd>false</QuidProQuoContributionsInd>
+      <Form8282PropertyDisposedOfInd>false</Form8282PropertyDisposedOfInd>
+      <RcvFndsToPayPrsnlBnftCntrctInd>false</RcvFndsToPayPrsnlBnftCntrctInd>
+      <PayPremiumsPrsnlBnftCntrctInd>false</PayPremiumsPrsnlBnftCntrctInd>
+      <Form8899Filedind>false</Form8899Filedind>
+      <Form1098CFiledInd>false</Form1098CFiledInd>
+      <DAFExcessBusinessHoldingsInd>false</DAFExcessBusinessHoldingsInd>
+      <TaxableDistributionsInd>false</TaxableDistributionsInd>
+      <DistributionToDonorInd>false</DistributionToDonorInd>
+      <IndoorTanningServicesInd>false</IndoorTanningServicesInd>
+      <SubjToTaxRmnrtnExPrchtPymtInd>false</SubjToTaxRmnrtnExPrchtPymtInd>
+      <SubjectToExcsTaxNetInvstIncInd>false</SubjectToExcsTaxNetInvstIncInd>
+      <InfoInScheduleOPartVIInd>X</InfoInScheduleOPartVIInd>
+      <GoverningBodyVotingMembersCnt>15</GoverningBodyVotingMembersCnt>
+      <IndependentVotingMemberCnt>15</IndependentVotingMemberCnt>
+      <FamilyOrBusinessRlnInd>false</FamilyOrBusinessRlnInd>
+      <DelegationOfMgmtDutiesInd>false</DelegationOfMgmtDutiesInd>
+      <ChangeToOrgDocumentsInd>false</ChangeToOrgDocumentsInd>
+      <MaterialDiversionOrMisuseInd>false</MaterialDiversionOrMisuseInd>
+      <MembersOrStockholdersInd>false</MembersOrStockholdersInd>
+      <ElectionOfBoardMembersInd>false</ElectionOfBoardMembersInd>
+      <DecisionsSubjectToApprovaInd>false</DecisionsSubjectToApprovaInd>
+      <MinutesOfGoverningBodyInd>true</MinutesOfGoverningBodyInd>
+      <MinutesOfCommitteesInd>true</MinutesOfCommitteesInd>
+      <OfficerMailingAddressInd>false</OfficerMailingAddressInd>
+      <LocalChaptersInd>false</LocalChaptersInd>
+      <Form990ProvidedToGvrnBodyInd>true</Form990ProvidedToGvrnBodyInd>
+      <ConflictOfInterestPolicyInd>true</ConflictOfInterestPolicyInd>
+      <AnnualDisclosureCoveredPrsnInd>true</AnnualDisclosureCoveredPrsnInd>
+      <RegularMonitoringEnfrcInd>true</RegularMonitoringEnfrcInd>
+      <WhistleblowerPolicyInd>true</WhistleblowerPolicyInd>
+      <DocumentRetentionPolicyInd>true</DocumentRetentionPolicyInd>
+      <CompensationProcessCEOInd>true</CompensationProcessCEOInd>
+      <CompensationProcessOtherInd>false</CompensationProcessOtherInd>
+      <InvestmentInJointVentureInd>false</InvestmentInJointVentureInd>
+      <OwnWebsiteInd>X</OwnWebsiteInd>
+      <UponRequestInd>X</UponRequestInd>
+      <BooksInCareOfDetail>
+        <PersonNm>ADAM HODNICHAK</PersonNm>
+        <PhoneNum>9376429618</PhoneNum>
+        <USAddress>
+          <AddressLine1Txt>PO BOX 608</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+      </BooksInCareOfDetail>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>ADAM HODNICHAK</PersonNm>
+        <TitleTxt>EXEC. DIRECT</TitleTxt>
+        <AverageHoursPerWeekRt>40.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>83938</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>14812</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>CHRISTIE SNIDER</PersonNm>
+        <TitleTxt>FIN DIRECTOR</TitleTxt>
+        <AverageHoursPerWeekRt>20.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>33244</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>3000</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>CATHY BLACKFORD</PersonNm>
+        <TitleTxt>VICE CHAIR</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>GREG GERTEN</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>JUDI GREEN</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>JOHN HANBY</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>CHAD HOFFMAN</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>CHIP HUBBS</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>GARY LEE</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>MICHEL MEG</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>RYAN MICKELSON</PersonNm>
+        <TitleTxt>TREAS. &amp; SEC</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>MATT MILHOLLAND</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>DR JENNIFER MORRISON</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>ROGER C NICOL</PersonNm>
+        <TitleTxt>CHAIRMAN</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <OfficerInd>X</OfficerInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>DR MARK STOVER</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>HOLLY UNDERWOOD</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <Form990PartVIISectionAGrp>
+        <PersonNm>ANDREA WEAVER</PersonNm>
+        <TitleTxt>TRUSTEE</TitleTxt>
+        <AverageHoursPerWeekRt>1.00</AverageHoursPerWeekRt>
+        <IndividualTrusteeOrDirectorInd>X</IndividualTrusteeOrDirectorInd>
+        <ReportableCompFromOrgAmt>0</ReportableCompFromOrgAmt>
+        <ReportableCompFromRltdOrgAmt>0</ReportableCompFromRltdOrgAmt>
+        <OtherCompensationAmt>0</OtherCompensationAmt>
+      </Form990PartVIISectionAGrp>
+      <TotalReportableCompFromOrgAmt>117182</TotalReportableCompFromOrgAmt>
+      <TotalOtherCompensationAmt>17812</TotalOtherCompensationAmt>
+      <FormerOfcrEmployeesListedInd>false</FormerOfcrEmployeesListedInd>
+      <TotalCompGreaterThan150KInd>false</TotalCompGreaterThan150KInd>
+      <CompensationFromOtherSrcsInd>false</CompensationFromOtherSrcsInd>
+      <AllOtherContributionsAmt>1344495</AllOtherContributionsAmt>
+      <TotalContributionsAmt>1344495</TotalContributionsAmt>
+      <InvestmentIncomeGrp>
+        <TotalRevenueColumnAmt>437544</TotalRevenueColumnAmt>
+        <ExclusionAmt>437544</ExclusionAmt>
+      </InvestmentIncomeGrp>
+      <OtherRevenueMiscGrp>
+        <Desc>INCOME- OTHER REVENUE</Desc>
+        <TotalRevenueColumnAmt>129070</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>129070</RelatedOrExemptFuncIncomeAmt>
+      </OtherRevenueMiscGrp>
+      <OtherRevenueTotalAmt>129070</OtherRevenueTotalAmt>
+      <TotalRevenueGrp>
+        <TotalRevenueColumnAmt>1911109</TotalRevenueColumnAmt>
+        <RelatedOrExemptFuncIncomeAmt>129070</RelatedOrExemptFuncIncomeAmt>
+        <ExclusionAmt>437544</ExclusionAmt>
+      </TotalRevenueGrp>
+      <GrantsToDomesticOrgsGrp>
+        <TotalAmt>1314278</TotalAmt>
+        <ProgramServicesAmt>1314278</ProgramServicesAmt>
+      </GrantsToDomesticOrgsGrp>
+      <GrantsToDomesticIndividualsGrp>
+        <TotalAmt>492155</TotalAmt>
+        <ProgramServicesAmt>492155</ProgramServicesAmt>
+      </GrantsToDomesticIndividualsGrp>
+      <CompCurrentOfcrDirectorsGrp>
+        <TotalAmt>117181</TotalAmt>
+        <ProgramServicesAmt>99604</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>17577</ManagementAndGeneralAmt>
+      </CompCurrentOfcrDirectorsGrp>
+      <OtherSalariesAndWagesGrp>
+        <TotalAmt>33920</TotalAmt>
+        <ProgramServicesAmt>28832</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>5088</ManagementAndGeneralAmt>
+      </OtherSalariesAndWagesGrp>
+      <PensionPlanContributionsGrp>
+        <TotalAmt>4050</TotalAmt>
+        <ProgramServicesAmt>3442</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>608</ManagementAndGeneralAmt>
+      </PensionPlanContributionsGrp>
+      <OtherEmployeeBenefitsGrp>
+        <TotalAmt>587</TotalAmt>
+        <ProgramServicesAmt>500</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>87</ManagementAndGeneralAmt>
+      </OtherEmployeeBenefitsGrp>
+      <PayrollTaxesGrp>
+        <TotalAmt>11790</TotalAmt>
+        <ProgramServicesAmt>10021</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>1769</ManagementAndGeneralAmt>
+      </PayrollTaxesGrp>
+      <FeesForServicesAccountingGrp>
+        <TotalAmt>13876</TotalAmt>
+        <ManagementAndGeneralAmt>13876</ManagementAndGeneralAmt>
+      </FeesForServicesAccountingGrp>
+      <AdvertisingGrp>
+        <TotalAmt>8021</TotalAmt>
+        <ProgramServicesAmt>8021</ProgramServicesAmt>
+      </AdvertisingGrp>
+      <OfficeExpensesGrp>
+        <TotalAmt>20791</TotalAmt>
+        <ProgramServicesAmt>17672</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>3119</ManagementAndGeneralAmt>
+      </OfficeExpensesGrp>
+      <OccupancyGrp>
+        <TotalAmt>15505</TotalAmt>
+        <ProgramServicesAmt>13179</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>2326</ManagementAndGeneralAmt>
+      </OccupancyGrp>
+      <ConferencesMeetingsGrp>
+        <TotalAmt>2570</TotalAmt>
+        <ProgramServicesAmt>2570</ProgramServicesAmt>
+      </ConferencesMeetingsGrp>
+      <InsuranceGrp>
+        <TotalAmt>2664</TotalAmt>
+        <ProgramServicesAmt>2264</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>400</ManagementAndGeneralAmt>
+      </InsuranceGrp>
+      <OtherExpensesGrp>
+        <Desc>ADMINISTRATIVE FEES</Desc>
+        <TotalAmt>129070</TotalAmt>
+        <ProgramServicesAmt>129070</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>FUNDRAISING</Desc>
+        <TotalAmt>21349</TotalAmt>
+        <FundraisingAmt>21349</FundraisingAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>DUES AND SUBSCRIPTIONS</Desc>
+        <TotalAmt>7879</TotalAmt>
+        <ProgramServicesAmt>7879</ProgramServicesAmt>
+      </OtherExpensesGrp>
+      <OtherExpensesGrp>
+        <Desc>MISCELLANEOUS</Desc>
+        <TotalAmt>6038</TotalAmt>
+        <ProgramServicesAmt>5132</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>906</ManagementAndGeneralAmt>
+      </OtherExpensesGrp>
+      <TotalFunctionalExpensesGrp>
+        <TotalAmt>2201724</TotalAmt>
+        <ProgramServicesAmt>2134619</ProgramServicesAmt>
+        <ManagementAndGeneralAmt>45756</ManagementAndGeneralAmt>
+        <FundraisingAmt>21349</FundraisingAmt>
+      </TotalFunctionalExpensesGrp>
+      <CashNonInterestBearingGrp>
+        <BOYAmt>1914784</BOYAmt>
+        <EOYAmt>1745194</EOYAmt>
+      </CashNonInterestBearingGrp>
+      <SavingsAndTempCashInvstGrp>
+        <BOYAmt>225488</BOYAmt>
+      </SavingsAndTempCashInvstGrp>
+      <AccountsReceivableGrp>
+        <BOYAmt>33000</BOYAmt>
+        <EOYAmt>21000</EOYAmt>
+      </AccountsReceivableGrp>
+      <PrepaidExpensesDefrdChargesGrp>
+        <BOYAmt>5327</BOYAmt>
+        <EOYAmt>6218</EOYAmt>
+      </PrepaidExpensesDefrdChargesGrp>
+      <LandBldgEquipCostOrOtherBssAmt>22880</LandBldgEquipCostOrOtherBssAmt>
+      <LandBldgEquipBasisNetGrp>
+        <BOYAmt>22880</BOYAmt>
+        <EOYAmt>22880</EOYAmt>
+      </LandBldgEquipBasisNetGrp>
+      <InvestmentsPubTradedSecGrp>
+        <BOYAmt>15631279</BOYAmt>
+        <EOYAmt>17490995</EOYAmt>
+      </InvestmentsPubTradedSecGrp>
+      <OtherAssetsTotalGrp>
+        <BOYAmt>5109</BOYAmt>
+      </OtherAssetsTotalGrp>
+      <TotalAssetsGrp>
+        <BOYAmt>17837867</BOYAmt>
+        <EOYAmt>19286287</EOYAmt>
+      </TotalAssetsGrp>
+      <AccountsPayableAccrExpnssGrp>
+        <BOYAmt>8755</BOYAmt>
+        <EOYAmt>13689</EOYAmt>
+      </AccountsPayableAccrExpnssGrp>
+      <OtherLiabilitiesGrp>
+        <BOYAmt>138638</BOYAmt>
+        <EOYAmt>133741</EOYAmt>
+      </OtherLiabilitiesGrp>
+      <TotalLiabilitiesGrp>
+        <BOYAmt>147393</BOYAmt>
+        <EOYAmt>147430</EOYAmt>
+      </TotalLiabilitiesGrp>
+      <OrganizationFollowsFASB117Ind>X</OrganizationFollowsFASB117Ind>
+      <NoDonorRestrictionNetAssetsGrp>
+        <BOYAmt>17657474</BOYAmt>
+        <EOYAmt>19117857</EOYAmt>
+      </NoDonorRestrictionNetAssetsGrp>
+      <DonorRestrictionNetAssetsGrp>
+        <BOYAmt>33000</BOYAmt>
+        <EOYAmt>21000</EOYAmt>
+      </DonorRestrictionNetAssetsGrp>
+      <TotalNetAssetsFundBalanceGrp>
+        <BOYAmt>17690474</BOYAmt>
+        <EOYAmt>19138857</EOYAmt>
+      </TotalNetAssetsFundBalanceGrp>
+      <TotLiabNetAssetsFundBalanceGrp>
+        <BOYAmt>17837867</BOYAmt>
+        <EOYAmt>19286287</EOYAmt>
+      </TotLiabNetAssetsFundBalanceGrp>
+      <InfoInScheduleOPartXIInd>X</InfoInScheduleOPartXIInd>
+      <ReconcilationRevenueExpnssAmt>-290615</ReconcilationRevenueExpnssAmt>
+      <NetUnrlzdGainsLossesInvstAmt>1747058</NetUnrlzdGainsLossesInvstAmt>
+      <OtherChangesInNetAssetsAmt>-8060</OtherChangesInNetAssetsAmt>
+      <MethodOfAccountingAccrualInd>X</MethodOfAccountingAccrualInd>
+      <AccountantCompileOrReviewInd>false</AccountantCompileOrReviewInd>
+      <FSAuditedInd>true</FSAuditedInd>
+      <FSAuditedBasisGrp>
+        <SeparateBasisFinclStmtInd>X</SeparateBasisFinclStmtInd>
+      </FSAuditedBasisGrp>
+      <AuditCommitteeInd>true</AuditCommitteeInd>
+      <FederalGrantAuditRequiredInd>false</FederalGrantAuditRequiredInd>
+    </IRS990>
+    <IRS990ScheduleA documentId="RetDoc6">
+      <PublicOrganization170Ind>X</PublicOrganization170Ind>
+      <GiftsGrantsContriRcvd170Grp>
+        <CurrentTaxYearMinus4YearsAmt>1070524</CurrentTaxYearMinus4YearsAmt>
+        <CurrentTaxYearMinus3YearsAmt>4305589</CurrentTaxYearMinus3YearsAmt>
+        <CurrentTaxYearMinus2YearsAmt>1986931</CurrentTaxYearMinus2YearsAmt>
+        <CurrentTaxYearMinus1YearAmt>1649438</CurrentTaxYearMinus1YearAmt>
+        <CurrentTaxYearAmt>1344495</CurrentTaxYearAmt>
+        <TotalAmt>10356977</TotalAmt>
+      </GiftsGrantsContriRcvd170Grp>
+      <TotalCalendarYear170Grp>
+        <CurrentTaxYearMinus4YearsAmt>1070524</CurrentTaxYearMinus4YearsAmt>
+        <CurrentTaxYearMinus3YearsAmt>4305589</CurrentTaxYearMinus3YearsAmt>
+        <CurrentTaxYearMinus2YearsAmt>1986931</CurrentTaxYearMinus2YearsAmt>
+        <CurrentTaxYearMinus1YearAmt>1649438</CurrentTaxYearMinus1YearAmt>
+        <CurrentTaxYearAmt>1344495</CurrentTaxYearAmt>
+        <TotalAmt>10356977</TotalAmt>
+      </TotalCalendarYear170Grp>
+      <SubstantialContributorsTotAmt>1700135</SubstantialContributorsTotAmt>
+      <PublicSupportTotal170Amt>8656842</PublicSupportTotal170Amt>
+      <GrossInvestmentIncome170Grp>
+        <CurrentTaxYearMinus4YearsAmt>279325</CurrentTaxYearMinus4YearsAmt>
+        <CurrentTaxYearMinus3YearsAmt>265422</CurrentTaxYearMinus3YearsAmt>
+        <CurrentTaxYearMinus2YearsAmt>352720</CurrentTaxYearMinus2YearsAmt>
+        <CurrentTaxYearMinus1YearAmt>396692</CurrentTaxYearMinus1YearAmt>
+        <CurrentTaxYearAmt>437544</CurrentTaxYearAmt>
+        <TotalAmt>1731703</TotalAmt>
+      </GrossInvestmentIncome170Grp>
+      <OtherIncome170Grp>
+        <CurrentTaxYearAmt>129070</CurrentTaxYearAmt>
+        <TotalAmt>129070</TotalAmt>
+      </OtherIncome170Grp>
+      <TotalSupportAmt>12217750</TotalSupportAmt>
+      <GrossReceiptsRltdActivitiesAmt>658410</GrossReceiptsRltdActivitiesAmt>
+      <PublicSupportCY170Pct>0.70850</PublicSupportCY170Pct>
+      <PublicSupportPY170Pct>0.77760</PublicSupportPY170Pct>
+      <ThirtyThrPctSuprtTestsCY170Ind>X</ThirtyThrPctSuprtTestsCY170Ind>
+      <Form990ScheduleAPartVIGrp>
+        <FormAndLineReferenceDesc>PART II, LINE 10</FormAndLineReferenceDesc>
+        <ExplanationTxt>ADMINISTRATIVE FEE INCOME 129,070</ExplanationTxt>
+      </Form990ScheduleAPartVIGrp>
+    </IRS990ScheduleA>
+    <IRS990ScheduleB documentId="RetDoc1">
+      <ContributorInformationGrp>
+        <ContributorNum>RESTRICTED</ContributorNum>
+        <ContributorBusinessName>
+          <BusinessNameLine1>RESTRICTED</BusinessNameLine1>
+        </ContributorBusinessName>
+        <ContributorUSAddress>
+          <AddressLine1>RESTRICTED</AddressLine1>
+          <AddressLine2>RESTRICTED</AddressLine2>
+          <City>RESTRICTED</City>
+          <State>RESTRICTED</State>
+          <ZIPCode>RESTRICTED</ZIPCode>
+        </ContributorUSAddress>
+        <TotalContributionsAmt>RESTRICTED</TotalContributionsAmt>
+      </ContributorInformationGrp>
+    </IRS990ScheduleB>
+    <IRS990ScheduleD documentId="RetDoc3">
+      <DonorAdvisedFundsHeldCnt>56</DonorAdvisedFundsHeldCnt>
+      <FundsAndOtherAccountsHeldCnt>84</FundsAndOtherAccountsHeldCnt>
+      <DonorAdvisedFundsContriAmt>998215</DonorAdvisedFundsContriAmt>
+      <FundsAndOtherAccountsContriAmt>2729952</FundsAndOtherAccountsContriAmt>
+      <DonorAdvisedFundsGrantsAmt>1238732</DonorAdvisedFundsGrantsAmt>
+      <FundsAndOtherAccountsGrantsAmt>971052</FundsAndOtherAccountsGrantsAmt>
+      <DonorAdvisedFundsVlEOYAmt>7553523</DonorAdvisedFundsVlEOYAmt>
+      <FundsAndOtherAccountsVlEOYAmt>11585334</FundsAndOtherAccountsVlEOYAmt>
+      <DisclosedOrgLegCtrlInd>true</DisclosedOrgLegCtrlInd>
+      <DisclosedForCharitablePrpsInd>true</DisclosedForCharitablePrpsInd>
+      <CYEndwmtFundGrp>
+        <BeginningYearBalanceAmt>2592311</BeginningYearBalanceAmt>
+        <InvestmentEarningsOrLossesAmt>329677</InvestmentEarningsOrLossesAmt>
+        <GrantsOrScholarshipsAmt>-172400</GrantsOrScholarshipsAmt>
+        <AdministrativeExpensesAmt>-26544</AdministrativeExpensesAmt>
+        <EndYearBalanceAmt>2723044</EndYearBalanceAmt>
+      </CYEndwmtFundGrp>
+      <CYMinus1YrEndwmtFundGrp>
+        <BeginningYearBalanceAmt>3036003</BeginningYearBalanceAmt>
+        <InvestmentEarningsOrLossesAmt>-323545</InvestmentEarningsOrLossesAmt>
+        <GrantsOrScholarshipsAmt>-94028</GrantsOrScholarshipsAmt>
+        <AdministrativeExpensesAmt>-26119</AdministrativeExpensesAmt>
+        <EndYearBalanceAmt>2592311</EndYearBalanceAmt>
+      </CYMinus1YrEndwmtFundGrp>
+      <CYMinus2YrEndwmtFundGrp>
+        <BeginningYearBalanceAmt>2481809</BeginningYearBalanceAmt>
+        <InvestmentEarningsOrLossesAmt>315907</InvestmentEarningsOrLossesAmt>
+        <GrantsOrScholarshipsAmt>-82500</GrantsOrScholarshipsAmt>
+        <AdministrativeExpensesAmt>-27675</AdministrativeExpensesAmt>
+        <EndYearBalanceAmt>3036003</EndYearBalanceAmt>
+      </CYMinus2YrEndwmtFundGrp>
+      <CYMinus3YrEndwmtFundGrp>
+        <BeginningYearBalanceAmt>2376837</BeginningYearBalanceAmt>
+        <InvestmentEarningsOrLossesAmt>193064</InvestmentEarningsOrLossesAmt>
+        <GrantsOrScholarshipsAmt>-65527</GrantsOrScholarshipsAmt>
+        <AdministrativeExpensesAmt>-22565</AdministrativeExpensesAmt>
+        <EndYearBalanceAmt>2481809</EndYearBalanceAmt>
+      </CYMinus3YrEndwmtFundGrp>
+      <CYMinus4YrEndwmtFundGrp>
+        <BeginningYearBalanceAmt>2137996</BeginningYearBalanceAmt>
+        <InvestmentEarningsOrLossesAmt>344330</InvestmentEarningsOrLossesAmt>
+        <GrantsOrScholarshipsAmt>-82550</GrantsOrScholarshipsAmt>
+        <AdministrativeExpensesAmt>-22939</AdministrativeExpensesAmt>
+        <EndYearBalanceAmt>2376837</EndYearBalanceAmt>
+      </CYMinus4YrEndwmtFundGrp>
+      <BoardDesignatedBalanceEOYPct>1.00000</BoardDesignatedBalanceEOYPct>
+      <EndowmentsHeldUnrelatedOrgInd>false</EndowmentsHeldUnrelatedOrgInd>
+      <EndowmentsHeldRelatedOrgInd>false</EndowmentsHeldRelatedOrgInd>
+      <OtherLandBuildingsGrp>
+        <InvestmentCostOrOtherBasisAmt>22880</InvestmentCostOrOtherBasisAmt>
+        <BookValueAmt>22880</BookValueAmt>
+      </OtherLandBuildingsGrp>
+      <TotalBookValueLandBuildingsAmt>22880</TotalBookValueLandBuildingsAmt>
+      <OtherLiabilitiesOrgGrp>
+        <Desc>CHARIT. ANNUITIES &amp; REMAINDER TRUSTS</Desc>
+        <Amt>133741</Amt>
+      </OtherLiabilitiesOrgGrp>
+      <TotalLiabilityAmt>133741</TotalLiabilityAmt>
+      <FootnoteTextInd>X</FootnoteTextInd>
+      <TotalRevEtcAuditedFinclStmtAmt>3658167</TotalRevEtcAuditedFinclStmtAmt>
+      <NetUnrealizedGainsInvstAmt>1747058</NetUnrealizedGainsInvstAmt>
+      <RevenueNotReportedAmt>1747058</RevenueNotReportedAmt>
+      <RevenueSubtotalAmt>1911109</RevenueSubtotalAmt>
+      <TotalRevenuePerForm990Amt>1911109</TotalRevenuePerForm990Amt>
+      <TotExpnsEtcAuditedFinclStmtAmt>2209784</TotExpnsEtcAuditedFinclStmtAmt>
+      <OtherExpensesIncludedAmt>8060</OtherExpensesIncludedAmt>
+      <ExpensesNotReportedAmt>8060</ExpensesNotReportedAmt>
+      <ExpensesSubtotalAmt>2201724</ExpensesSubtotalAmt>
+      <TotalExpensesPerForm990Amt>2201724</TotalExpensesPerForm990Amt>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>SCHEDULE D, PAGE 3, PART X</FormAndLineReferenceDesc>
+        <ExplanationTxt>THE FOUNDATION HAS BEEN DETERMINED, BY THE INTERNAL REVENUE SERVICE, AS EXEMPT FROM FEDERAL INCOME TAXES AS A NONPROFIT ORGANIZATION UNDER SECTION 501(C)(3) OF THE INTERNAL REVENUE CODE AND CLASSIFIED BY THE INTERNAL REVENUE SERVICES AS OTHER THAN A PRIVATE FOUNDATION AND, AS A RESULT, A PROVISION FOR TAXES IS NOT REQUIRED. THE FOUNDATION FOLLOWS ASC NO. 740-10 "ACCOUNTING FOR UNCERTAINTY IN INCOME TAXES". THE FOUNDATION RECORDS INTEREST AND PENALTIES, IF ANY, IN INTEREST EXPENSE AND OTHER EXPENSE, RESPECTIVELY, IN OPERATING EXPENSES. THE FOUNDATION DID NOT HAVE ANY INTEREST OR PENALTIES RELATED TO TAXES DURING THE YEAR. MANAGEMENT BELIEVES THAT THERE ARE NO UNCERTAIN TAX POSITIONS AS OF DECEMBER 31, 2023 AND 2022.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>SCHEDULE D, PAGE 4, PART XII, LINE 2D</FormAndLineReferenceDesc>
+        <ExplanationTxt>CHANGE IN VALUE - SPLIT INTEREST 8,060</ExplanationTxt>
+      </SupplementalInformationDetail>
+    </IRS990ScheduleD>
+    <IRS990ScheduleI documentId="RetDoc4">
+      <GrantRecordsMaintainedInd>true</GrantRecordsMaintainedInd>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>CARE TRAIN OF UNION COUNTY</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>250 E 5TH STREET</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>311739631</RecipientEIN>
+        <IRCSectionDesc>501C3</IRCSectionDesc>
+        <CashGrantAmt>7000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>JONATHAN ALDER LOCAL SCHOOL DISTRIC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>9200 US ROUTE 42</AddressLine1Txt>
+          <CityNm>PLAIN CITY</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43064</ZIPCd>
+        </USAddress>
+        <RecipientEIN>316402512</RecipientEIN>
+        <IRCSectionDesc>GOV</IRCSectionDesc>
+        <CashGrantAmt>6600</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>MARYSVILLE UPTOWN THEATRE LLC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>PO BOX 1103</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>813681306</RecipientEIN>
+        <IRCSectionDesc>501-C3</IRCSectionDesc>
+        <CashGrantAmt>50000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>NEW DOVER UNITED METHODIST CHURCH</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>16637 CHURCH STREET</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>311123068</RecipientEIN>
+        <IRCSectionDesc>501C3</IRCSectionDesc>
+        <CashGrantAmt>11150</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>UNION CHRISTIAN MINISTRIES</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>PO BOX 1387</AddressLine1Txt>
+          <CityNm>WESTERVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43086</ZIPCd>
+        </USAddress>
+        <RecipientEIN>261304796</RecipientEIN>
+        <CashGrantAmt>10000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>UNION COUNTY FAMILY YMCA</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>1150 CHARLES LANE</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>311355370</RecipientEIN>
+        <IRCSectionDesc>501C3</IRCSectionDesc>
+        <CashGrantAmt>244113</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>UNION RURAL ELECTRIC COOPERATIVE</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>PO BOX 393</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>314329510</RecipientEIN>
+        <CashGrantAmt>7500</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>VILLAGE OF MILFORD CENTER</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>PO BOX 395</AddressLine1Txt>
+          <CityNm>MILFORD CENTER</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43045</ZIPCd>
+        </USAddress>
+        <RecipientEIN>316402686</RecipientEIN>
+        <CashGrantAmt>20949</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>UNION COUNTY JUVENILE COURT</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>215 W 5TH ST</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>316400087</RecipientEIN>
+        <CashGrantAmt>10000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>BREEDERS WORLD</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>6014 STATE ROUTE 113</AddressLine1Txt>
+          <CityNm>BELLEVUE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>44811</ZIPCd>
+        </USAddress>
+        <RecipientEIN>352069680</RecipientEIN>
+        <CashGrantAmt>9044</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>CORNERSTONE GLOBAL METHODIST CHURCH</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>207 S COURT ST</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>314422618</RecipientEIN>
+        <CashGrantAmt>10000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>MAGNETIC PHARISBURG UMC</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>13317 OH-347</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <IRCSectionDesc>501C3</IRCSectionDesc>
+        <CashGrantAmt>20000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>MELISSA ROSHA POTTER</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>970 SARA COURT</AddressLine1Txt>
+          <CityNm>PATASKALA</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43062</ZIPCd>
+        </USAddress>
+        <RecipientEIN>833228680</RecipientEIN>
+        <CashGrantAmt>8500</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>RICHWOOD INDEPENDENT FAIR</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>PO BOX 71</AddressLine1Txt>
+          <CityNm>RICHWOOD</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43344</ZIPCd>
+        </USAddress>
+        <RecipientEIN>316083531</RecipientEIN>
+        <CashGrantAmt>5350</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>STEPHENSON FAMILY FUND</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>905 HARPETH VALLEY PL</AddressLine1Txt>
+          <CityNm>NASHVILLE</CityNm>
+          <StateAbbreviationCd>TN</StateAbbreviationCd>
+          <ZIPCd>37203</ZIPCd>
+        </USAddress>
+        <RecipientEIN>311640316</RecipientEIN>
+        <CashGrantAmt>74836</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>THE JAMES</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>14 E 15TH AVENUE</AddressLine1Txt>
+          <CityNm>COLUMBUS</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43201</ZIPCd>
+        </USAddress>
+        <RecipientEIN>311301428</RecipientEIN>
+        <CashGrantAmt>10000</CashGrantAmt>
+      </RecipientTable>
+      <RecipientTable>
+        <RecipientBusinessName>
+          <BusinessNameLine1Txt>THE MARYSVILLE UNION CLUBHOUSE</BusinessNameLine1Txt>
+        </RecipientBusinessName>
+        <USAddress>
+          <AddressLine1Txt>16645 SQUARE DR</AddressLine1Txt>
+          <CityNm>MARYSVILLE</CityNm>
+          <StateAbbreviationCd>OH</StateAbbreviationCd>
+          <ZIPCd>43040</ZIPCd>
+        </USAddress>
+        <RecipientEIN>880876310</RecipientEIN>
+        <CashGrantAmt>135200</CashGrantAmt>
+      </RecipientTable>
+      <GrantsOtherAsstToIndivInUSGrp>
+        <GrantTypeTxt>SCHOLARSHIPS &lt; 5,000</GrantTypeTxt>
+        <RecipientCnt>223</RecipientCnt>
+        <CashGrantAmt>112620</CashGrantAmt>
+      </GrantsOtherAsstToIndivInUSGrp>
+      <GrantsOtherAsstToIndivInUSGrp>
+        <GrantTypeTxt>SCHOLARSHIPS &gt; 5,000</GrantTypeTxt>
+        <RecipientCnt>9</RecipientCnt>
+        <CashGrantAmt>379535</CashGrantAmt>
+      </GrantsOtherAsstToIndivInUSGrp>
+    </IRS990ScheduleI>
+    <IRS990ScheduleO documentId="RetDoc5">
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990 - ORGANIZATION'S MISSION</FormAndLineReferenceDesc>
+        <ExplanationTxt>THE CHARITABLE ORGANIZATION ASSISTS INDIVIDUALS AND ORGANIZATIONS WITH FULLFILLING THEIR CHARITABLE GOALS. THE FOUNDATION SUPPORTS AND ENABLES THE ACCUMULATION, INVESTMENT, AND DISTRIBUTION OF CHARITABLE DOLLARS TO BENEFIT THE CITIZENS OF UNION COUNTY, OH.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 11B</FormAndLineReferenceDesc>
+        <ExplanationTxt>INFORMATION IS COMPARED TO YEAR END FINANCIAL REPORTS AND REVIEWED FOR ACCURACY BY FOUNDATION EMPLOYEE.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 12C</FormAndLineReferenceDesc>
+        <ExplanationTxt>FORMS ARE DISTRIBUTED AT ANNUAL MEETING AND CHANGES OF JOB DUTIES OR EMPLOYERS PROMPTS A REVISITING OF CONFLICT ISSUES.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 15A</FormAndLineReferenceDesc>
+        <ExplanationTxt>EXECUTIVE DIRECTOR RAISES HAVE BASICALLY BEEN COST OF LIVING. ANNUAL REVIEWS ARE CONDUCTED AND THOUGHT IS GIVEN TO WAGES BY THE EXECUTIVE COMMITTEE.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PAGE 6, PART VI, LINE 19</FormAndLineReferenceDesc>
+        <ExplanationTxt>FINANCIAL STATEMENTS ARE IN ANNUAL REPORT AND ON WEBSITE, OTHER DOCUMENTS ARE AVAILABLE UPON REQUEST.</ExplanationTxt>
+      </SupplementalInformationDetail>
+      <SupplementalInformationDetail>
+        <FormAndLineReferenceDesc>FORM 990, PART XI, LINE 9</FormAndLineReferenceDesc>
+        <ExplanationTxt>CHANGE IN VALUE - SPLIT INTEREST -8,060</ExplanationTxt>
+      </SupplementalInformationDetail>
+    </IRS990ScheduleO>
+  </ReturnData>
+</Return>
