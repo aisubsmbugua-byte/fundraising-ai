@@ -96,5 +96,6 @@ national foundation load is complete and verified and the owner says so.
   item: one says nothing under `app/` may mention the loader library (the item 113 screen does), one says no
   migration numbered 0085 or higher with "funder" in its name may exist (0086 to 0088 already do). Both
   were true before this work; neither involves a file written here. `scripts/test-network-import.ts` fails
-  on a git-status check while 0089 is uncommitted, because its allow-list of migration files stops at
-  0088; it needs 0089 added when 0089 is committed to main, as 0086 to 0088 were.
+  on a git-status check only while a new migration file is uncommitted, because its allow-list of
+  migration files stops at 0088; with 0089 committed it passes (156 checks). The parent may still add
+  0089 to that list, as it did for 0086 to 0088.
