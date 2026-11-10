@@ -180,3 +180,36 @@ export function chipStyle(tone: "teal" | "amber" | "red" | "neutral"): React.CSS
     color: fg,
   };
 }
+
+// Data tables (the funder database screen, item 113). Wrap a table in a block with
+// `overflowX: "auto"` so a wide table scrolls inside its card at a narrow width
+// instead of pushing the page sideways.
+export const tableWrapStyle: React.CSSProperties = {
+  overflowX: "auto",
+  border: `1px solid ${colors.border}`,
+  borderRadius: radius,
+  background: colors.surface,
+};
+
+export const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: type.body,
+};
+
+export const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: `${spacing.sm}px ${spacing.md}px`,
+  fontSize: type.meta,
+  fontWeight: 600,
+  color: colors.textMuted,
+  background: colors.surfaceSubtle,
+  borderBottom: `1px solid ${colors.border}`,
+  whiteSpace: "nowrap",
+};
+
+export const tdStyle: React.CSSProperties = {
+  padding: `${spacing.sm}px ${spacing.md}px`,
+  borderBottom: `1px solid ${colors.border}`,
+  verticalAlign: "top",
+};

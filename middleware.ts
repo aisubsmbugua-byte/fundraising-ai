@@ -46,6 +46,8 @@ export async function middleware(request: NextRequest) {
       "/organization",
       "/contacts",
       "/admin",
+      // STATE item 113: the internal funder database screen is a dashboard route like the rest.
+      "/funders",
       // STATE item 98: the approval page an agent's link opens, and the
       // Connect COS page under /settings (already covered above).
       "/approve",

@@ -5,6 +5,7 @@ import { STAGES, computeHealthStatus, type Prospect } from "@/lib/prospects";
 import { loadOutcomeIndex, isClosedToWork, isRevisitDue } from "@/lib/prospect-outcomes";
 import { colors } from "@/lib/ui";
 import { resolveAssistantAccess } from "@/lib/assistant/access";
+import { canOpenFunderDatabase } from "@/lib/funder-reference/access";
 import Sidebar from "@/components/Sidebar";
 
 export default async function DashboardLayout({
@@ -61,6 +62,9 @@ export default async function DashboardLayout({
   // check short-circuits to "no" without a query when no organization is
   // enabled anywhere.
   const assistantAccess = await resolveAssistantAccess(supabase, user.id);
+  // STATE item 113, ruling 0048: the Funder database entry shows only to those the
+  // screen's own door lets in -- the same function, so the link and the page agree.
+  const showFunderDatabase = await canOpenFunderDatabase(supabase, user.id);
 
   // Order follows the actual workflow: overview, then setup, then the
   // funnel itself (source -> stage strategy -> active pursuit), then
@@ -92,6 +96,7 @@ export default async function DashboardLayout({
     // not here, same as Network.
     { href: "/supporters", label: "Supporters", badge: 0, icon: "heart" },
     { href: "/network", label: "Network", badge: 0, icon: "network" },
+    ...(showFunderDatabase ? [{ href: "/funders", label: "Funder database", badge: 0, icon: "database" }] : []),
     { href: "/evidence", label: "Evidence", badge: needsReviewEvidenceCount ?? 0, icon: "file-text" },
     { href: "/revisit", label: "Follow-up", badge: dueNowCount, icon: "calendar-clock" },
     { href: "/settings", label: "Settings", badge: 0, icon: "settings" },

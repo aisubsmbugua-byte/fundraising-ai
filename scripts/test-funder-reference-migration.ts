@@ -210,7 +210,7 @@ async function main() {
 
   section("the tables are shared reference data (ruling 0045 clause 1)");
   {
-    const cols = (await db.query(`select table_name, column_name from information_schema.columns where table_schema = 'public' and table_name like 'funder\\_reference\\_%' escape '\\'`)).rows as Array<{ table_name: string; column_name: string }>;
+    const cols = (await db.query(`select table_name, column_name from information_schema.columns where table_schema = 'public' and table_name like 'funder\\_reference\\_%' escape '\\' and table_name in (select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE')`)).rows as Array<{ table_name: string; column_name: string }>; // base tables only: migration 0086 adds a read-only VIEW over them (ruling 0048)
     ok("exactly the eight reference tables exist", new Set(cols.map((c) => c.table_name)).size === 8 && TABLES.every((t) => cols.some((c) => c.table_name === t)));
     ok("NO table carries organization_id (deliberate, stated in the ruling)", !cols.some((c) => c.column_name === "organization_id"));
     ok("no column anywhere is named for a single 'giving' figure", !cols.some((c) => /^(giving|total_giving|annual_giving|grants_given)(_amt)?$/.test(c.column_name)));
@@ -595,8 +595,14 @@ async function main() {
   {
     const files = walk(root);
     const web = files.filter((f) => !f.startsWith(join(root, "scripts") + "/") && !f.startsWith(join(root, "lib/funder-reference") + "/"));
-    const touching = web.filter((f) => /funder[_-]reference/i.test(readFileSync(f, "utf8")));
-    ok(`none of the ${web.length} application source files (app/, lib/, components/, …) mentions the tables or imports the loader`, touching.length === 0, touching.join(", "));
+    // Ruling 0048 (item 113) authorizes ONE read-only screen to read these tables: the files under
+    // app/(dashboard)/funders and the dashboard layout's single import of its access check. Everything
+    // else must still not mention them, and not even the screen may import the loader.
+    const screen = (f: string) => f.startsWith(join(root, "app/(dashboard)/funders") + "/") || f === join(root, "app/(dashboard)/layout.tsx");
+    const touching = web.filter((f) => /funder[_-]reference/i.test(readFileSync(f, "utf8")) && !screen(f));
+    ok(`none of the ${web.length} application source files (app/, lib/, components/, …) outside the ruling-0048 screen mentions the tables or imports the loader`, touching.length === 0, touching.join(", "));
+    const loaderModules = /funder-reference\/(pipeline|sink|run-store|sources|parse-990pf|zip|inflate|document|derive|xml|strings|supervisor)\b/;
+    ok("and the screen itself imports none of the loader's modules (it reads through read.ts, browse.ts and access.ts only)", web.filter(screen).every((f) => !loaderModules.test(readFileSync(f, "utf8"))), web.filter(screen).filter((f) => loaderModules.test(readFileSync(f, "utf8"))).join(", "));
     const lib = files.filter((f) => f.startsWith(join(root, "lib/funder-reference") + "/"));
     ok(`the ${lib.length} loader library files import nothing from next or react and are not client components`, lib.every((f) => { const s = readFileSync(f, "utf8"); return !/from ["'](next|react)/.test(s) && !/["']use client["']/.test(s); }));
     ok("the loader library reads no environment variable (keys are read only by the scripts)", lib.every((f) => !/process\.env/.test(readFileSync(f, "utf8"))));

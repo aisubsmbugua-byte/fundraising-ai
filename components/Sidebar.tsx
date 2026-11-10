@@ -18,6 +18,7 @@ import {
   Network,
   Heart,
   Sparkles,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 import { colors, radiusSm, radiusPill } from "@/lib/ui";
@@ -42,6 +43,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   heart: Heart,
   // STATE item 87: the Assistant nav item.
   sparkles: Sparkles,
+  // STATE item 113: the internal Funder database entry (superadmin only).
+  database: Database,
 };
 
 type NavItem = { href: string; label: string; badge: number; icon: string };
