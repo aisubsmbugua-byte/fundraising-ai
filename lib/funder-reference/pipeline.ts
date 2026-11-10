@@ -134,7 +134,7 @@ export interface RunSummary {
   seconds: number;
 }
 
-type Located = { archive: string; entry: ZipEntry };
+export type Located = { archive: string; entry: ZipEntry };
 type XmlFacts = { sha256: string; bytes: number };
 type Assessed = { row: IndexRow; loc: Located; xml: XmlFacts; head: Pick<ParsedFiling, "taxPeriodEnd" | "taxPeriodBegin" | "taxYr" | "returnVersion" | "returnTs">; a: ThresholdResult };
 
@@ -144,7 +144,7 @@ export interface ScanRecord {
   ein: string | null;
 }
 
-const PEEK_BYTES = 12_000;
+export const PEEK_BYTES = 12_000;
 
 export async function runPipeline(sink: Sink, provider: ArchiveProvider, p: PipelineParams, log: (s: string) => void): Promise<RunSummary> {
   const t0 = Date.now();
@@ -664,7 +664,7 @@ function loadPassACache(path: string, state: string | null): Map<string, PassARe
 }
 
 /** Memory, in one short phrase for the progress log: the loader's own footprint and what is left on the machine. */
-function memLine(): string {
+export function memLine(): string {
   const m = process.memoryUsage();
   const mb = (n: number) => `${Math.round(n / 1048576)} MB`;
   return `[rss ${mb(m.rss)}, heap ${mb(m.heapUsed)}, machine free ${mb(freemem())}]`;
@@ -702,7 +702,7 @@ export function loadScanCache(path: string): Map<string, ScanRecord> {
  * one record each to the cache file (state and EIN as the header states them). Records
  * are written as they are made, so a killed scan resumes where it stopped.
  */
-async function scanMissingHeaders(
+export async function scanMissingHeaders(
   located: Map<string, Located>,
   scanned: Map<string, ScanRecord>,
   scanCache: string,
@@ -750,7 +750,7 @@ export async function scanHeadersOnly(rows: IndexRow[], provider: ArchiveProvide
  * archive; one without, in the archives that can hold its submission year, and,
  * failing that, in every archive. Each archive is opened at most once.
  */
-async function locateAll(rows: IndexRow[], provider: ArchiveProvider, log: (s: string) => void): Promise<Map<string, Located>> {
+export async function locateAll(rows: IndexRow[], provider: ArchiveProvider, log: (s: string) => void): Promise<Map<string, Located>> {
   const found = new Map<string, Located>();
   const pending = new Map(rows.map((r) => [r.objectId, r]));
   const tried = new Set<string>();
@@ -816,7 +816,7 @@ async function locateAll(rows: IndexRow[], provider: ArchiveProvider, log: (s: s
 }
 
 /** Runs fn once per archive over the ids located in it, opening each archive once. */
-async function forEachArchive(
+export async function forEachArchive(
   located: Map<string, Located>,
   ids: string[],
   provider: ArchiveProvider,

@@ -154,7 +154,7 @@ function amountOf(node: XmlNode | null): number | null {
   return v;
 }
 
-function addressOf(node: XmlNode | null): Address | null {
+export function addressOf(node: XmlNode | null): Address | null {
   if (!node) return null;
   const us = child(node, "USAddress") ?? child(node, "RecipientUSAddress") ?? child(node, "LocationOfBooksUSAddress");
   const fg = child(node, "ForeignAddress") ?? child(node, "RecipientForeignAddress");
@@ -171,7 +171,7 @@ function addressOf(node: XmlNode | null): Address | null {
   };
 }
 
-function isTrue(t: string | null): boolean | null {
+export function isTrue(t: string | null): boolean | null {
   if (t === null) return null;
   const v = t.trim().toLowerCase();
   if (v === "1" || v === "true" || v === "x") return true;
