@@ -36,7 +36,7 @@ import type { IndexRow } from "../lib/funder-reference/document";
 import { CHARITY_BOXES, CHARITY_FIGURES, DAF_FIGURES, FilingRejected, parseReturn990 } from "../lib/funder-reference/parse-990";
 import { DEFAULT_CHARITY_THRESHOLD, kindsForFunder } from "../lib/funder-reference/charity-scope";
 import { runCharityPipeline } from "../lib/funder-reference/pipeline-990";
-import { pgliteCharitySink } from "../lib/funder-reference/sink-990";
+import { pgliteCharitySink, isReadOnlyVerification } from "../lib/funder-reference/sink-990";
 import { loadedCharityDoc } from "../lib/funder-reference/document-990";
 
 let pass = 0;
@@ -441,6 +441,19 @@ async function main() {
     const run = (args: string[], env: Record<string, string> = {}) => spawnSync("npx", ["tsx", join(root, "scripts/load-public-charities.ts"), "--work-dir", join(tmp, "work"), "--index-dir", idxdir, "--state", "CA", ...args], { encoding: "utf8", env: { ...process.env, ...env }, cwd: root });
     const a = run(["--target", `pglite:${dbdir}`]);
     ok("while a loader run is recorded as running it refuses and writes nothing (exit 3)", a.status === 3 && /refusing: 1 loader run\(s\) are recorded as running/.test(a.stderr + a.stdout), `${a.status} ${a.stderr.slice(0, 300)}`);
+    // a full-database verification that has finished loading and is only re-reading filings writes nothing: it does not block
+    const verifying = { full_verify: true };
+    const vstates = { states: { CA: { status: "verifying" } } };
+    ok("a read-only full verification (full_verify, every state 'verifying') does not count as a run in progress", isReadOnlyVerification({ parameters: verifying, counts: vstates }));
+    ok("the same run while a state is still loading DOES count", !isReadOnlyVerification({ parameters: verifying, counts: { states: { CA: { status: "loading" }, NY: { status: "verifying" } } } }));
+    ok("a run without full_verify, without state detail, or with an unreadable shape DOES count", !isReadOnlyVerification({ parameters: {}, counts: vstates }) && !isReadOnlyVerification({ parameters: verifying, counts: {} }) && !isReadOnlyVerification({ parameters: verifying, counts: null }) && !isReadOnlyVerification({ parameters: null, counts: null }) && !isReadOnlyVerification({ parameters: verifying, counts: { states: {} } }));
+    const dbdir2 = join(tmp, "db2");
+    const pre3 = new PGlite(dbdir2);
+    await bootDatabase(pre3);
+    await pre3.query(`insert into funder_reference_runs (loader_version, status, parameters, counts) values ('funder-reference-loader/1.0.0', 'running', '{"kind":"all_states_supervisor","full_verify":true}', '{"states":{"CA":{"status":"verifying"}}}')`);
+    await pre3.close();
+    const v = run(["--target", `pglite:${dbdir2}`]);
+    ok("with only a read-only verification running, the entry point passes the guard (it goes on to the missing index files, not exit 3)", v.status !== 3 && !/refusing/.test(v.stderr + v.stdout) && /index_YYYY\.csv/.test(v.stderr + v.stdout), `${v.status} ${(v.stderr + v.stdout).slice(0, 300)}`);
     const b = run(["--target", "supabase"], { NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:1", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test" });
     ok("it refuses the real project without --confirm-write-to-supabase (exit 2)", b.status === 2 && /refusing: --target supabase writes to the real project/.test(b.stderr + b.stdout), `${b.status} ${b.stderr.slice(0, 300)}`);
     const d = run(["--target", "none"]);

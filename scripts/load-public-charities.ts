@@ -6,7 +6,7 @@
 //
 // RULING 0047 CLAUSE 6 and 7:
 //   * California only for the first trial; the national run is a separate decision of the owner's.
-//   * It REFUSES to write to the real project while any loader run is recorded as running (the
+//   * It REFUSES to write to the real project while any loader run that LOADS is recorded as running (the
 //     foundation load's own supervisor row stays 'running' for its whole run), and it refuses without
 //     --confirm-write-to-supabase. Nothing here may be run against production until migration 0089 has
 //     been applied on the owner's say.

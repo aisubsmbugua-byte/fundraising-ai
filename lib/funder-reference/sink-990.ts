@@ -60,11 +60,25 @@ export function supabaseCharitySink(client: SupabaseLike, label = "supabase"): C
       }
     },
     async runsInProgress() {
-      const { count, error } = await client.from("funder_reference_runs").select("id", { count: "exact", head: true }).eq("status", "running");
+      const { data, error } = await client.from("funder_reference_runs").select("parameters, counts").eq("status", "running");
       fail("read runs in progress", error);
-      return count ?? 0;
+      return (data ?? []).filter((r) => !isReadOnlyVerification(r)).length;
     },
   };
+}
+
+/**
+ * Ruling 0047 clause 7 stops a charity stage while the national foundation LOAD is running. A run that
+ * has finished loading and is only re-reading filings to compare them (a full-database verification:
+ * full_verify set, and every state it covers in the "verifying" phase) writes nothing and does not
+ * count. Any other running row, including one whose state is not plainly "verifying", still blocks.
+ */
+export function isReadOnlyVerification(row: { parameters?: unknown; counts?: unknown }): boolean {
+  const params = row.parameters as { full_verify?: unknown } | null | undefined;
+  const states = (row.counts as { states?: Record<string, { status?: unknown }> } | null | undefined)?.states;
+  if (params?.full_verify !== true || !states || typeof states !== "object") return false;
+  const list = Object.values(states);
+  return list.length > 0 && list.every((s) => s?.status === "verifying");
 }
 
 interface PgliteLike {
@@ -110,6 +124,9 @@ export function pgliteCharitySink(db: PgliteLike, label = "pglite"): CharitySink
         }
       }),
     runsInProgress: () =>
-      asService(async () => Number(((await db.query(`select count(*)::int as n from funder_reference_runs where status = 'running'`)).rows[0] as { n: number }).n)),
+      asService(async () => {
+        const rows = (await db.query(`select parameters, counts from funder_reference_runs where status = 'running'`)).rows as { parameters: unknown; counts: unknown }[];
+        return rows.filter((r) => !isReadOnlyVerification(r)).length;
+      }),
   };
 }
