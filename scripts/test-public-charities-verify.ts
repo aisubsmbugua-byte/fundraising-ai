@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { makeZip, type ZipItem } from "./funder-reference-test-support";
-import { Checker, independentRejectReason, outcomeCountProblems, peopleOnReturn, readReturn, storedTotalsProblems, tokenize } from "../lib/funder-reference/verify-990";
+import { Checker, independentRejectReason, TOLERANCE, applyTolerance, outcomeCountProblems, peopleOnReturn, readReturn, storedTotalsProblems, tokenize } from "../lib/funder-reference/verify-990";
 
 let pass = 0;
 let fail = 0;
@@ -128,6 +128,25 @@ async function main() {
       ok("a stored total off by one is named", storedTotalsProblems({ loaded: 13621, superseded: 339, unread: 0 }, [st("AE", 3, 0), st("CA", 13619, 339)]).some((p) => /13621 loaded/.test(p)));
       ok("a state's unfinished run is not counted", storedTotalsProblems({ loaded: 13619, superseded: 339, unread: 0 }, [st("AE", 3, 0, "running"), st("CA", 13619, 339)]).length === 0);
       {
+        // the margin of error (decision 0013)
+        const big = { compared: 306608, fundersChecked: 150, headerSampled: 300, scopeSampled: 150 };
+        const ln = (ein: string, what: string) => `[${ein}] [202400000000000001 2023-12-31] ${what}: stored "x" but the filing gives "y"`;
+        const v = (unexplained: string[], over: Partial<typeof big> = {}) => applyTolerance({ ...big, ...over, unexplained });
+        ok("tolerance: no difference is plain verified", v([]).status === "verified");
+        ok("tolerance: one stray value in a state-sized sample is within tolerance, and is not called verified", v([ln("111111111", "funder.city")]).status === "verified_within_tolerance");
+        ok("tolerance: the allowance for other values is 1 in 10,000 (30 of 306,608), not 31", v(Array.from({ length: 30 }, (_, i) => ln("1111111" + String(10 + i), "grant 1 cash_grant_amt"))).status === "verified_within_tolerance" && v(Array.from({ length: 31 }, (_, i) => ln("1111111" + String(10 + i), "grant 1 cash_grant_amt"))).status === "not_verified");
+        ok("tolerance: one funder with a wrong kind label is within tolerance in a 150-funder sample, two are not", v([ln("111111111", "funder.is_daf_sponsor (x)")]).status === "verified_within_tolerance" && v([ln("111111111", "funder.is_daf_sponsor (x)"), ln("222222222", "funder.kind_basis (x)")]).status === "not_verified");
+        ok("tolerance: several lines about the SAME funder count as one funder", v([ln("111111111", "funder.is_daf_sponsor (x)"), ln("111111111", "funder.kind_basis (x)")]).status === "verified_within_tolerance");
+        ok("tolerance: a figure behind the label counts as identity (Part IX line 1), not as an ordinary value", v([ln("111111111", "part_ix_line_1_grants_domestic_orgs_total_amt"), ln("222222222", "part_ix_line_1_grants_domestic_orgs_total_amt")]).status === "not_verified");
+        ok("tolerance: a person or donor stored is never tolerated, however large the sample", v([ln("111111111", "no stored string equals the name of a person on the return (people are not stored in this stage)")], { compared: 5e7, fundersChecked: 5000 }).status === "not_verified");
+        ok("tolerance: a small sample has no margin (1 funder in 3 is not 1%)", applyTolerance({ compared: 1028, fundersChecked: 3, headerSampled: 12, scopeSampled: 6, unexplained: [ln("111111111", "funder.is_daf_sponsor (x)")] }).status === "not_verified" && applyTolerance({ compared: 1028, fundersChecked: 3, headerSampled: 12, scopeSampled: 6, unexplained: [ln("111111111", "funder.city")] }).status === "not_verified");
+        const hm = "[111111111] [202400000000000001 2023-12-31] header audit: the header scan put this return outside CA; the return's own address is in CA";
+        const sm = "[111111111] [202400000000000001 2023-12-31] scope audit: in scope by this return alone (grants to domestic organizations 150000, donor advised funds not stated) but no filing is stored";
+        ok("tolerance: one header-audit miss of 300 is within tolerance and is reported, two are a structural problem", v([hm]).status === "verified_within_tolerance" && v([hm]).structural.length === 0 && v([hm, hm]).structural.length === 1 && v([hm, hm]).status === "not_verified");
+        ok("tolerance: one scope-audit miss of 150 is within tolerance, two are a structural problem", v([sm]).status === "verified_within_tolerance" && v([sm, sm]).structural.length === 1);
+        ok("tolerance: the rules are the ones the owner decided (0.01% of values, 1% of funders, 1 in 300 and 1 in 150 audit returns)", TOLERANCE.otherValueRate === 0.0001 && TOLERANCE.identityFunderRate === 0.01 && TOLERANCE.headerAuditRate === 1 / 300 && TOLERANCE.scopeAuditRate === 1 / 150);
+      }
+      {
         const xml = "<Return><ReturnData><IRS990><Form990PartVIISectionAGrp><PersonNm>JANE Q OFFICER</PersonNm></Form990PartVIISectionAGrp><ContractorCompensationGrp><ContractorName><PersonNm>DONOR NETWORK WEST</PersonNm></ContractorName></ContractorCompensationGrp></IRS990></ReturnData></Return>";
         const people = peopleOnReturn(tokenize(xml));
         ok("an officer's name counts as a person on the return; a PersonNm under ContractorName (which can be a business) does not (found on the first real California check)", people.has("jane q officer") && !people.has("donor network west"), [...people].join("|"));
@@ -196,7 +215,7 @@ async function main() {
       if (sql) { const d = new PGlite(dir); await d.waitReady; await d.exec(sql); await d.close(); }
       opts.mutateWork?.(work);
       const r = verify(dir, opts.extra ?? [], work, `result-fault-${n}.json`);
-      exits.add(r.status);
+      exits.add(r.status ?? -1);
       ok(`${label}: exit 1 (only value differences) or 4 (structural problems named), RESULT: FAIL, and the report names it`, r.status === (r.rec.problems.length > 0 ? 4 : 1) && /RESULT: FAIL/.test(r.out) && expect.test(r.out) && (r.rec.unexplained > 0 || r.rec.problems.length > 0), `${r.status} ${r.out.slice(0, 1200)}`);
       return r;
     }

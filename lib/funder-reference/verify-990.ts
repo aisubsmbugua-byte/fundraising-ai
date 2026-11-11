@@ -764,3 +764,63 @@ export function storedTotalsProblems(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// the margin of error (decision 0013, the owner's, 2026-11-11)
+// ---------------------------------------------------------------------------
+/** The tolerances. A state whose differences all fit is "verified within tolerance", never plain "verified". */
+export const TOLERANCE = {
+  /** Differences in values that do not decide who a funder is (names, amounts, addresses, wording): at most this share of the values compared. */
+  otherValueRate: 0.0001,
+  /** Funders with a difference in a field that decides who a funder is (id, kind label, the figures behind it): at most this share of the funders checked. */
+  identityFunderRate: 0.01,
+  /** Header audit: returns in the state that the header scan put elsewhere: at most this share of those sampled. */
+  headerAuditRate: 1 / 300,
+  /** Scope audit: in-scope returns the loader did not store: at most this share of those sampled. */
+  scopeAuditRate: 1 / 150,
+} as const;
+
+// Fields that decide who a funder is and whether it is shown: its kind label and the figures behind the label.
+const IDENTITY_LINE = /funder\.(is_grantmaking_public_charity|is_daf_sponsor|kind_basis|kind_threshold)|kind_threshold_org_grants_amt|part_ix_line_1_grants_domestic_orgs_total_amt|daf_held_cnt|exactly one standing filing|recorded as superseded|one figures row per standing|funder\.ein/;
+// Rules of ruling 0047 clause 3 (no person, no donor, no grants to individuals stored) are rules, not accuracy: no margin.
+const NEVER_TOLERATED = /no stored string equals the name of a person|no stored column or unmapped element names|every recipient row is a direct part/;
+const HEADER_MISS = /header audit: the header scan put this return outside/;
+const SCOPE_MISS = /scope audit: (in scope by this return alone|the funder is stored as in scope but this return of its own was not stored)/;
+
+export type ToleranceVerdict = {
+  status: "verified" | "verified_within_tolerance" | "not_verified";
+  /** problems that stop the run: a header or scope audit over its allowance */
+  structural: string[];
+  counts: { never_tolerated: number; identity_funders: number; identity_lines: number; other_values: number; header_misses: number; scope_misses: number };
+  allowed: { identity_funders: number; other_values: number; header_misses: number; scope_misses: number };
+  rates: { other_values: number; identity_funders: number };
+};
+
+export function applyTolerance(a: { compared: number; fundersChecked: number; unexplained: string[]; headerSampled: number; scopeSampled: number }): ToleranceVerdict {
+  const einOf = (l: string) => /^\[(\d{9})\]/.exec(l)?.[1] ?? "?";
+  const never = a.unexplained.filter((l) => NEVER_TOLERATED.test(l));
+  const hdr = a.unexplained.filter((l) => HEADER_MISS.test(l));
+  const scp = a.unexplained.filter((l) => SCOPE_MISS.test(l));
+  const rest = a.unexplained.filter((l) => !NEVER_TOLERATED.test(l) && !HEADER_MISS.test(l) && !SCOPE_MISS.test(l));
+  const ident = rest.filter((l) => IDENTITY_LINE.test(l));
+  const other = rest.filter((l) => !IDENTITY_LINE.test(l));
+  const identFunders = new Set(ident.map(einOf)).size;
+  const allowed = {
+    identity_funders: Math.floor(a.fundersChecked * TOLERANCE.identityFunderRate),
+    other_values: Math.floor(a.compared * TOLERANCE.otherValueRate),
+    header_misses: Math.floor(a.headerSampled * TOLERANCE.headerAuditRate),
+    scope_misses: Math.floor(a.scopeSampled * TOLERANCE.scopeAuditRate),
+  };
+  const structural: string[] = [];
+  if (hdr.length > allowed.header_misses) structural.push(`the header audit found ${hdr.length} of ${a.headerSampled} sampled return(s) in the state put elsewhere by the header scan (allowed ${allowed.header_misses})`);
+  if (scp.length > allowed.scope_misses) structural.push(`the scope audit found ${scp.length} of ${a.scopeSampled} sampled return(s) the loader did not store that are in scope (allowed ${allowed.scope_misses})`);
+  const within = never.length === 0 && identFunders <= allowed.identity_funders && other.length <= allowed.other_values && structural.length === 0;
+  const status = a.unexplained.length === 0 && structural.length === 0 ? "verified" : within ? "verified_within_tolerance" : "not_verified";
+  return {
+    status,
+    structural,
+    counts: { never_tolerated: never.length, identity_funders: identFunders, identity_lines: ident.length, other_values: other.length, header_misses: hdr.length, scope_misses: scp.length },
+    allowed,
+    rates: { other_values: a.compared ? other.length / a.compared : 0, identity_funders: a.fundersChecked ? identFunders / a.fundersChecked : 0 },
+  };
+}

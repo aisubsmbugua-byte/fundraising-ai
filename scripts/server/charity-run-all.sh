@@ -15,6 +15,10 @@
 #   - Otherwise (exit 1: only sample-value differences nobody has explained) the state is recorded as NOT
 #     verified, in the database (counts.verification.verified = false on its run) and in the unverified
 #     folder, and the run goes on to the next state. It halts after 3 unverified states in a row or 8 in all.
+#   - A state whose differences all fit the margin of error (decision 0013: 0.01% of the values compared,
+#     1% of the funders checked for a difference in who a funder is, one miss in each audit sample, and
+#     nothing about a stored person or donor) is recorded as "verified within tolerance" (its record says
+#     so, and it is listed in the within-tolerance folder), and counts as done.
 #   - The national load is not complete, and nothing may rely on it, until every unverified state's
 #     differences are explained or fixed and the state re-checked. At the end this script lists them and
 #     exits 5 if any remain; it exits 0 only when every requested state passed.
@@ -52,7 +56,13 @@ for st in $STATES; do
   rc=$?
   if [ $rc -eq 0 ]; then
     rm -f "$WORK/unverified/$st"; touch "$WORK/done/$st"; in_a_row=0
-    echo "== $st: loaded and checked $(date -u +%H:%M) UTC =="
+    if grep -q '"verification_status": "verified_within_tolerance"' "$WORK/$st-verify.json" 2>/dev/null; then
+      mkdir -p "$WORK/within-tolerance"; date -u +%FT%TZ > "$WORK/within-tolerance/$st"
+      echo "== $st: loaded, and verified WITHIN THE MARGIN OF ERROR (differences listed in $WORK/$st-verify.json) $(date -u +%H:%M) UTC =="
+    else
+      rm -f "$WORK/within-tolerance/$st"
+      echo "== $st: loaded and checked $(date -u +%H:%M) UTC =="
+    fi
   elif [ $rc -eq 1 ]; then
     date -u +%FT%TZ > "$WORK/unverified/$st"; in_a_row=$((in_a_row + 1))
     echo "== $st: NOT VERIFIED (sample-value differences nobody has explained; see $WORK/$st-verify.json); going on =="

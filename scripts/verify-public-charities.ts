@@ -28,7 +28,7 @@
 //     [--header-audit 300] [--scope-audit 150] [--unread-audit 100] [--threshold 100000] \
 //     [--exceptions <file>] [--result-file <path>] [--annotate-run]
 // The service key (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) is read from the environment
-// and never printed. Exit: 0 verified; 1 not verified because of sample-value differences only; 4 not verified because of a
+// and never printed. Exit: 0 verified (exactly, or within the margin of error); 1 not verified because of sample-value differences only; 4 not verified because of a
 // structural failure (outcomes, header or scope audit, a missing input); 2 usage; 3 crashed.
 //
 // MEMORY. The sample is checked in batches of 100 funders (their XML is held only for the batch);
@@ -42,7 +42,7 @@ import { archiveProvider, readIndexEach, type ArchiveProvider } from "../lib/fun
 import type { IndexRow } from "../lib/funder-reference/document";
 import { locateAll, forEachArchive } from "../lib/funder-reference/pipeline";
 import { chooseSample, classifyMismatches, validateExceptions, type ExceptionEntry } from "../lib/funder-reference/supervisor";
-import { Checker, VERIFIER_VERSION, independentRejectReason, outcomeCountProblems, readReturn, stateOfReturn, storedTotalsProblems, verifyFunder, type Row, type StoredFunder, type VerifyContext } from "../lib/funder-reference/verify-990";
+import { Checker, VERIFIER_VERSION, independentRejectReason, TOLERANCE, applyTolerance, outcomeCountProblems, readReturn, stateOfReturn, storedTotalsProblems, verifyFunder, type Row, type StoredFunder, type VerifyContext } from "../lib/funder-reference/verify-990";
 import { DEFAULT_CHARITY_THRESHOLD } from "../lib/funder-reference/charity-scope";
 import { CHARITY_LOADER_VERSION } from "../lib/funder-reference/document-990";
 
@@ -514,10 +514,13 @@ async function main() {
   const cls = classifyMismatches(ck.lines, exceptions);
   const completedRun = ck.compared > 0 && !!provider;
   if (!completedRun) problems.push("the sample comparison did not run");
-  if (audit.header.said_not_in_state_but_return_is_in_state > 0) problems.push(`${audit.header.said_not_in_state_but_return_is_in_state} return(s) in ${state} were put elsewhere by the header scan`);
-  // A return the loader dropped that the verifier finds in scope is a loader scope defect, not a quirk of one return.
-  if (audit.scope.in_scope_but_not_stored > 0) problems.push(`the scope audit found ${audit.scope.in_scope_but_not_stored} sampled return(s) the loader did not store that are in scope`);
-  const verified = completedRun && cls.unexplained.length === 0 && problems.length === 0;
+  // The margin of error (decision 0013): see applyTolerance. Structural problems (outcomes, missing inputs, an audit over
+  // its allowance) get no margin and stop the run; differences within the margin make the state "verified within tolerance".
+  const tol = applyTolerance({ compared: ck.compared, fundersChecked: sample.eins.length, unexplained: cls.unexplained, headerSampled: audit.header.sampled, scopeSampled: audit.scope.sampled });
+  problems.push(...tol.structural);
+  const verified = completedRun && cls.unexplained.length === 0 && problems.length === 0; // exactly clean
+  const passes = completedRun && problems.length === 0 && tol.status !== "not_verified";
+  const verificationStatus = !completedRun || problems.length > 0 ? "not_verified" : tol.status;
 
   console.log(`\ncompared ${ck.compared} stored values/properties with the filing(s) of ${sample.eins.length} funder(s); ${ck.lines.length} mismatch(es)`);
   for (const x of ck.lines.slice(0, 500)) console.log(`  MISMATCH ${x}`);
@@ -530,6 +533,8 @@ async function main() {
   const record = {
     verifier: VERIFIER_VERSION,
     verified,
+    verification_status: verificationStatus,
+    tolerance: { rules: TOLERANCE, verdict: tol },
     state,
     run_id: run ? String(run.id) : null,
     loader_version: run ? String(run.loader_version) : null,
@@ -564,11 +569,14 @@ async function main() {
   }
   await db.close();
   console.log(`\npeak resident memory ${peakRssMb()} MB; ${record.seconds}s`);
-  console.log(verified ? `\nRESULT: PASS -- ${state} is verified: every stored value in the sample equals the return, and the run, the headers and the scope audit are clean` : `\nRESULT: FAIL -- ${state} is NOT verified`);
-  // Exit codes: 0 verified; 1 only sample-value differences nobody has explained (the run script records the
-  // state as not verified and goes on); 4 a structural failure (the run's outcomes, the header or scope audit,
-  // a missing input) that signals a broken loader, which stops the run.
-  process.exit(verified ? 0 : problems.length > 0 ? 4 : 1);
+  console.log(verified ? `\nRESULT: PASS -- ${state} is verified: every stored value in the sample equals the return, and the run, the headers and the scope audit are clean`
+    : passes ? `\nRESULT: PASS WITHIN TOLERANCE -- ${state} is verified within the margin of error (decision 0013): ${cls.unexplained.length} unexplained difference(s), all inside the allowance; ${JSON.stringify(tol.counts)} against ${JSON.stringify(tol.allowed)}`
+    : `\nRESULT: FAIL -- ${state} is NOT verified`);
+  // Exit codes: 0 verified, or verified within the margin of error (the record's verification_status says which);
+  // 1 sample-value differences beyond the margin (the run script records the state as not verified and goes on);
+  // 4 a structural failure (the run's outcomes, an audit over its allowance, a missing input) that signals a
+  // broken loader, which stops the run.
+  process.exit(passes ? 0 : problems.length > 0 ? 4 : 1);
 }
 
 function memLine(): string {
