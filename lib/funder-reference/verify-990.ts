@@ -757,12 +757,40 @@ export function storedTotalsProblems(
     const st = (r.parameters as { state?: string } | null)?.state;
     if (st && r.status === "completed" && !latest.has(st)) latest.set(st, (r.counts ?? {}) as Record<string, unknown>);
   }
+  const sum = (key: string) => [...latest.values()].reduce((a, c) => a + (Number(c[key]) || 0), 0);
   const out: string[] = [];
-  for (const [kind, key] of [["loaded", "status_loaded"], ["superseded", "status_superseded"], ["unread", "status_unread"]] as const) {
-    const want = [...latest.values()].reduce((a, c) => a + (Number(c[key]) || 0), 0);
-    if ((stored[kind] ?? 0) !== want) out.push(`the database holds ${stored[kind] ?? 0} ${kind} filing(s); the runs say ${want} across ${latest.size} state(s)' latest runs`);
+  const n = latest.size;
+  // A filing is replaced by a later return of the same funder and period, and that later return can carry a
+  // different state's address than the one it replaces (a filer that moved). The earlier state's run, finished
+  // before, counted its return as standing; the later state's run marks it replaced. So the stored loaded and
+  // replaced totals may differ from the runs' sums, but only by moving filings from one to the other: loaded
+  // can only fall, replaced can only rise, by the same number, and the two together must still match exactly.
+  const wantLoaded = sum("status_loaded");
+  const wantSuperseded = sum("status_superseded");
+  const haveLoaded = stored.loaded ?? 0;
+  const haveSuperseded = stored.superseded ?? 0;
+  const shift = wantLoaded - haveLoaded;
+  if (haveLoaded + haveSuperseded !== wantLoaded + wantSuperseded) {
+    out.push(`the database holds ${haveLoaded} loaded and ${haveSuperseded} replaced filing(s), ${haveLoaded + haveSuperseded} together; the runs say ${wantLoaded} and ${wantSuperseded}, ${wantLoaded + wantSuperseded} together, across ${n} state(s)' latest runs`);
+  } else if (shift < 0) {
+    out.push(`the database holds ${haveLoaded} loaded filing(s), more than the ${wantLoaded} the runs say across ${n} state(s)' latest runs; a filing can be replaced after its state ran, never the other way`);
   }
+  if ((stored.unread ?? 0) !== sum("status_unread")) out.push(`the database holds ${stored.unread ?? 0} unread filing(s); the runs say ${sum("status_unread")} across ${n} state(s)' latest runs`);
   return out;
+}
+
+/** How many filings a later state's run replaced after the state that stored them had finished (0 when the totals agree exactly). */
+export function crossStateReplacements(
+  stored: Record<string, number>,
+  runs: Array<{ status?: unknown; parameters?: unknown; counts?: unknown }>,
+): number {
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const r of runs) {
+    const st = (r.parameters as { state?: string } | null)?.state;
+    if (st && r.status === "completed" && !latest.has(st)) latest.set(st, (r.counts ?? {}) as Record<string, unknown>);
+  }
+  const wantLoaded = [...latest.values()].reduce((a, c) => a + (Number(c.status_loaded) || 0), 0);
+  return Math.max(0, wantLoaded - (stored.loaded ?? 0));
 }
 
 // ---------------------------------------------------------------------------

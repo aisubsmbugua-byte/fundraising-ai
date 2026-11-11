@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { makeZip, type ZipItem } from "./funder-reference-test-support";
-import { Checker, independentRejectReason, TOLERANCE, applyTolerance, outcomeCountProblems, peopleOnReturn, readReturn, storedTotalsProblems, tokenize } from "../lib/funder-reference/verify-990";
+import { Checker, crossStateReplacements, independentRejectReason, TOLERANCE, applyTolerance, outcomeCountProblems, peopleOnReturn, readReturn, storedTotalsProblems, tokenize } from "../lib/funder-reference/verify-990";
 
 let pass = 0;
 let fail = 0;
@@ -127,6 +127,15 @@ async function main() {
       ok("a total that is one state's alone no longer passes once a second state is loaded", storedTotalsProblems({ loaded: 13622, superseded: 339, unread: 0 }, [st("CA", 13619, 339)]).length === 1);
       ok("a stored total off by one is named", storedTotalsProblems({ loaded: 13621, superseded: 339, unread: 0 }, [st("AE", 3, 0), st("CA", 13619, 339)]).some((p) => /13621 loaded/.test(p)));
       ok("a state's unfinished run is not counted", storedTotalsProblems({ loaded: 13619, superseded: 339, unread: 0 }, [st("AE", 3, 0, "running"), st("CA", 13619, 339)]).length === 0);
+      {
+        // a later state's run replacing an earlier state's standing filing (a filer that moved): found on DC (a California return replaced by a DC one)
+        const runs = [st("DC", 3986, 120), st("CA", 13619, 339)];
+        ok("a filing moved from loaded to replaced by a later state's run is no problem", storedTotalsProblems({ loaded: 17604, superseded: 460, unread: 0 }, runs).length === 0);
+        ok("that move is counted", crossStateReplacements({ loaded: 17604, superseded: 460, unread: 0 }, runs) === 1 && crossStateReplacements({ loaded: 17605, superseded: 459, unread: 0 }, runs) === 0);
+        ok("loaded and replaced together must still match the runs", storedTotalsProblems({ loaded: 17604, superseded: 461, unread: 0 }, runs).some((p) => /together/.test(p)) && storedTotalsProblems({ loaded: 17603, superseded: 459, unread: 0 }, runs).some((p) => /together/.test(p)));
+        ok("more loaded filings than the runs say is a problem (a later run cannot un-replace)", storedTotalsProblems({ loaded: 17606, superseded: 458, unread: 0 }, runs).some((p) => /more than/.test(p)));
+        ok("unread must still match exactly", storedTotalsProblems({ loaded: 17605, superseded: 459, unread: 1 }, runs).some((p) => /unread/.test(p)));
+      }
       {
         // the margin of error (decision 0013)
         const big = { compared: 306608, fundersChecked: 150, headerSampled: 300, scopeSampled: 150 };

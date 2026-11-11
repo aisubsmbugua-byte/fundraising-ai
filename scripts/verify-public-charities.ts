@@ -42,7 +42,7 @@ import { archiveProvider, readIndexEach, type ArchiveProvider } from "../lib/fun
 import type { IndexRow } from "../lib/funder-reference/document";
 import { locateAll, forEachArchive } from "../lib/funder-reference/pipeline";
 import { chooseSample, classifyMismatches, validateExceptions, type ExceptionEntry } from "../lib/funder-reference/supervisor";
-import { Checker, VERIFIER_VERSION, independentRejectReason, TOLERANCE, applyTolerance, outcomeCountProblems, readReturn, stateOfReturn, storedTotalsProblems, verifyFunder, type Row, type StoredFunder, type VerifyContext } from "../lib/funder-reference/verify-990";
+import { Checker, VERIFIER_VERSION, independentRejectReason, TOLERANCE, applyTolerance, crossStateReplacements, outcomeCountProblems, readReturn, stateOfReturn, storedTotalsProblems, verifyFunder, type Row, type StoredFunder, type VerifyContext } from "../lib/funder-reference/verify-990";
 import { DEFAULT_CHARITY_THRESHOLD } from "../lib/funder-reference/charity-scope";
 import { CHARITY_LOADER_VERSION } from "../lib/funder-reference/document-990";
 
@@ -156,7 +156,25 @@ async function openDb(spec: string): Promise<ReadDb> {
         for (const ein of eins) out.set(ein, { ein, filings: [], organizations: [], figures: [], daf: [], grants: [], coverage: [] });
         for (let i = 0; i < eins.length; i += 50) {
           const chunk = eins.slice(i, i + 50);
-          for (const kind of Object.keys(TABLE) as Kind[]) for (const r of await page(TABLE[kind], ORDER[kind], (q) => q.in("ein", chunk))) out.get(String(r.ein))![kind].push(r);
+          for (const kind of Object.keys(TABLE) as Kind[]) {
+            if (kind === "grants") continue;
+            for (const r of await page(TABLE[kind], ORDER[kind], (q) => q.in("ein", chunk))) out.get(String(r.ein))![kind].push(r);
+          }
+          // Recipient rows are by far the largest table (hundreds of thousands, tens of thousands for one return), and
+          // one sorted query over fifty funders timed out on a live project. Read them one filing at a time, in
+          // primary-key order, each page starting after the last ordinal read (a bounded index range, however deep).
+          for (const ein of chunk) {
+            for (const f of [...out.get(ein)!.filings].sort((a, b) => String(a.object_id) < String(b.object_id) ? -1 : 1)) {
+              for (let after = -1; ;) {
+                const { data, error } = await c.from(TABLE.grants).select("*").eq("filing_object_id", String(f.object_id)).gt("ordinal", after).order("ordinal", { ascending: true }).limit(1000);
+                if (error) throw new Error(`${TABLE.grants}: ${error.message}`);
+                const rows = data as Row[];
+                out.get(ein)!.grants.push(...rows);
+                if (rows.length < 1000) break;
+                after = Number(rows[rows.length - 1].ordinal);
+              }
+            }
+          }
         }
         return out;
       },
@@ -346,7 +364,10 @@ async function main() {
   const byStatus = await db.countByStatus();
   // The tables hold every state loaded so far, so the stored totals are compared with the sum, over every state,
   // of that state's latest completed run's own outcome counts (a state re-run later carries its full end state).
-  if (run && completed.length >= 1) outcomeProblems.push(...storedTotalsProblems(byStatus, await db.charityRuns()));
+  const allRuns = await db.charityRuns();
+  if (run && completed.length >= 1) outcomeProblems.push(...storedTotalsProblems(byStatus, allRuns));
+  const movedByLaterState = crossStateReplacements(byStatus, allRuns);
+  if (movedByLaterState > 0) console.log(`(note) ${movedByLaterState} filing(s) stored as standing by an earlier state's run were later replaced by another state's run (a filer that moved); loaded plus replaced still equals the runs' totals`);
   console.log(`(1)+(2) run ${run ? String(run.id) : "none"}: ${outcomeProblems.length ? "PROBLEMS: " + outcomeProblems.join("; ") : "finished, and the outcome counts add up"}`);
   problems.push(...outcomeProblems.map((p) => `run: ${p}`));
   if (run) {
