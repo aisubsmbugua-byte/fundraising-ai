@@ -75,7 +75,8 @@ interface ReadDb {
   unreadFilings(): Promise<Row[]>;
   /** Every object id in the filings table, any status. */
   allObjectIds(): Promise<Set<string>>;
-  einsWithOrganization(eins: string[]): Promise<Set<string>>;
+  /** the given funders whose stored organization record is in this state (a funder that moved lives in the state of its latest return) */
+  einsWithOrganization(eins: string[], state: string): Promise<Set<string>>;
   countByStatus(): Promise<Record<string, number>>;
   annotate(runId: string, patch: Record<string, unknown>): Promise<void>;
   close(): Promise<void>;
@@ -101,7 +102,7 @@ async function openDb(spec: string): Promise<ReadDb> {
       },
       unreadFilings: async () => (await j("filings", "status = 'unread'", [])),
       allObjectIds: async () => new Set((await rows(`select object_id from charity_reference_filings`)).map((r) => String(r.object_id))),
-      einsWithOrganization: async (eins) => new Set((await rows(`select ein from charity_reference_organizations where ein = any($1::text[])`, [eins])).map((r) => String(r.ein))),
+      einsWithOrganization: async (eins, state) => new Set((await rows(`select ein from charity_reference_organizations where ein = any($1::text[]) and state = $2`, [eins, state])).map((r) => String(r.ein))),
       countByStatus: async () => Object.fromEntries((await rows(`select status, count(*)::int as n from charity_reference_filings group by status`)).map((r) => [String(r.status), Number(r.n)])),
       annotate: async (id, patch) => void (await db.query(`update funder_reference_runs set counts = counts || $2::jsonb where id = $1`, [id, JSON.stringify(patch)])),
       close: () => db.close(),
@@ -180,9 +181,9 @@ async function openDb(spec: string): Promise<ReadDb> {
       },
       unreadFilings: async () => page(TABLE.filings, ORDER.filings, (q) => q.eq("status", "unread")),
       allObjectIds: async () => new Set((await pageCols(TABLE.filings, "object_id", ["object_id"], (q) => q)).map((r) => String(r.object_id))),
-      einsWithOrganization: async (eins) => {
+      einsWithOrganization: async (eins, state) => {
         const s = new Set<string>();
-        for (let i = 0; i < eins.length; i += 150) for (const r of await pageCols(TABLE.organizations, "ein", ["ein"], (q) => q.in("ein", eins.slice(i, i + 150)))) s.add(String(r.ein));
+        for (let i = 0; i < eins.length; i += 150) for (const r of await pageCols(TABLE.organizations, "ein", ["ein"], (q) => q.in("ein", eins.slice(i, i + 150)).eq("state", state))) s.add(String(r.ein));
         return s;
       },
       countByStatus: async () => {
@@ -472,7 +473,7 @@ async function main() {
   if (provider && scopeCandidates.length) {
     const rows = scopeCandidates.map((r) => wantedRows.get(r.objectId)).filter((r): r is IndexRow => !!r);
     const bytes = await readByIndex(provider, rows);
-    const hasOrg = await db.einsWithOrganization([...new Set(rows.map((r) => r.ein))]);
+    const hasOrg = await db.einsWithOrganization([...new Set(rows.map((r) => r.ein))], state);
     for (const r of rows) {
       const got = bytes.get(r.objectId);
       ck.ein = r.ein;

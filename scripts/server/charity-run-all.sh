@@ -41,21 +41,33 @@ ALL="AE AK AL AR AS AZ CO CT DC DE FL GA GU HI IA ID IL IN KS KY LA MA MD ME MI 
 STATES="${*:-$ALL}"
 
 cd "$APP"
-mkdir -p "$WORK/done" "$WORK/unverified"
+mkdir -p "$WORK/done" "$WORK/unverified" "$WORK/needs-review"
 MAX_IN_A_ROW=3
 MAX_IN_ALL=8
+MAX_STRUCTURAL_IN_A_ROW=2
+LOAD_TRIES=3
 in_a_row=0
+structural_in_a_row=0
+# Decision 0014: when no states are named, a state already recorded as not verified or as needing review is
+# skipped (re-loading it before its cause is fixed only repeats the result); name it to try it again.
 for st in $STATES; do
   if [ -e "$WORK/done/$st" ]; then echo "== $st: already loaded and checked, skipped =="; continue; fi
+  if [ -z "$*" ] && { [ -e "$WORK/unverified/$st" ] || [ -e "$WORK/needs-review/$st" ]; }; then echo "== $st: recorded earlier as not verified / needing review; skipped until named =="; continue; fi
   echo "== $st: load $(date -u +%H:%M) UTC =="
-  "$TSX" scripts/load-public-charities.ts --work-dir "$WORK" --index-dir "$DATA/index" --archives-dir "$DATA/zips" \
-    --state "$st" --target supabase --confirm-write-to-supabase --result-file "$WORK/$st-load.json" || { echo "STOPPED: the load of $st failed"; exit 3; }
+  # A load is safe to repeat (every write is idempotent), so a failed one is tried again, up to LOAD_TRIES in all.
+  try=1; loaded=0
+  while [ $try -le $LOAD_TRIES ]; do
+    if "$TSX" scripts/load-public-charities.ts --work-dir "$WORK" --index-dir "$DATA/index" --archives-dir "$DATA/zips" \
+      --state "$st" --target supabase --confirm-write-to-supabase --result-file "$WORK/$st-load.json"; then loaded=1; break; fi
+    echo "== $st: load attempt $try of $LOAD_TRIES failed $(date -u +%H:%M) UTC =="; try=$((try + 1)); sleep 60
+  done
+  [ $loaded -eq 1 ] || { echo "STOPPED: the load of $st failed $LOAD_TRIES times"; exit 3; }
   echo "== $st: check $(date -u +%H:%M) UTC =="
   "$TSX" scripts/verify-public-charities.ts --target supabase --state "$st" --archives-dir "$DATA/zips" --index-dir "$DATA/index" \
     --work-dir "$WORK" --result-file "$WORK/$st-verify.json" --annotate-run
   rc=$?
   if [ $rc -eq 0 ]; then
-    rm -f "$WORK/unverified/$st"; touch "$WORK/done/$st"; in_a_row=0
+    rm -f "$WORK/unverified/$st" "$WORK/needs-review/$st"; touch "$WORK/done/$st"; in_a_row=0; structural_in_a_row=0
     if grep -q '"verification_status": "verified_within_tolerance"' "$WORK/$st-verify.json" 2>/dev/null; then
       mkdir -p "$WORK/within-tolerance"; date -u +%FT%TZ > "$WORK/within-tolerance/$st"
       echo "== $st: loaded, and verified WITHIN THE MARGIN OF ERROR (differences listed in $WORK/$st-verify.json) $(date -u +%H:%M) UTC =="
@@ -64,17 +76,24 @@ for st in $STATES; do
       echo "== $st: loaded and checked $(date -u +%H:%M) UTC =="
     fi
   elif [ $rc -eq 1 ]; then
-    date -u +%FT%TZ > "$WORK/unverified/$st"; in_a_row=$((in_a_row + 1))
+    date -u +%FT%TZ > "$WORK/unverified/$st"; in_a_row=$((in_a_row + 1)); structural_in_a_row=0
     echo "== $st: NOT VERIFIED (sample-value differences nobody has explained; see $WORK/$st-verify.json); going on =="
     total=$(ls "$WORK/unverified" | wc -l)
     if [ $in_a_row -ge $MAX_IN_A_ROW ] || [ "$total" -ge $MAX_IN_ALL ]; then
       echo "STOPPED: $in_a_row state(s) in a row and $total in all are not verified; that points at the check or the loader, not at single returns"
       exit 5
     fi
+  elif [ $rc -eq 4 ]; then
+    # Decision 0014: a structural failure is recorded on the state and the run goes on; two in a row still halt it.
+    date -u +%FT%TZ > "$WORK/needs-review/$st"; structural_in_a_row=$((structural_in_a_row + 1)); in_a_row=0
+    echo "== $st: NEEDS REVIEW (structural failure in the check; see $WORK/$st-verify.json); going on =="
+    if [ $structural_in_a_row -ge $MAX_STRUCTURAL_IN_A_ROW ]; then
+      echo "STOPPED: $structural_in_a_row states in a row failed the structural check; that points at the loader, not at one state"; exit 4
+    fi
   else
-    echo "STOPPED: the check of $st reported a structural failure or crashed (exit $rc)"; exit 4
+    echo "STOPPED: the check of $st crashed or was misused (exit $rc)"; exit 4
   fi
 done
-left=$(ls "$WORK/unverified" 2>/dev/null | tr '\n' ' ')
-if [ -n "$left" ]; then echo "== finished, but these states are NOT verified: $left =="; exit 5; fi
+left=$(ls "$WORK/unverified" "$WORK/needs-review" 2>/dev/null | grep -v ':' | sort -u | tr '\n' ' ')
+if [ -n "$left" ]; then echo "== finished, but these states are NOT verified or need review: $left =="; exit 5; fi
 echo "== every requested state is loaded and checked $(date -u +%H:%M) UTC =="
