@@ -449,6 +449,18 @@ async function main() {
     ok("every recipient row is stored, in order, identical to a whole-document write", a.length === n && b.length === n && JSON.stringify(a) === JSON.stringify(b), `${a.length} ${b.length}`);
     ok("the figures, the funder row and the derived recipient count are stored with it", (await rowsOf(db, `select count(*)::int as n from charity_reference_figures where filing_object_id = '999999999999999962' and schedule_i_rows_listed_count = ${n}`))[0].n === 1 && (await rowsOf(db, `select count(*)::int as n from charity_reference_organizations where ein = '123456782'`))[0].n === 1);
     {
+      // found on the national run (New York): a return with many rows but a modest document size went in one call and the
+      // database cancelled the statement. Over 1,000 rows now goes in pieces whatever its size.
+      const many = mk("999999999999999963", "123456783");
+      many.grants = Array.from({ length: 1200 }, (_, i) => ({ ...(many.grants[0] as Record<string, unknown>), ordinal: i + 1 }));
+      let appends = 0, heads = 0;
+      const counting = { ...db, exec: (s: string) => db.exec(s), query: (s: string, p?: unknown[]) => { if (/charity_reference_append_grants/.test(s)) appends++; if (/charity_reference_apply_filing/.test(s)) heads++; return db.query(s, p); } };
+      const csink = pgliteCharitySink(counting as never, "counting");
+      const rm = await csink.applyFiling(many, 500_000_000); // a size limit nothing reaches
+      const stored = (await rowsOf(db, `select count(*)::int as n from charity_reference_grants where filing_object_id = '999999999999999963'`))[0].n;
+      ok("a return with over 1,000 recipient rows is written in pieces even when it is far under the size limit", rm === "loaded" && appends === 2 && heads === 1 && stored === 1200, `${rm} appends ${appends} heads ${heads} stored ${stored}`);
+    }
+    {
       const rows = [{ x: "a".repeat(50) }, { x: "b".repeat(500) }, { x: "c".repeat(50) }];
       const pieces = splitGrantRows(rows, 100);
       const many = Array.from({ length: 2500 }, (_, i) => ({ i }));

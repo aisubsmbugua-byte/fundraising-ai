@@ -56,7 +56,7 @@ export function supabaseCharitySink(client: SupabaseLike, label = "supabase"): C
         fail(`apply charity filing ${id}`, error);
         return String(data);
       };
-      if (!pieceBytes || JSON.stringify(doc).length <= pieceBytes) return head(doc);
+      if (!pieceBytes || (JSON.stringify(doc).length <= pieceBytes && doc.grants.length <= MAX_ROWS_PER_PIECE)) return head(doc);
       return applyInPieces(doc, pieceBytes, {
         head,
         async append(rows) {
@@ -182,7 +182,7 @@ export function pgliteCharitySink(db: PgliteLike, label = "pglite"): CharitySink
     applyFiling: (doc, pieceBytes) =>
       asService(async () => {
         const head = async (d: CharityFilingDoc) => String(((await db.query(`select charity_reference_apply_filing($1::jsonb) as result`, [JSON.stringify(d)])).rows[0] as { result: string }).result);
-        if (!pieceBytes || JSON.stringify(doc).length <= pieceBytes) return head(doc);
+        if (!pieceBytes || (JSON.stringify(doc).length <= pieceBytes && doc.grants.length <= MAX_ROWS_PER_PIECE)) return head(doc);
         return applyInPieces(doc, pieceBytes, {
           head,
           async append(rows) {
