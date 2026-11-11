@@ -41,7 +41,7 @@ import { archiveProvider, readIndexEach, type ArchiveProvider } from "../lib/fun
 import type { IndexRow } from "../lib/funder-reference/document";
 import { locateAll, forEachArchive } from "../lib/funder-reference/pipeline";
 import { chooseSample, classifyMismatches, validateExceptions, type ExceptionEntry } from "../lib/funder-reference/supervisor";
-import { Checker, VERIFIER_VERSION, independentRejectReason, outcomeCountProblems, readReturn, stateOfReturn, verifyFunder, type Row, type StoredFunder, type VerifyContext } from "../lib/funder-reference/verify-990";
+import { Checker, VERIFIER_VERSION, independentRejectReason, outcomeCountProblems, readReturn, stateOfReturn, storedTotalsProblems, verifyFunder, type Row, type StoredFunder, type VerifyContext } from "../lib/funder-reference/verify-990";
 import { DEFAULT_CHARITY_THRESHOLD } from "../lib/funder-reference/charity-scope";
 import { CHARITY_LOADER_VERSION } from "../lib/funder-reference/document-990";
 
@@ -343,14 +343,9 @@ async function main() {
   const outcomeProblems = outcomeCountProblems(run as { status?: unknown; counts?: unknown } | null);
   const runCounts = ((run?.counts ?? {}) as Record<string, number>);
   const byStatus = await db.countByStatus();
-  if (run && completed.length === 1) {
-    // The tables hold only this state's single run, so the stored totals must equal what the run says it stored.
-    if (byStatus.loaded !== runCounts.status_loaded) outcomeProblems.push(`the database holds ${byStatus.loaded} loaded filing(s); the run says it loaded ${runCounts.status_loaded}`);
-    if (byStatus.superseded !== runCounts.status_superseded) outcomeProblems.push(`the database holds ${byStatus.superseded} superseded filing(s); the run says ${runCounts.status_superseded}`);
-    if (byStatus.unread !== runCounts.status_unread) outcomeProblems.push(`the database holds ${byStatus.unread} unread filing(s); the run says ${runCounts.status_unread}`);
-  } else if (completed.length > 1) {
-    console.log(`note: ${completed.length} completed charity runs are recorded for ${state}; the stored totals are not compared with one run's counts`);
-  }
+  // The tables hold every state loaded so far, so the stored totals are compared with the sum, over every state,
+  // of that state's latest completed run's own outcome counts (a state re-run later carries its full end state).
+  if (run && completed.length >= 1) outcomeProblems.push(...storedTotalsProblems(byStatus, await db.charityRuns()));
   console.log(`(1)+(2) run ${run ? String(run.id) : "none"}: ${outcomeProblems.length ? "PROBLEMS: " + outcomeProblems.join("; ") : "finished, and the outcome counts add up"}`);
   problems.push(...outcomeProblems.map((p) => `run: ${p}`));
   if (run) {

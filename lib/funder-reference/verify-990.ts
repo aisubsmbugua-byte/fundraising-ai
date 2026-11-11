@@ -738,3 +738,23 @@ export function outcomeCountProblems(run: { status?: unknown; counts?: unknown }
   if (c.outcomes_sum_check !== true) out.push("the run itself did not record outcomes_sum_check as true");
   return out;
 }
+
+// The charity tables hold every state loaded so far, so the stored filing totals must equal the sum, over every
+// state, of that state's latest completed run's own outcome counts (a state re-run later carries its full end
+// state). Item 116: the first national state (AE, after California) exposed a check that assumed one state.
+export function storedTotalsProblems(
+  stored: Record<string, number>,
+  runs: Array<{ status?: unknown; parameters?: unknown; counts?: unknown }>,
+): string[] {
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const r of runs) { // runs arrive newest first
+    const st = (r.parameters as { state?: string } | null)?.state;
+    if (st && r.status === "completed" && !latest.has(st)) latest.set(st, (r.counts ?? {}) as Record<string, unknown>);
+  }
+  const out: string[] = [];
+  for (const [kind, key] of [["loaded", "status_loaded"], ["superseded", "status_superseded"], ["unread", "status_unread"]] as const) {
+    const want = [...latest.values()].reduce((a, c) => a + (Number(c[key]) || 0), 0);
+    if ((stored[kind] ?? 0) !== want) out.push(`the database holds ${stored[kind] ?? 0} ${kind} filing(s); the runs say ${want} across ${latest.size} state(s)' latest runs`);
+  }
+  return out;
+}

@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { makeZip, type ZipItem } from "./funder-reference-test-support";
-import { Checker, independentRejectReason, outcomeCountProblems, peopleOnReturn, readReturn, tokenize } from "../lib/funder-reference/verify-990";
+import { Checker, independentRejectReason, outcomeCountProblems, peopleOnReturn, readReturn, storedTotalsProblems, tokenize } from "../lib/funder-reference/verify-990";
 
 let pass = 0;
 let fail = 0;
@@ -122,6 +122,11 @@ async function main() {
       ok("a finished run whose outcomes add up has no problem", outcomeCountProblems(good).length === 0);
       ok("outcomes that do not add up are named", outcomeCountProblems({ ...good, counts: { ...good.counts, status_loaded: 4 } }).some((p) => /do not add up/.test(p)));
       ok("a run that did not finish, or has no record, is a problem", outcomeCountProblems({ ...good, status: "running" }).some((p) => /not completed/.test(p)) && outcomeCountProblems(null).length === 1);
+      const st = (state: string, loaded: number, sup: number, status = "completed") => ({ status, parameters: { state }, counts: { status_loaded: loaded, status_superseded: sup, status_unread: 0 } });
+      ok("stored totals equal the sum of every state's latest run", storedTotalsProblems({ loaded: 13622, superseded: 339, unread: 0 }, [st("AE", 3, 0), st("CA", 13619, 339), st("CA", 13617, 339)]).length === 0);
+      ok("a total that is one state's alone no longer passes once a second state is loaded", storedTotalsProblems({ loaded: 13622, superseded: 339, unread: 0 }, [st("CA", 13619, 339)]).length === 1);
+      ok("a stored total off by one is named", storedTotalsProblems({ loaded: 13621, superseded: 339, unread: 0 }, [st("AE", 3, 0), st("CA", 13619, 339)]).some((p) => /13621 loaded/.test(p)));
+      ok("a state's unfinished run is not counted", storedTotalsProblems({ loaded: 13619, superseded: 339, unread: 0 }, [st("AE", 3, 0, "running"), st("CA", 13619, 339)]).length === 0);
       {
         const xml = "<Return><ReturnData><IRS990><Form990PartVIISectionAGrp><PersonNm>JANE Q OFFICER</PersonNm></Form990PartVIISectionAGrp><ContractorCompensationGrp><ContractorName><PersonNm>DONOR NETWORK WEST</PersonNm></ContractorName></ContractorCompensationGrp></IRS990></ReturnData></Return>";
         const people = peopleOnReturn(tokenize(xml));
