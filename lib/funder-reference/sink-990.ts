@@ -12,7 +12,12 @@ export interface CharitySink {
   startRun: Sink["startRun"];
   finishRun: Sink["finishRun"];
   existingFilings(objectIds: string[]): Promise<Map<string, ExistingFiling>>;
-  applyFiling(doc: CharityFilingDoc): Promise<string>;
+  /**
+   * Store one filing. A filing whose document is over pieceBytes is written in pieces (everything but the
+   * recipient rows first, then the recipient rows a piece at a time); if any piece fails the filing is
+   * left recorded as unread with the reason, never as loaded with recipients missing.
+   */
+  applyFiling(doc: CharityFilingDoc, pieceBytes?: number): Promise<string>;
   replaceCoverage(eins: string[], rows: CoverageRow[]): Promise<void>;
   /** Ruling 0047 clause 7: is any loader run (this kind or the foundation kind) recorded as still running? */
   runsInProgress(): Promise<number>;
@@ -44,10 +49,21 @@ export function supabaseCharitySink(client: SupabaseLike, label = "supabase"): C
       }
       return out;
     },
-    async applyFiling(doc) {
-      const { data, error } = await client.rpc("charity_reference_apply_filing", { doc });
-      fail(`apply charity filing ${(doc.filing as { object_id: string }).object_id}`, error);
-      return String(data);
+    async applyFiling(doc, pieceBytes) {
+      const id = (doc.filing as { object_id: string }).object_id;
+      const head = async (d: CharityFilingDoc) => {
+        const { data, error } = await client.rpc("charity_reference_apply_filing", { doc: d });
+        fail(`apply charity filing ${id}`, error);
+        return String(data);
+      };
+      if (!pieceBytes || JSON.stringify(doc).length <= pieceBytes) return head(doc);
+      return applyInPieces(doc, pieceBytes, {
+        head,
+        async append(rows) {
+          const { error } = await client.rpc("charity_reference_append_grants", { grants: rows });
+          fail(`append recipient rows of charity filing ${id}`, error);
+        },
+      });
     },
     async replaceCoverage(eins, rows) {
       for (let i = 0; i < eins.length; i += 150) {
@@ -65,6 +81,54 @@ export function supabaseCharitySink(client: SupabaseLike, label = "supabase"): C
       return (data ?? []).filter((r) => !isReadOnlyVerification(r)).length;
     },
   };
+}
+
+/** The recipient rows of one filing, grouped so that no group's JSON is over pieceBytes (a single row over it goes alone). */
+export function splitGrantRows(grants: Array<Record<string, unknown>>, pieceBytes: number): Array<Array<Record<string, unknown>>> {
+  const pieces: Array<Array<Record<string, unknown>>> = [];
+  let cur: Array<Record<string, unknown>> = [];
+  let size = 0;
+  for (const g of grants) {
+    const b = JSON.stringify(g).length + 1;
+    if (cur.length && size + b > pieceBytes) {
+      pieces.push(cur);
+      cur = [];
+      size = 0;
+    }
+    cur.push(g);
+    size += b;
+  }
+  if (cur.length) pieces.push(cur);
+  return pieces;
+}
+
+/**
+ * Writes a filing in pieces through three calls the sink supplies. The head call stores everything but the
+ * recipient rows and says what the database made of the filing ('loaded', 'superseded', 'unread'); only a
+ * 'loaded' filing has recipient rows to add. A failed piece rewrites the filing as unread, which clears
+ * what was stored, so the table never holds a half-written return as complete.
+ */
+export async function applyInPieces(
+  doc: CharityFilingDoc,
+  pieceBytes: number,
+  calls: { head(d: CharityFilingDoc): Promise<string>; append(rows: Array<Record<string, unknown>>): Promise<void> }
+): Promise<string> {
+  const head = await calls.head({ ...doc, grants: [] });
+  if (head !== "loaded") return head;
+  const pieces = splitGrantRows(doc.grants, pieceBytes);
+  try {
+    for (const rows of pieces) await calls.append(rows);
+    return head;
+  } catch (e) {
+    const reason = `the filing's ${doc.grants.length} recipient rows are written in ${pieces.length} pieces and a piece failed (${(e as Error).message}); the filing was cleared and recorded unread`;
+    return calls.head({
+      filing: { ...doc.filing, status: "unread", status_note: reason, superseded_by_object_id: null },
+      charity: null,
+      figures: null,
+      daf: null,
+      grants: [],
+    });
+  }
 }
 
 /**
@@ -108,10 +172,16 @@ export function pgliteCharitySink(db: PgliteLike, label = "pglite"): CharitySink
         for (const row of r.rows as ExistingFiling[]) out.set(row.object_id, row);
         return out;
       }),
-    applyFiling: (doc) =>
+    applyFiling: (doc, pieceBytes) =>
       asService(async () => {
-        const r = await db.query(`select charity_reference_apply_filing($1::jsonb) as result`, [JSON.stringify(doc)]);
-        return String((r.rows[0] as { result: string }).result);
+        const head = async (d: CharityFilingDoc) => String(((await db.query(`select charity_reference_apply_filing($1::jsonb) as result`, [JSON.stringify(d)])).rows[0] as { result: string }).result);
+        if (!pieceBytes || JSON.stringify(doc).length <= pieceBytes) return head(doc);
+        return applyInPieces(doc, pieceBytes, {
+          head,
+          async append(rows) {
+            await db.query(`select charity_reference_append_grants($1::jsonb)`, [JSON.stringify(rows)]);
+          },
+        });
       }),
     replaceCoverage: (eins, rows) =>
       asService(async () => {

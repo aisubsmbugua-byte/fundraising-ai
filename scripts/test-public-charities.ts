@@ -36,7 +36,7 @@ import type { IndexRow } from "../lib/funder-reference/document";
 import { CHARITY_BOXES, CHARITY_FIGURES, DAF_FIGURES, FilingRejected, parseReturn990 } from "../lib/funder-reference/parse-990";
 import { DEFAULT_CHARITY_THRESHOLD, kindsForFunder } from "../lib/funder-reference/charity-scope";
 import { runCharityPipeline } from "../lib/funder-reference/pipeline-990";
-import { pgliteCharitySink, isReadOnlyVerification } from "../lib/funder-reference/sink-990";
+import { pgliteCharitySink, isReadOnlyVerification, splitGrantRows } from "../lib/funder-reference/sink-990";
 import { loadedCharityDoc } from "../lib/funder-reference/document-990";
 
 let pass = 0;
@@ -424,6 +424,42 @@ async function main() {
     const none = loadedCharityDoc({ runId: "00000000-0000-4000-8000-000000000000", loadedAt: new Date().toISOString(), loaderVersion: "t", archiveUrl: "u", member: "m", index: { returnId: null, ein: EIN.union, taxPeriod: "202312", subYear: 2024, taxpayerName: "x", returnType: "990", objectId: "999999999999999998", batchId: null, indexFile: "i" } }, real, { sha256: "0".repeat(64), bytes: 1 }, { ...kindsForFunder([{ taxPeriodEnd: "2023-12-31", orgGrantsAmt: 1, dafHeldCnt: 0, dafBox: false }], DEFAULT_CHARITY_THRESHOLD) }, DEFAULT_CHARITY_THRESHOLD);
     const r2 = await sink.applyFiling(none).then(() => "", (e: Error) => e.message);
     ok("a funder with neither label is refused by the table", /check constraint|violates/i.test(r2), r2);
+  }
+
+  section("a very large return is written in pieces, and never left half-written (found by the California trial)");
+  {
+    const real = parseReturn990(read(ID.union));
+    const runId = String((await rowsOf(db, `select id from funder_reference_runs limit 1`))[0].id);
+    const mk = (objectId: string, ein: string) => {
+      const d = loadedCharityDoc({ runId, loadedAt: new Date().toISOString(), loaderVersion: "t", archiveUrl: "u", member: "m", index: { returnId: null, ein, taxPeriod: "202312", subYear: 2024, taxpayerName: "x", returnType: "990", objectId, batchId: null, indexFile: "i" } }, real, { sha256: "0".repeat(64), bytes: 1 }, kindsForFunder([{ taxPeriodEnd: "2023-12-31", orgGrantsAmt: 1_314_278, dafHeldCnt: 0, dafBox: false }], DEFAULT_CHARITY_THRESHOLD), DEFAULT_CHARITY_THRESHOLD);
+      // the document was built from a real return, whose own EIN every part carries; re-stamp it as a different funder
+      for (const part of [d.charity, d.figures, d.daf, ...d.grants]) if (part) (part as Record<string, unknown>).ein = ein;
+      return d;
+    };
+    const whole = mk("999999999999999961", "123456781");
+    const piecewise = mk("999999999999999962", "123456782");
+    const n = whole.grants.length;
+    ok("the fixture return has enough recipient rows to need several pieces", n >= 10, String(n));
+    const r1 = await sink.applyFiling(whole);
+    const r2 = await sink.applyFiling(piecewise, 1500); // about a handful of rows per piece
+    ok("a filing over the piece size is stored as loaded, like one under it", r1 === "loaded" && r2 === "loaded", `${r1} ${r2}`);
+    const rowsFor = async (id: string) => (await rowsOf(db, `select ordinal, recipient_name_line1, cash_grant_amt, purpose_as_stated, unmapped_fields::text as u from charity_reference_grants where filing_object_id = '${id}' order by ordinal`));
+    const a = await rowsFor("999999999999999961");
+    const b = await rowsFor("999999999999999962");
+    ok("every recipient row is stored, in order, identical to a whole-document write", a.length === n && b.length === n && JSON.stringify(a) === JSON.stringify(b), `${a.length} ${b.length}`);
+    ok("the figures, the funder row and the derived recipient count are stored with it", (await rowsOf(db, `select count(*)::int as n from charity_reference_figures where filing_object_id = '999999999999999962' and schedule_i_rows_listed_count = ${n}`))[0].n === 1 && (await rowsOf(db, `select count(*)::int as n from charity_reference_organizations where ein = '123456782'`))[0].n === 1);
+    {
+      const rows = [{ x: "a".repeat(50) }, { x: "b".repeat(500) }, { x: "c".repeat(50) }];
+      const pieces = splitGrantRows(rows, 100);
+      ok("pieces never split a row, keep order, and a row over the limit goes alone", pieces.length === 3 && pieces.flat().length === 3 && pieces[1].length === 1 && pieces.flat().every((r, i) => r === rows[i]), JSON.stringify(pieces.map((x) => x.length)));
+    }
+    // a piece that fails leaves the filing unread and clears everything stored for it
+    const broken = mk("999999999999999963", "123456783");
+    broken.grants[n - 2] = { ...broken.grants[n - 2], ordinal: 0 }; // the table refuses ordinal 0, in a late piece
+    const r3 = await sink.applyFiling(broken, 1500);
+    const f3 = await rowsOf(db, `select status, status_note from charity_reference_filings where object_id = '999999999999999963'`);
+    ok("a failed piece leaves the filing recorded as unread, with the reason", r3 === "unread" && f3[0]?.status === "unread" && /a piece failed/.test(String(f3[0]?.status_note)), `${r3} ${JSON.stringify(f3)}`);
+    ok("and nothing of it is left: no recipient rows, no figures, no funder row", (await rowsOf(db, `select (select count(*) from charity_reference_grants where filing_object_id = '999999999999999963')::int + (select count(*) from charity_reference_figures where filing_object_id = '999999999999999963')::int + (select count(*) from charity_reference_organizations where ein = '123456783')::int as n`))[0].n === 0);
   }
   await db.close();
 

@@ -45,7 +45,8 @@ import type { CharitySink } from "./sink-990";
 import { detach } from "./strings";
 
 export const CHARITY_DEFAULT_MAX_RETURN_BYTES = 64_000_000;
-export const CHARITY_DEFAULT_MAX_WRITE_BYTES = 16_000_000;
+export const CHARITY_DEFAULT_MAX_WRITE_BYTES = 16_000_000; // the most one database call carries; a larger filing is written in pieces of half this
+export const CHARITY_DEFAULT_MAX_FILING_BYTES = 256_000_000; // the most one filing's rows may total, written in pieces; beyond it the filing is recorded unread
 
 export interface CharityPipelineParams {
   periodYears: number[];
@@ -60,6 +61,7 @@ export interface CharityPipelineParams {
   rewriteAll?: boolean;
   maxReturnBytes?: number;
   maxWriteBytes?: number;
+  maxFilingBytes?: number;
 }
 
 export interface CharityCounts {
@@ -196,6 +198,7 @@ export async function runCharityPipeline(sink: CharitySink, provider: ArchivePro
   const rejected: CharityRunSummary["rejected"] = [];
   const maxReturnBytes = p.maxReturnBytes ?? CHARITY_DEFAULT_MAX_RETURN_BYTES;
   const maxWriteBytes = p.maxWriteBytes ?? CHARITY_DEFAULT_MAX_WRITE_BYTES;
+  const maxFilingBytes = p.maxFilingBytes ?? CHARITY_DEFAULT_MAX_FILING_BYTES;
   mkdirSync(p.workDir, { recursive: true });
 
   if (!p.dryRun) {
@@ -379,7 +382,7 @@ export async function runCharityPipeline(sink: CharitySink, provider: ArchivePro
         if (f.status === "loaded") dryLoaded.push({ filing: { object_id: id, ein: f.ein, tax_period_end: f.tax_period_end, return_ts: detach(f.return_ts as string | null), status: "loaded" }, charity: null, figures: null, daf: null, grants: [] });
         return;
       }
-      const result = await sink.applyFiling(doc);
+      const result = await sink.applyFiling(doc, Math.floor(maxWriteBytes / 2));
       counts.rows_written++;
       finalStatus.set(id, result);
     };
@@ -414,8 +417,8 @@ export async function runCharityPipeline(sink: CharitySink, provider: ArchivePro
         if (f.rows.some((r) => Object.keys(r.unmappedFields).length)) counts.loaded_filings_with_unmapped_schedule_i_fields++;
         const doc = loadedCharityDoc(prov(x.row, x.loc), f, facts, kindsByEin.get(x.row.ein)!, th);
         const docBytes = JSON.stringify(doc).length;
-        if (docBytes > maxWriteBytes) {
-          unread(x.row, x.loc, `the filing lists ${f.rows.length} recipients; its write document is ${(docBytes / 1e6).toFixed(1)} MB, over the loader's ${(maxWriteBytes / 1e6).toFixed(0)} MB limit for one database call; it was not stored`, facts);
+        if (docBytes > maxFilingBytes) {
+          unread(x.row, x.loc, `the filing lists ${f.rows.length} recipients; its write document is ${(docBytes / 1e6).toFixed(1)} MB, over the loader's ${(maxFilingBytes / 1e6).toFixed(0)} MB ceiling for one filing even written in pieces; it was not stored`, facts);
           await apply(earlyDocs[earlyDocs.length - 1]);
           continue;
         }
