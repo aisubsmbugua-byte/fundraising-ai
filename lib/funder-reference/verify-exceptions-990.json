@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "authorized_by": "ruling 0047 clause 6 (item 116)",
+  "what_this_is": "The written list of verifier differences that are EXPLAINED for the public charity and donor-advised fund sponsor load (scripts/verify-public-charities.ts). Same rules as lib/funder-reference/verify-exceptions.json: a difference is explained only if one entry below matches its line exactly as the checker prints it after the word MISMATCH; every other difference is unexplained and marks the state NOT VERIFIED. The list starts empty: no difference is known to be harmless until someone has found its cause and written it down here.",
+  "fields": {
+    "id": "A short unique name.",
+    "cause": "In plain words, why the difference happens and why it does not mean a stored value is wrong.",
+    "pattern": "A regular expression (JavaScript syntax, as a JSON string) tested against ONE mismatch line. It must name what it explains; a pattern that matches an empty line, or unrelated lines, is refused when the command starts.",
+    "evidence": "Where the cause was established: the EIN and object id of an example, the filing element, the report or ruling.",
+    "date": "The date the entry was written, YYYY-MM-DD."
+  },
+  "how_to_add": "Find the cause first. Then add one object with all five fields to the list below and commit the file. Never add an entry to make a run pass without a cause.",
+  "exceptions": []
+}
