@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { makeZip, type ZipItem } from "./funder-reference-test-support";
-import { Checker, independentRejectReason, outcomeCountProblems, readReturn, tokenize } from "../lib/funder-reference/verify-990";
+import { Checker, independentRejectReason, outcomeCountProblems, peopleOnReturn, readReturn, tokenize } from "../lib/funder-reference/verify-990";
 
 let pass = 0;
 let fail = 0;
@@ -122,6 +122,11 @@ async function main() {
       ok("a finished run whose outcomes add up has no problem", outcomeCountProblems(good).length === 0);
       ok("outcomes that do not add up are named", outcomeCountProblems({ ...good, counts: { ...good.counts, status_loaded: 4 } }).some((p) => /do not add up/.test(p)));
       ok("a run that did not finish, or has no record, is a problem", outcomeCountProblems({ ...good, status: "running" }).some((p) => /not completed/.test(p)) && outcomeCountProblems(null).length === 1);
+      {
+        const xml = "<Return><ReturnData><IRS990><Form990PartVIISectionAGrp><PersonNm>JANE Q OFFICER</PersonNm></Form990PartVIISectionAGrp><ContractorCompensationGrp><ContractorName><PersonNm>DONOR NETWORK WEST</PersonNm></ContractorName></ContractorCompensationGrp></IRS990></ReturnData></Return>";
+        const people = peopleOnReturn(tokenize(xml));
+        ok("an officer's name counts as a person on the return; a PersonNm under ContractorName (which can be a business) does not (found on the first real California check)", people.has("jane q officer") && !people.has("donor network west"), [...people].join("|"));
+      }
       const ck = new Checker();
       ck.ein = "123456789";
       ck.eq("x", 0, null, "int");

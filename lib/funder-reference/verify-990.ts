@@ -671,6 +671,24 @@ function checkGrants(ck: Checker, tag: string, f: Row, r: ReadReturn, stored: Ro
 }
 
 /**
+ * The names of people on a return that must never be a stored string: officers, the signer, the preparer.
+ * A PersonNm directly under ContractorName (Part VII's highest-paid independent contractors) is skipped:
+ * the form puts a business name in that element as often as a person's (found on the first California
+ * charity check: a hospital system's contractor "DONOR NETWORK WEST" was also, correctly, a Schedule I
+ * recipient organization). The loader stores no contractor, and the officers, signer and preparer are
+ * still checked.
+ */
+export function peopleOnReturn(root: VNode): Set<string> {
+  const people = new Set<string>();
+  const walk = (n: VNode, parent = "") => {
+    if (/^(PersonNm|OfficerNm|PreparerPersonNm|SigningOfficerNm)$/.test(n.name) && n.text.length >= 4 && parent !== "ContractorName") people.add(n.text.toLowerCase());
+    n.kids.forEach((k) => walk(k, n.name));
+  };
+  walk(root);
+  return people;
+}
+
+/**
  * Ruling 0047 clause 3 and the stage-one limits, by structure: no grants to individuals read, no donor
  * or person related to a recipient. Looks at the return's element names and at the stored values.
  */
@@ -689,12 +707,7 @@ function checkRuling0047(ck: Checker, tag: string, id: string, r: ReadReturn, st
   const bad = [...keys].filter((k) => /individual|donor_name|contributor|advisor|grantee_person|person/i.test(k));
   ck.check(`${tag} no stored column or unmapped element names a person, an individual recipient, a contributor or a donor advisor`, bad.length === 0, bad.join(", "));
   // no person's name from the return (officers, the signer, the preparer) is a stored string
-  const people = new Set<string>();
-  const walk = (n: VNode) => {
-    if (/^(PersonNm|OfficerNm|PreparerPersonNm|SigningOfficerNm)$/.test(n.name) && n.text.length >= 4) people.add(n.text.toLowerCase());
-    n.kids.forEach(walk);
-  };
-  walk(r.root);
+  const people = peopleOnReturn(r.root);
   if (people.size) {
     const strings: string[] = [];
     const collect = (v: unknown) => {
