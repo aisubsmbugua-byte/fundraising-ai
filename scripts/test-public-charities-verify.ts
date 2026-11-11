@@ -181,12 +181,13 @@ async function main() {
     const full = verify(dbDir, ["--full"], workDir, "result-full.json");
     ok("--full checks every funder", full.rec.mode === "full" && full.rec.funders_checked === 3 && full.status === 0);
     const noArchives = tsx(["scripts/verify-public-charities.ts", "--target", `pglite:${dbDir}`, "--state", "CA"]);
-    ok("without archives, index or work directory it cannot say verified (exit 1, and it says what is missing)", noArchives.status === 1 && /NOT VERIFIED BECAUSE/.test(noArchives.stdout) && /archives/.test(noArchives.stdout));
+    ok("without archives, index or work directory it cannot say verified (exit 4, a structural failure, and it says what is missing)", noArchives.status === 4 && /NOT VERIFIED BECAUSE/.test(noArchives.stdout) && /archives/.test(noArchives.stdout));
 
     // ============================================================================ planted faults, one at a time
     section("planted faults: each must be caught, and named");
     const ein = { pump: "954807001", union: "310628642", hff: "043521744" };
     let n = 0;
+    const exits = new Set<number>();
     async function fault(label: string, sql: string | null, expect: RegExp, opts: { extra?: string[]; mutateWork?: (w: string) => void; counts?: boolean } = {}) {
       const dir = join(tmp, `db-fault-${++n}`);
       cpSync(dbDir, dir, { recursive: true });
@@ -195,7 +196,8 @@ async function main() {
       if (sql) { const d = new PGlite(dir); await d.waitReady; await d.exec(sql); await d.close(); }
       opts.mutateWork?.(work);
       const r = verify(dir, opts.extra ?? [], work, `result-fault-${n}.json`);
-      ok(`${label}: exit 1, RESULT: FAIL, and the report names it`, r.status === 1 && /RESULT: FAIL/.test(r.out) && expect.test(r.out) && (r.rec.unexplained > 0 || r.rec.problems.length > 0), `${r.status} ${r.out.slice(0, 1200)}`);
+      exits.add(r.status);
+      ok(`${label}: exit 1 (only value differences) or 4 (structural problems named), RESULT: FAIL, and the report names it`, r.status === (r.rec.problems.length > 0 ? 4 : 1) && /RESULT: FAIL/.test(r.out) && expect.test(r.out) && (r.rec.unexplained > 0 || r.rec.problems.length > 0), `${r.status} ${r.out.slice(0, 1200)}`);
       return r;
     }
     const pumpStanding = ids.pumpAmend;
@@ -254,6 +256,8 @@ async function main() {
         writeFileSync(p, recs.map((r) => JSON.stringify(r)).join("\n") + "\n");
       },
     });
+
+    ok("both exit codes are exercised: 1 (a value differs, the run goes on) and 4 (structural, the run stops)", exits.has(1) && exits.has(4), [...exits].join(","));
 
     // ============================================================================ the verifier itself
     section("the verifier is read-only and prints no secret");
