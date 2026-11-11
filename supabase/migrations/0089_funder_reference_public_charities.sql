@@ -1,9 +1,9 @@
 -- STATE item 116 (ruling 0047): grantmaking public charities and donor-advised fund sponsors in the
 -- funder reference database, as labeled kinds, from Form 990 returns. Additive.
 --
--- NOT TO BE APPLIED to the live database until ruling 0047 clause 7 is satisfied: the item-114
--- national load is complete and verified, and the owner has said so. It is written and tested here
--- on a local PostgreSQL only.
+-- Applied to the live database on the owner's go of 2026-11-10 ("Yes, start the California trial"), after the
+-- item-114 national load was complete and verified (ruling 0047 clause 7). Written and tested first on a
+-- local PostgreSQL.
 --
 -- WHAT KIND OF DATA THIS IS. Exactly ruling 0045's: shared reference data, written only by the
 -- offline loader (service role) through one function, read by any signed-in member, no
