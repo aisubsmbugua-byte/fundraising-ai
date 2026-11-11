@@ -28,7 +28,8 @@
 //     [--header-audit 300] [--scope-audit 150] [--unread-audit 100] [--threshold 100000] \
 //     [--exceptions <file>] [--result-file <path>] [--annotate-run]
 // The service key (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) is read from the environment
-// and never printed. Exit: 0 verified; 1 not verified (mismatches or a missing part); 2 usage; 3 crashed.
+// and never printed. Exit: 0 verified; 1 not verified because of sample-value differences only; 4 not verified because of a
+// structural failure (outcomes, header or scope audit, a missing input); 2 usage; 3 crashed.
 //
 // MEMORY. The sample is checked in batches of 100 funders (their XML is held only for the batch);
 // the index is streamed, not held. Expect well under 2 GB for 150 funders, and about 1.5 GB for a
@@ -514,6 +515,8 @@ async function main() {
   const completedRun = ck.compared > 0 && !!provider;
   if (!completedRun) problems.push("the sample comparison did not run");
   if (audit.header.said_not_in_state_but_return_is_in_state > 0) problems.push(`${audit.header.said_not_in_state_but_return_is_in_state} return(s) in ${state} were put elsewhere by the header scan`);
+  // A return the loader dropped that the verifier finds in scope is a loader scope defect, not a quirk of one return.
+  if (audit.scope.in_scope_but_not_stored > 0) problems.push(`the scope audit found ${audit.scope.in_scope_but_not_stored} sampled return(s) the loader did not store that are in scope`);
   const verified = completedRun && cls.unexplained.length === 0 && problems.length === 0;
 
   console.log(`\ncompared ${ck.compared} stored values/properties with the filing(s) of ${sample.eins.length} funder(s); ${ck.lines.length} mismatch(es)`);
@@ -562,7 +565,10 @@ async function main() {
   await db.close();
   console.log(`\npeak resident memory ${peakRssMb()} MB; ${record.seconds}s`);
   console.log(verified ? `\nRESULT: PASS -- ${state} is verified: every stored value in the sample equals the return, and the run, the headers and the scope audit are clean` : `\nRESULT: FAIL -- ${state} is NOT verified`);
-  process.exit(verified ? 0 : 1);
+  // Exit codes: 0 verified; 1 only sample-value differences nobody has explained (the run script records the
+  // state as not verified and goes on); 4 a structural failure (the run's outcomes, the header or scope audit,
+  // a missing input) that signals a broken loader, which stops the run.
+  process.exit(verified ? 0 : problems.length > 0 ? 4 : 1);
 }
 
 function memLine(): string {
