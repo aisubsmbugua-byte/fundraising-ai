@@ -451,6 +451,9 @@ async function main() {
     {
       const rows = [{ x: "a".repeat(50) }, { x: "b".repeat(500) }, { x: "c".repeat(50) }];
       const pieces = splitGrantRows(rows, 100);
+      const many = Array.from({ length: 2500 }, (_, i) => ({ i }));
+      const mp = splitGrantRows(many, 1_000_000);
+      ok("a piece never holds more than 1,000 rows, however small they are (a piece of about 9,000 rows timed out on the real project)", mp.length === 3 && mp.every((x) => x.length <= 1000) && mp.flat().length === 2500, JSON.stringify(mp.map((x) => x.length)));
       ok("pieces never split a row, keep order, and a row over the limit goes alone", pieces.length === 3 && pieces.flat().length === 3 && pieces[1].length === 1 && pieces.flat().every((r, i) => r === rows[i]), JSON.stringify(pieces.map((x) => x.length)));
     }
     // a piece that fails leaves the filing unread and clears everything stored for it

@@ -83,14 +83,21 @@ export function supabaseCharitySink(client: SupabaseLike, label = "supabase"): C
   };
 }
 
-/** The recipient rows of one filing, grouped so that no group's JSON is over pieceBytes (a single row over it goes alone). */
-export function splitGrantRows(grants: Array<Record<string, unknown>>, pieceBytes: number): Array<Array<Record<string, unknown>>> {
+/**
+ * The most recipient rows one piece may hold. The real project cancels a statement that runs too long
+ * (found on the first piece-written return: a piece of about 9,000 rows timed out), so a piece is bounded
+ * by row count as well as by size.
+ */
+export const MAX_ROWS_PER_PIECE = 1000;
+
+/** The recipient rows of one filing, grouped so that no group's JSON is over pieceBytes or holds more than maxRows rows (a single row over the size goes alone). */
+export function splitGrantRows(grants: Array<Record<string, unknown>>, pieceBytes: number, maxRows = MAX_ROWS_PER_PIECE): Array<Array<Record<string, unknown>>> {
   const pieces: Array<Array<Record<string, unknown>>> = [];
   let cur: Array<Record<string, unknown>> = [];
   let size = 0;
   for (const g of grants) {
     const b = JSON.stringify(g).length + 1;
-    if (cur.length && size + b > pieceBytes) {
+    if (cur.length && (size + b > pieceBytes || cur.length >= maxRows)) {
       pieces.push(cur);
       cur = [];
       size = 0;
