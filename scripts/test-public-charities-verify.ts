@@ -131,6 +131,8 @@ async function main() {
         const xml = "<Return><ReturnData><IRS990><Form990PartVIISectionAGrp><PersonNm>JANE Q OFFICER</PersonNm></Form990PartVIISectionAGrp><ContractorCompensationGrp><ContractorName><PersonNm>DONOR NETWORK WEST</PersonNm></ContractorName></ContractorCompensationGrp></IRS990></ReturnData></Return>";
         const people = peopleOnReturn(tokenize(xml));
         ok("an officer's name counts as a person on the return; a PersonNm under ContractorName (which can be a business) does not (found on the first real California check)", people.has("jane q officer") && !people.has("donor network west"), [...people].join("|"));
+        const people2 = peopleOnReturn(tokenize("<Return><ReturnData><IRS990><BooksInCareOfDetail><PersonNm>LEGACY GLOBAL FOUNDATION</PersonNm></BooksInCareOfDetail><IRS990ScheduleI><RecipientTable><RecipientBusinessName><BusinessNameLine1Txt>LEGACY GLOBAL FOUNDATION</BusinessNameLine1Txt></RecipientBusinessName></RecipientTable></IRS990ScheduleI><Form990PartVIISectionAGrp><PersonNm>JANE Q OFFICER</PersonNm></Form990PartVIISectionAGrp></IRS990></ReturnData></Return>"));
+        ok("a PersonNm that the return also gives as a business name is an organization, not a person (found on the first Arizona check); a real officer still counts", !people2.has("legacy global foundation") && people2.has("jane q officer"), [...people2].join("|"));
       }
       const ck = new Checker();
       ck.ein = "123456789";

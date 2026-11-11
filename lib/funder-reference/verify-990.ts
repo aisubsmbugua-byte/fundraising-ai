@@ -680,11 +680,17 @@ function checkGrants(ck: Checker, tag: string, f: Row, r: ReadReturn, stored: Ro
  */
 export function peopleOnReturn(root: VNode): Set<string> {
   const people = new Set<string>();
+  const businessNames = new Set<string>();
   const walk = (n: VNode, parent = "") => {
     if (/^(PersonNm|OfficerNm|PreparerPersonNm|SigningOfficerNm)$/.test(n.name) && n.text.length >= 4 && parent !== "ContractorName") people.add(n.text.toLowerCase());
+    if (/^BusinessNameLine[12]Txt$/.test(n.name) && n.text) businessNames.add(n.text.toLowerCase());
     n.kids.forEach((k) => walk(k, n.name));
   };
   walk(root);
+  // A string the return also gives as a business name is an organization's name, not a person's, however a
+  // contact box on the return tags it (found on an Arizona return whose "books in care of" PersonNm holds the
+  // name of a Schedule I recipient, an organization).
+  for (const b of businessNames) people.delete(b);
   return people;
 }
 
