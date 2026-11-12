@@ -78,7 +78,7 @@ export function supabaseCharitySink(client: SupabaseLike, label = "supabase"): C
     async runsInProgress() {
       const { data, error } = await client.from("funder_reference_runs").select("parameters, counts").eq("status", "running");
       fail("read runs in progress", error);
-      return (data ?? []).filter((r) => !isReadOnlyVerification(r)).length;
+      return ((data ?? []) as { parameters: unknown; counts: unknown }[]).filter((r) => !isReadOnlyVerification(r)).length;
     },
   };
 }

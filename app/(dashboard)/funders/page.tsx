@@ -35,6 +35,7 @@ import {
   thStyle,
   type as typeScale,
 } from "@/lib/ui";
+import { FunderTabs } from "./FunderTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,11 @@ export default async function FunderSearchPage({ searchParams }: { searchParams:
         contacts anyone, or changes any record.
       </p>
 
-      <section aria-label="What is loaded" style={{ ...cardStyle, marginTop: spacing.lg }}>
+      <div style={{ marginTop: spacing.md }}>
+        <FunderTabs active="foundations" />
+      </div>
+
+      <section aria-label="What is loaded" style={cardStyle}>
         <div style={{ fontSize: typeScale.body }}>
           <strong>{states.loaded.length}</strong> of {Object.keys(US_STATES).length} states and districts are loaded;{" "}
           <strong>{states.verified.length}</strong> have passed their sample check.
