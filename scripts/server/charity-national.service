@@ -1,0 +1,33 @@
+# Item 116, decision 0014. The supervised national charity load on the Lightsail server.
+# Install (as the ubuntu user, after pulling this file):
+#   sudo cp /opt/funder-loader/charity-app/repo/scripts/server/charity-national.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl start charity-national
+# It resumes by itself after a crash, a kill, an out-of-memory stop, a reboot or a load that failed all its
+# tries, because the script skips finished states, records a killed run as interrupted, and every write is
+# idempotent. It does NOT restart by itself after a deliberate stop that needs a person:
+#   exit 4 = two states in a row failed the structural check, or a check crashed;
+#   exit 5 = the run finished or halted with states not verified / needing review.
+# Look at the journal: sudo journalctl -u charity-national -n 40 --no-pager
+[Unit]
+Description=Funder reference: national public charity and donor-advised fund sponsor load
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=21600
+StartLimitBurst=4
+
+[Service]
+Type=simple
+User=funder-loader
+Group=funder-loader
+WorkingDirectory=/opt/funder-loader/charity-app/repo
+EnvironmentFile=/etc/funder-loader.env
+Environment=HOME=/var/lib/funder-loader
+ExecStart=/opt/funder-loader/charity-app/repo/scripts/server/charity-run-all.sh
+Restart=on-failure
+RestartSec=300
+RestartPreventExitStatus=4 5
+SuccessExitStatus=0
+TimeoutStopSec=60
+KillMode=mixed
+MemoryMax=3800M
+Nice=10

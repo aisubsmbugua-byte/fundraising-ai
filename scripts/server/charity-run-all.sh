@@ -48,6 +48,10 @@ MAX_STRUCTURAL_IN_A_ROW=2
 LOAD_TRIES=3
 in_a_row=0
 structural_in_a_row=0
+# Under the supervisor (charity-national.service) this process is the only one that loads; a run still
+# recorded as running at this point was left by one that was killed. Record it as interrupted so the loader's
+# own guard does not refuse every write. (A failure here stops the run: better than loading into a guard.)
+"$TSX" scripts/charity-mark-stale-runs.ts || { echo "STOPPED: could not clear a stale run record"; exit 3; }
 # Decision 0014: when no states are named, a state already recorded as not verified or as needing review is
 # skipped (re-loading it before its cause is fixed only repeats the result); name it to try it again.
 for st in $STATES; do
