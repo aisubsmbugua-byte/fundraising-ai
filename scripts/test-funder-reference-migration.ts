@@ -211,15 +211,18 @@ async function main() {
   section("the tables are shared reference data (ruling 0045 clause 1)");
   {
     const cols = (await db.query(`select table_name, column_name from information_schema.columns where table_schema = 'public' and table_name like 'funder\\_reference\\_%' escape '\\' and table_name in (select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE')`)).rows as Array<{ table_name: string; column_name: string }>; // base tables only: migration 0086 adds a read-only VIEW over them (ruling 0048)
-    ok("exactly the eight reference tables exist", new Set(cols.map((c) => c.table_name)).size === 8 && TABLES.every((t) => cols.some((c) => c.table_name === t)));
+    // The eight loader tables, plus the one derived table of per-funder counts that ruling 0049 (migration 0094) added. Nothing else.
+    const DERIVED = ["funder_reference_faith_giving"];
+    const present = new Set(cols.map((c) => c.table_name));
+    ok("exactly the eight reference tables exist, plus the one derived table of ruling 0049", present.size === 8 + DERIVED.length && TABLES.every((t) => present.has(t)) && DERIVED.every((t) => present.has(t)), [...present].join(","));
     ok("NO table carries organization_id (deliberate, stated in the ruling)", !cols.some((c) => c.column_name === "organization_id"));
     ok("no column anywhere is named for a single 'giving' figure", !cols.some((c) => /^(giving|total_giving|annual_giving|grants_given)(_amt)?$/.test(c.column_name)));
     const giving = cols.filter((c) => c.table_name === "funder_reference_figures" && /(contributions_paid|qualifying_distributions|charitable_disbursements|distributable)/.test(c.column_name)).map((c) => c.column_name);
     ok("contributions paid per books, qualifying distributions and charitable disbursements are separate named columns", giving.includes("contributions_paid_per_books_amt") && giving.includes("qualifying_distributions_amt") && giving.includes("total_expenses_charitable_disbursements_amt") && giving.includes("contributions_paid_disbursements_amt"), giving.join(","));
     const rls = (await db.query(`select relname, relrowsecurity from pg_class where relname like 'funder\\_reference\\_%' escape '\\' and relkind = 'r'`)).rows as Array<{ relname: string; relrowsecurity: boolean }>;
-    ok("row-level security is enabled on every one", rls.length === 8 && rls.every((r) => r.relrowsecurity));
+    ok("row-level security is enabled on every one", rls.length === 8 + DERIVED.length && rls.every((r) => r.relrowsecurity));
     const pols = (await db.query(`select tablename, cmd, roles::text as roles, qual from pg_policies where tablename like 'funder\\_reference\\_%' escape '\\'`)).rows as Array<{ tablename: string; cmd: string; roles: string; qual: string }>;
-    ok("each table has exactly one policy", pols.length === 8 && new Set(pols.map((p) => p.tablename)).size === 8);
+    ok("each table has exactly one policy", pols.length === 8 + DERIVED.length && new Set(pols.map((p) => p.tablename)).size === 8 + DERIVED.length);
     ok("every policy is a SELECT policy: no insert, update, delete or all policy exists", pols.every((p) => p.cmd === "SELECT"), JSON.stringify(pols.map((p) => p.cmd)));
     ok("the read policy is for signed-in members only (authenticated, my_organization_id() is not null)", pols.every((p) => p.roles.includes("authenticated") && !p.roles.includes("anon") && /my_organization_id/.test(p.qual)));
     const grants = (await db.query(`select table_name, grantee, privilege_type from information_schema.role_table_grants where table_name like 'funder\\_reference\\_%' escape '\\' and grantee in ('anon','authenticated')`)).rows as Array<{ table_name: string; grantee: string; privilege_type: string }>;
@@ -599,8 +602,11 @@ async function main() {
     // app/(dashboard)/funders and the dashboard layout's single import of its access check. Everything
     // else must still not mention them, and not even the screen may import the loader.
     const screen = (f: string) => f.startsWith(join(root, "app/(dashboard)/funders") + "/") || f === join(root, "app/(dashboard)/layout.tsx");
-    const touching = web.filter((f) => /funder[_-]reference/i.test(readFileSync(f, "utf8")) && !screen(f));
-    ok(`none of the ${web.length} application source files (app/, lib/, components/, …) outside the ruling-0048 screen mentions the tables or imports the loader`, touching.length === 0, touching.join(", "));
+    // Rulings 0049 and 0050 (item 117) authorize three more files to read these tables through the member's own session: the
+    // Donor Finder's suggestions section, its add action and the add button. Named, not a folder: a fourth file is caught.
+    const SUGGESTION_READERS = ["reference-suggestions.tsx", "reference-suggestion-actions.ts", "add-suggested-button.tsx"].map((n) => join(root, "app/(dashboard)/discovery", n));
+    const touching = web.filter((f) => /funder[_-]reference/i.test(readFileSync(f, "utf8")) && !screen(f) && !SUGGESTION_READERS.includes(f));
+    ok(`none of the ${web.length} application source files (app/, lib/, components/, …) outside the ruling-0048 screen and the three item-117 readers mentions the tables or imports the loader`, touching.length === 0, touching.join(", "));
     const loaderModules = /funder-reference\/(pipeline|sink|run-store|sources|parse-990pf|zip|inflate|document|derive|xml|strings|supervisor)\b/;
     ok("and the screen itself imports none of the loader's modules (it reads through read.ts, browse.ts and access.ts only)", web.filter(screen).every((f) => !loaderModules.test(readFileSync(f, "utf8"))), web.filter(screen).filter((f) => loaderModules.test(readFileSync(f, "utf8"))).join(", "));
     const lib = files.filter((f) => f.startsWith(join(root, "lib/funder-reference") + "/"));

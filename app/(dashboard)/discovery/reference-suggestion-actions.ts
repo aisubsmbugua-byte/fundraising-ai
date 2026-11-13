@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { isUniqueViolation } from "@/lib/candidate-intake";
 import {
+  ENOUGH_TO_GO_ON,
   bandFromBudget,
   buildBasis,
   channelFor,
@@ -47,7 +48,6 @@ export async function addSuggestedFunder(ein: string, source: SuggestionSource):
     p_band_lo: band?.lo ?? null,
     p_band_hi: band?.hi ?? null,
     p_state: orgState,
-    p_group: "main",
     p_limit: 100,
     p_offset: 0,
   });
@@ -58,7 +58,7 @@ export async function addSuggestedFunder(ein: string, source: SuggestionSource):
     const { data: g } = await supabase.from("funder_reference_faith_giving").select("*").eq("ein", ein).eq("source", source).maybeSingle();
     const dir =
       source === "private_foundation"
-        ? await supabase.from("funder_reference_directory").select("name, city, state, contributions_paid_per_books_amt, figures_period_end").eq("ein", ein).maybeSingle()
+        ? await supabase.from("funder_reference_directory").select("name, city, state, contributions_paid_per_books_amt, figures_period_end, only_preselected_charities_box_checked").eq("ein", ein).maybeSingle()
         : await supabase.from("charity_reference_directory").select("name, city, state, is_daf_sponsor, grants_domestic_orgs_amt, figures_period_end").eq("ein", ein).maybeSingle();
     if (!g || !dir.data) return { error: "That funder is no longer in the database's suggestions." };
     const d = dir.data as Record<string, unknown>;
@@ -79,7 +79,8 @@ export async function addSuggestedFunder(ein: string, source: SuggestionSource):
       faith_in_state_count: orgState ? Number((g.faith_by_state ?? {})[orgState] ?? 0) : null,
       giving_amt: (d.contributions_paid_per_books_amt ?? d.grants_domestic_orgs_amt ?? null) as number | null,
       giving_period_end: (d.figures_period_end as string) ?? null,
-      takes_no_unsolicited: null,
+      takes_no_unsolicited: source === "private_foundation" ? Boolean(d.only_preselected_charities_box_checked) : null,
+      meets_floor: (band ? amounts.filter((a) => a >= band.lo && a <= band.hi).length : Number(g.faith_count)) >= ENOUGH_TO_GO_ON,
       faith_amounts_capped: g.faith_amounts_capped,
       faith_sample: g.faith_sample ?? [],
       rule_version: g.rule_version,

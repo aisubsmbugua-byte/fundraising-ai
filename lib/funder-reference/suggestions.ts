@@ -28,14 +28,17 @@ export function describeBand(band: SizeBand | null, budget: number | string | nu
   return `Grants of ${formatAmount(band.lo)} to ${formatAmount(band.hi)} count as in your band (${Math.round(BAND_LOW_SHARE * 100)}% to 100% of your yearly budget of ${formatAmount(budget)}).`;
 }
 
+/** Ruling 0050 clause 5: the number of grants in band that counts as "enough to go on". The database holds the same number in reference_suggestion_floor(); a test checks they agree. */
+export const ENOUGH_TO_GO_ON = 5;
+
 export const ORDERING_RULE =
-  "Ordered by: the number of grants to faith-named recipients that fall in your size band, over the years held; then the share of the funder's listed grants that went to faith-named recipients; then the most recent year with one. Where a band is set, a funder with none in it is left out.";
+  `Ordered by how much of a funder's giving goes to work like yours: first the funders with at least ${ENOUGH_TO_GO_ON} grants to faith-named recipients in your size band over the years held, by the share of their listed grants that went to faith-named recipients, then by the number in your band, then by the most recent year. Funders with fewer than ${ENOUGH_TO_GO_ON} follow, in the same order, and say so. A funder with none in your band is left out.`;
 
 export const FAITH_NAMED_NOTE =
   "Faith-named means the recipient's name or stated purpose contains a word such as church, ministry, missions, worship or gospel (rule faith-name-v1). It is approximate: it misses some ministries and includes some that are not. Open the grants behind a funder to judge for yourself.";
 
-export const NO_UNSOLICITED_NOTE =
-  "These funders' filings say they give only to pre-selected charities. They are not shown as open to requests.";
+export const NOT_SHUT_OUT_NOTE =
+  "No funder is left out for how it takes requests or what kind it is. A funder that gives only to pre-selected charities, or that is a donor-advised fund sponsor, is listed with the rest and labelled; open its ways in to see what its own filing offers.";
 
 const STATES: Record<string, string> = {
   alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO", connecticut: "CT", delaware: "DE",
@@ -62,11 +65,6 @@ export function stateFromLocation(location: string | null | undefined): string |
   }
   return null;
 }
-
-export type SuggestionGroup = "main" | "daf" | "held_out";
-
-export const DAF_GROUP_NOTE =
-  "Donor-advised fund sponsors give on their donors' advice, so a sponsor is not approached the way a foundation is: its donors decide. They give to many recipients, which is why their counts are large. They are listed apart so they do not crowd out funders you can approach directly.";
 
 export type SuggestionSource = "private_foundation" | "public_charity";
 
@@ -100,6 +98,8 @@ export interface Suggestion {
   faith_sample: SampleGrant[];
   rule_version: string;
   total_matches: number;
+  /** At least ENOUGH_TO_GO_ON grants in the band (ruling 0050 clause 5). */
+  meets_floor: boolean;
 }
 
 interface RawSuggestion extends Omit<Suggestion, "grants_counted" | "faith_count" | "faith_in_band_count" | "faith_share" | "faith_in_state_count" | "giving_amt" | "total_matches"> {
@@ -159,6 +159,7 @@ export function describeReason(s: Suggestion, band: SizeBand | null, organizatio
         : `None of those went to recipients in ${organizationState}.`
     );
   }
+  if (!s.meets_floor) lines.push(`Fewer than ${ENOUGH_TO_GO_ON} such grants in ${band ? "your band" : "the years held"}, so there is less to go on.`);
   if (s.faith_amounts_capped) lines.push("This funder has more such grants than the database counts by size, so the figure in your band is a minimum.");
   return lines;
 }
@@ -166,6 +167,21 @@ export function describeReason(s: Suggestion, band: SizeBand | null, organizatio
 export interface FilingLink {
   url: string;
   member: string | null;
+}
+
+/** A link to each filing's IRS archive file, for the filings named. Only https links are kept. */
+export async function loadFilingLinks(supabase: SupabaseClient, ids: string[]): Promise<Record<string, FilingLink>> {
+  const links: Record<string, FilingLink> = {};
+  const unique = [...new Set(ids)].filter(Boolean);
+  if (unique.length === 0) return links;
+  const [f, c] = await Promise.all([
+    supabase.from("funder_reference_filings").select("object_id, document_archive_url, document_member").in("object_id", unique),
+    supabase.from("charity_reference_filings").select("object_id, document_archive_url, document_member").in("object_id", unique),
+  ]);
+  for (const x of [...(f.data ?? []), ...(c.data ?? [])] as Array<{ object_id: string; document_archive_url: string; document_member: string | null }>) {
+    if (/^https:\/\//.test(x.document_archive_url)) links[x.object_id] = { url: x.document_archive_url, member: x.document_member };
+  }
+  return links;
 }
 
 export interface SuggestionPage {
@@ -184,30 +200,19 @@ export async function derivedCountsExist(supabase: SupabaseClient): Promise<bool
 
 export async function loadSuggestions(
   supabase: SupabaseClient,
-  args: { band: SizeBand | null; state: string | null; group: SuggestionGroup; page: number }
+  args: { band: SizeBand | null; state: string | null; page: number }
 ): Promise<SuggestionPage> {
   const { data, error } = await supabase.rpc("reference_funder_suggestions", {
     p_band_lo: args.band?.lo ?? null,
     p_band_hi: args.band?.hi ?? null,
     p_state: args.state,
-    p_group: args.group,
     p_limit: SUGGESTION_PAGE_SIZE,
     p_offset: Math.max(0, args.page - 1) * SUGGESTION_PAGE_SIZE,
   });
   if (error) return { rows: [], total: 0, computed: true, links: {}, error: error.message };
   const rows = ((data ?? []) as RawSuggestion[]).map(normalizeSuggestion);
   const computed = rows.length > 0 ? true : await derivedCountsExist(supabase);
-  const ids = [...new Set(rows.flatMap((r) => r.faith_sample.map((g) => g.filing_object_id)))];
-  const links: Record<string, FilingLink> = {};
-  if (ids.length > 0) {
-    const [f, c] = await Promise.all([
-      supabase.from("funder_reference_filings").select("object_id, document_archive_url, document_member").in("object_id", ids),
-      supabase.from("charity_reference_filings").select("object_id, document_archive_url, document_member").in("object_id", ids),
-    ]);
-    for (const x of [...(f.data ?? []), ...(c.data ?? [])] as Array<{ object_id: string; document_archive_url: string; document_member: string | null }>) {
-      if (/^https:\/\//.test(x.document_archive_url)) links[x.object_id] = { url: x.document_archive_url, member: x.document_member };
-    }
-  }
+  const links = await loadFilingLinks(supabase, rows.flatMap((r) => r.faith_sample.map((g) => g.filing_object_id)));
   return { rows, total: rows[0]?.total_matches ?? 0, computed, links, error: null };
 }
 
@@ -226,6 +231,8 @@ export function buildBasis(s: Suggestion, band: SizeBand | null, organizationSta
     faith_share: s.faith_share,
     faith_last_period_end: s.faith_last_period_end,
     faith_in_state_count: s.faith_in_state_count,
+    meets_floor: s.meets_floor,
+    takes_no_unsolicited: s.takes_no_unsolicited,
     giving_amt: s.giving_amt,
     giving_period_end: s.giving_period_end,
     sample: s.faith_sample,

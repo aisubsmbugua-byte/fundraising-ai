@@ -1,4 +1,4 @@
-// STATE item 117 (ruling 0049): reference-first suggestions.
+// STATE item 117 (rulings 0049 and 0050): reference-first suggestions, one list, share-first, with the ways in.
 //
 // (1) Migration 0094 on a REAL Postgres (PGlite) with every project migration applied unchanged: the faith rule, the
 // derived table and its offline refresh, and the members-only suggestions, as a member of two organizations, a
@@ -14,7 +14,8 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { bootDatabase } from "./funder-reference-support";
-import { bandFromBudget, channelFor, describeBand, describeReason, kindLabel, readableName, stateFromLocation, type Suggestion } from "../lib/funder-reference/suggestions";
+import { ENOUGH_TO_GO_ON, ORDERING_RULE, bandFromBudget, channelFor, describeBand, describeReason, kindLabel, readableName, stateFromLocation, type Suggestion } from "../lib/funder-reference/suggestions";
+import { CHARITY_PRACTICE, DAF_PRACTICE, OPEN_FOUNDATION_PRACTICE, PRESELECTED_PRACTICE, WAYS_IN_COLUMNS, parseApplicationGroups, parsePeople, practiceFor } from "../lib/funder-reference/ways-in";
 
 const root = join(__dirname, "..");
 let pass = 0;
@@ -115,7 +116,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 async function main() {
-  section("migration 0094 applies to a real Postgres, unchanged, after all earlier ones");
+  section("migrations 0094 to 0098 apply to a real Postgres, unchanged, after all earlier ones");
   const db = new PGlite();
   const boot = await bootDatabase(db);
   ok(`all ${boot.applied.length} migration files apply with no error`, boot.failures.length === 0, boot.failures.join("; "));
@@ -174,6 +175,13 @@ async function main() {
   await seedFoundation(db, "555555555", "EPSILON BIG FOUNDATION", false, [{ name: "Mega Church", amt: 5_000_000 }]);
   // F6: a faith-named grant that states no amount
   await seedFoundation(db, "666666666", "ZETA UNSTATED FOUNDATION", false, [{ name: "Quiet Church", amt: null }]);
+  // F8: gives only to faith-named recipients, six of them in the band (a pure funder: share 100%, enough to go on)
+  await seedFoundation(db, "999000001", "ETA PURE FOUNDATION", false, Array.from({ length: 6 }, (_, i) => ({ name: `Gospel Church ${i + 1}`, amt: 20_000 })));
+  // F9: a pass-through: 40 faith-named grants in band out of 400 (share 10%). Counted first it would lead; ranked by share it does not.
+  await seedFoundation(db, "999000002", "THETA PASS-THROUGH ASSOCIATION", false, [
+    ...Array.from({ length: 40 }, (_, i) => ({ name: `Child Care Church ${i + 1}`, amt: 10_000 })),
+    ...Array.from({ length: 360 }, (_, i) => ({ name: `Vendor ${i + 1}`, amt: 1_000 })),
+  ]);
   // C1: a public charity whose Schedule I names two faith recipients
   await seedCharity(db, "777777777", "ETA REGRANTING CHARITY", [{ name: "Global Missions Fund", amt: 60_000, st: "CA" }, { name: "Youth Gospel Ministries", amt: 25_000, st: "CA" }, { name: "Hospital Guild", amt: 10_000 }]);
 
@@ -185,10 +193,10 @@ async function main() {
   section("the offline refresh: per EIN range, repeatable, named by rule version");
   {
     const r1 = (await db.query(`select * from funder_reference_refresh_faith_giving('0', ':')`)).rows as Array<{ source: string; funders: number }>;
-    ok("it reports how many funders it computed per kind", r1.some((r) => r.source === "private_foundation" && Number(r.funders) === 6) && r1.some((r) => r.source === "public_charity" && Number(r.funders) === 2), JSON.stringify(r1));
+    ok("it reports how many funders it computed per kind", r1.some((r) => r.source === "private_foundation" && Number(r.funders) === 8) && r1.some((r) => r.source === "public_charity" && Number(r.funders) === 2), JSON.stringify(r1));
     await db.query(`select * from funder_reference_refresh_faith_giving('0', ':')`);
     const n = ((await db.query(`select count(*)::int c from funder_reference_faith_giving`)).rows[0] as { c: number }).c;
-    ok("running it again duplicates nothing", n === 8, String(n));
+    ok("running it again duplicates nothing", n === 10, String(n));
     const f1 = (await db.query(`select * from funder_reference_faith_giving where ein='111111111'`)).rows[0] as Record<string, unknown>;
     ok("F1: six paid grants counted over two periods; five faith-named", Number(f1.grants_counted) === 6 && f1.periods_counted === 2 && Number(f1.faith_count) === 5, JSON.stringify(f1));
     ok("F1: the faith amounts are kept largest first", JSON.stringify((f1.faith_amounts as unknown[]).map(Number)) === JSON.stringify([2000000, 50000, 20000, 8000, 500]), JSON.stringify(f1.faith_amounts));
@@ -201,33 +209,43 @@ async function main() {
     ok("only paid grants are counted (a future-approved row is not)", true);
   }
 
-  section("the suggestions: members only, ranked by the printed rule");
-  const sugg = async (uid: string | null, args = "null, null, null, 'main', 25, 0") =>
+  section("the suggestions: members only, one list, ranked by the printed rule (ruling 0050)");
+  const sugg = async (uid: string | null, args = "null, null, null, 25, 0") =>
     (await as("authenticated", uid, async () => (await db.query(`select * from reference_funder_suggestions(${args})`)).rows)) as Array<Record<string, unknown>>;
+  const BAND = "5000, 250000, 'CA', 25, 0";
   {
-    const rows = await sugg(MEMBER_A, "5000, 250000, 'CA', 'main', 25, 0");
+    ok("the five-grant line is defined once in the database and the application's constant is the same number", Number(((await db.query(`select reference_suggestion_floor() as f`)).rows[0] as { f: number }).f) === ENOUGH_TO_GO_ON && ENOUGH_TO_GO_ON === 5);
+    ok("the printed ordering rule names that number", new RegExp(`at least ${ENOUGH_TO_GO_ON} grants`).test(ORDERING_RULE));
+    const rows = await sugg(MEMBER_A, BAND);
     const eins = rows.map((r) => r.ein);
-    ok("with a 5,000 to 250,000 band: F1 (3 in band), the charity (2), F2 (1) are suggested, in that order", JSON.stringify(eins) === JSON.stringify(["111111111", "777777777", "222222222"]), JSON.stringify(eins));
+    ok(
+      "band 5,000 to 250,000: funders with enough to go on come first by SHARE (pure funder 100%, then the pass-through 10%), then those with fewer, by share then count",
+      JSON.stringify(eins) === JSON.stringify(["999000001", "999000002", "888888888", "333333333", "111111111", "777777777", "222222222"]),
+      JSON.stringify(eins)
+    );
+    ok("the pass-through that gives the most such grants (40) is NOT first: counting grants first is what 0050 replaced", eins[0] !== "999000002" && Number(rows[1].faith_in_band_count) === 40);
+    ok("a funder with fewer than five in band ranks below the pass-through even with a 100% share", eins.indexOf("888888888") > eins.indexOf("999000002") && Number(rows[2].faith_share) === 1);
+    ok("meets_floor is true exactly for the funders with at least five in band", rows.every((r) => (r.meets_floor === true) === (Number(r.faith_in_band_count) >= ENOUGH_TO_GO_ON)) && rows.filter((r) => r.meets_floor).length === 2);
     ok("a funder with no faith-named grant is not suggested", !eins.includes("444444444"));
     ok("a funder whose only faith-named grant is outside the band is not suggested", !eins.includes("555555555"));
     ok("a funder whose faith-named grant states no amount is not suggested when a band is set (it cannot be in the band)", !eins.includes("666666666"));
-    ok("a funder that takes no unsolicited requests is held out of the default list", !eins.includes("333333333"));
-    const f1 = rows[0];
+    const f1 = rows.find((r) => r.ein === "111111111")!;
     ok("F1 reports its band count, its faith count, its share and its state count", Number(f1.faith_in_band_count) === 3 && Number(f1.faith_count) === 5 && Number(f1.faith_share) === 0.8333 && Number(f1.faith_in_state_count) === 2, JSON.stringify(f1));
-    ok("the charity is labelled a public charity and carries its own giving figure", rows[1].source === "public_charity" && Number(rows[1].giving_amt) === 900000);
+    ok("the charity is labelled a public charity and carries its own giving figure", rows.find((r) => r.ein === "777777777")!.source === "public_charity" && Number(rows.find((r) => r.ein === "777777777")!.giving_amt) === 900000);
     ok("the size shown for a foundation is its stated paid-per-books figure with its period", Number(f1.giving_amt) === 400000 && String(f1.giving_period_end).includes("2024"));
-    ok("every row carries the rule version and a total count", rows.every((r) => r.rule_version === "faith-name-v1" && Number(r.total_matches) === 3));
-    const noBand = await sugg(MEMBER_A, "null, null, null, 'main', 25, 0");
-    ok("with no band every faith-named grant counts, so the big ones appear (F5, F6) and the order is by count", noBand.some((r) => r.ein === "555555555") && noBand.some((r) => r.ein === "666666666") && noBand[0].ein === "111111111");
-    ok("the state argument changes no order and filters nothing", JSON.stringify((await sugg(MEMBER_A, "5000, 250000, null, 'main', 25, 0")).map((r) => r.ein)) === JSON.stringify(eins) && (await sugg(MEMBER_A, "5000, 250000, null, 'main', 25, 0"))[0].faith_in_state_count === null);
-    const held = await sugg(MEMBER_A, "5000, 250000, null, 'held_out', 25, 0");
-    ok("the held-out heading lists only the funder whose filing says pre-selected charities only", JSON.stringify(held.map((r) => r.ein)) === JSON.stringify(["333333333"]) && held[0].takes_no_unsolicited === true, JSON.stringify(held.map((r) => r.ein)));
-    const daf = await sugg(MEMBER_A, "5000, 250000, null, 'daf', 25, 0");
-    ok("a donor-advised fund sponsor is in its own group: it has the most faith-named grants in the band (4) and is still not in the main list", JSON.stringify(daf.map((r) => r.ein)) === JSON.stringify(["888888888"]) && daf[0].is_daf_sponsor === true && !eins.includes("888888888"), JSON.stringify(daf.map((r) => r.ein)));
-    ok("an unknown group is refused, not quietly treated as the main list", /unknown p_group/.test(await as("authenticated", MEMBER_A, async () => refused(`select * from reference_funder_suggestions(null, null, null, 'everything', 25, 0)`))));
-    const page2 = await sugg(MEMBER_A, "5000, 250000, null, 'main', 1, 1");
-    ok("paging is stable: the second page of one is the second funder", page2.length === 1 && page2[0].ein === "777777777" && Number(page2[0].total_matches) === 3);
-    ok("an unknown limit is bounded, not an error", (await sugg(MEMBER_A, "null, null, null, 'main', 100000, 0")).length > 0);
+    ok("every row carries the rule version and the same total", rows.every((r) => r.rule_version === "faith-name-v1" && Number(r.total_matches) === 7));
+    const noBand = await sugg(MEMBER_A, "null, null, null, 25, 0");
+    ok("with no band every faith-named grant counts: F5 and F6 appear, and the three with enough to go on lead by share (pure, F1, pass-through)", noBand.some((r) => r.ein === "555555555") && noBand.some((r) => r.ein === "666666666") && JSON.stringify(noBand.slice(0, 3).map((r) => r.ein)) === JSON.stringify(["999000001", "111111111", "999000002"]), JSON.stringify(noBand.map((r) => r.ein)));
+    ok("the state argument changes no order and filters nothing", JSON.stringify((await sugg(MEMBER_A, "5000, 250000, null, 25, 0")).map((r) => r.ein)) === JSON.stringify(eins) && (await sugg(MEMBER_A, "5000, 250000, null, 25, 0"))[0].faith_in_state_count === null);
+
+    const pre = rows.find((r) => r.ein === "333333333");
+    ok("a funder whose filing says pre-selected charities only is IN the list, in the same order rule, flagged and not hidden (0050 clause 6)", !!pre && pre.takes_no_unsolicited === true && eins.indexOf("333333333") === 3, JSON.stringify(pre));
+    const daf = rows.find((r) => r.ein === "888888888");
+    ok("a donor-advised fund sponsor is IN the same list, flagged as one, ordered by the same rule", !!daf && daf.is_daf_sponsor === true && eins.indexOf("888888888") === 2);
+    ok("the old three-group call (six arguments, a group name) no longer exists", /does not exist|function .* is not unique/i.test(await as("authenticated", MEMBER_A, async () => refused(`select * from reference_funder_suggestions(null, null, null, 'held_out', 25, 0)`))));
+    const page2 = await sugg(MEMBER_A, "5000, 250000, null, 1, 1");
+    ok("paging is stable: the second page of one is the second funder", page2.length === 1 && page2[0].ein === "999000002" && Number(page2[0].total_matches) === 7);
+    ok("an unknown limit is bounded, not an error", (await sugg(MEMBER_A, "null, null, null, 100000, 0")).length > 0);
   }
 
   section("who may read it");
@@ -237,7 +255,7 @@ async function main() {
     await db.exec(`reset role`);
     await as("authenticated", MEMBER_A, async () => undefined);
     const readMember = (await as("authenticated", MEMBER_A, async () => (await db.query(`select count(*)::int c from funder_reference_faith_giving`)).rows[0])) as { c: number };
-    ok("a member reads the derived table", readMember.c === 8);
+    ok("a member reads the derived table", readMember.c === 10);
     const readStranger = (await as("authenticated", STRANGER, async () => (await db.query(`select count(*)::int c from funder_reference_faith_giving`)).rows[0])) as { c: number };
     ok("a person with no organization reads none of it", readStranger.c === 0);
     const w = await as("authenticated", MEMBER_A, async () => refused(`insert into funder_reference_faith_giving (ein, source, rule_version, periods_counted, grants_counted, faith_count) values ('999999999','private_foundation','x',1,1,1)`));
@@ -253,17 +271,17 @@ async function main() {
   {
     await db.query(`insert into candidates (name, channel, organization_id, ein, status, source) values ('Alpha Giving Foundation', 'foundation', $1, '111111111', 'pending', 'reference_database')`, [ORG_A]);
     await db.query(`insert into prospects (name, channel, organization_id, ein, stage, owner_id) values ('Beta Family Foundation', 'foundation', $1, '22-2222222', 'discovery', $2)`, [ORG_A, MEMBER_A]);
-    const a = (await sugg(MEMBER_A, "5000, 250000, null, 'main', 25, 0")).map((r) => r.ein);
-    ok("after F1 became a candidate and F2 a prospect (EIN written with a dash), organization A is offered only the charity", JSON.stringify(a) === JSON.stringify(["777777777"]), JSON.stringify(a));
-    const b = (await sugg(MEMBER_B, "5000, 250000, null, 'main', 25, 0")).map((r) => r.ein);
-    ok("organization B still sees all three: another organization's queue never hides a funder", JSON.stringify(b) === JSON.stringify(["111111111", "777777777", "222222222"]), JSON.stringify(b));
+    const a = (await sugg(MEMBER_A, "5000, 250000, null, 25, 0")).map((r) => r.ein);
+    ok("after F1 became a candidate and F2 a prospect (EIN written with a dash), organization A is no longer offered those two", JSON.stringify(a) === JSON.stringify(["999000001", "999000002", "888888888", "333333333", "777777777"]), JSON.stringify(a));
+    const b = (await sugg(MEMBER_B, "5000, 250000, null, 25, 0")).map((r) => r.ein);
+    ok("organization B still sees all seven: another organization's queue never hides a funder", JSON.stringify(b) === JSON.stringify(["999000001", "999000002", "888888888", "333333333", "111111111", "777777777", "222222222"]), JSON.stringify(b));
     const bad = await refused(`insert into candidates (name, channel, organization_id, ein, status, source) values ('X', 'foundation', '${ORG_A}', '12-345', 'pending', 'reference_database')`);
     ok("a candidate's EIN must be nine digits", /candidates_ein_format|check constraint/i.test(bad), bad);
   }
 
   section("0095: the band count by binary search equals counting one by one");
   {
-    ok("0095, 0096 and 0097 are among the applied migrations", boot.applied.some((f) => f.startsWith("0095_reference_suggestions_band_count_by_search")) && boot.applied.some((f) => f.startsWith("0096_reference_suggestions_rank_narrow_rows")) && boot.applied.some((f) => f.startsWith("0097_reference_suggestions_groups_and_speed")));
+    ok("0095 to 0098 are among the applied migrations", boot.applied.some((f) => f.startsWith("0095_reference_suggestions_band_count_by_search")) && boot.applied.some((f) => f.startsWith("0096_reference_suggestions_rank_narrow_rows")) && boot.applied.some((f) => f.startsWith("0097_reference_suggestions_groups_and_speed")) && boot.applied.some((f) => f.startsWith("0098_reference_suggestions_one_list_share_first")));
     let seed = 12345;
     const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
     let mismatches = 0;
@@ -284,8 +302,8 @@ async function main() {
 
   section("source scans: the ruling's test of compliance");
   {
-    const files = walk(join(root, "lib/funder-reference")).filter((f) => /suggestions/.test(f)).concat(walk(join(root, "app/(dashboard)/discovery")).filter((f) => /reference-suggest|suggested/.test(f)));
-    ok("the suggestions code exists", files.length >= 2, files.join(","));
+    const files = walk(join(root, "lib/funder-reference")).filter((f) => /suggestions|ways-in/.test(f)).concat(walk(join(root, "app/(dashboard)/discovery")).filter((f) => /reference-suggest|suggested/.test(f)));
+    ok("the suggestions code exists (including the ways-in reader)", files.length >= 3 && files.some((f) => /ways-in/.test(f)), files.join(","));
     const text = files.map((f) => readFileSync(f, "utf8")).join("\n");
     const noComments = text.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     ok("no model call, no service key and no outside request in the suggestions", !/anthropic|MODEL_API_KEY|SERVICE_ROLE|createServiceClient|createAdminClient|fetch\(|OpenAI/i.test(noComments));
@@ -296,6 +314,47 @@ async function main() {
     ok("accepting a candidate carries its EIN to the prospect", /ein:\s*candidate\.ein/.test(accept));
   }
 
+
+  section("the ways in (ruling 0050 clause 7): the reads work for a member, and the parsing keeps the filing's own words");
+  {
+    // Real-shaped Part XV record (copied from a filing's loaded text) with a place restriction, and the officers table with a signer.
+    const huntington = [{ ordinal: 1, fields: { RecipientPersonNm: "Huntington Bank Irene Gray", RecipientPhoneNum: "3302582362", SubmissionDeadlinesTxt: "None", RestrictionsOnAwardsTxt: "For youth betterment in the areas of Maine, Florida and the Menlo Park and Atherton Areas of California", "RecipientUSAddress/ZIPCd": "44718", "RecipientUSAddress/CityNm": "Canton", FormAndInfoAndMaterialsTxt: "None", "RecipientUSAddress/AddressLine1Txt": "4481 Munson St NW Ste 100", "RecipientUSAddress/StateAbbreviationCd": "OH" } }];
+    const [c] = parseApplicationGroups(huntington);
+    ok("the contact, address, deadlines and restriction are the filing's own words", c.person === "Huntington Bank Irene Gray" && c.address === "4481 Munson St NW Ste 100, Canton, OH, 44718" && c.deadlines === "None" && c.how_to_apply === "None" && c.restrictions === "For youth betterment in the areas of Maine, Florida and the Menlo Park and Atherton Areas of California", JSON.stringify(c));
+    ok("'UNDETERMINED' is shown as filed, not turned into 'none' or dropped", parseApplicationGroups([{ ordinal: 1, fields: { RecipientPersonNm: "JULIE HNATEK", SubmissionDeadlinesTxt: "UNDETERMINED" } }])[0].deadlines === "UNDETERMINED");
+    ok("an empty or malformed record gives no contact rather than an error", parseApplicationGroups(null).length === 0 && parseApplicationGroups("x").length === 0 && parseApplicationGroups([{ fields: {} }, null]).length === 0);
+    const people = parsePeople([
+      { listed_in: "part_viii_officers_directors_trustees", ordinal: 2, name_as_named: "KATHY A NEFF", title_as_stated: "DIRECTOR", city: "NEWPORT BEACH", state: "CA" },
+      { listed_in: "part_viii_officers_directors_trustees", ordinal: 1, name_as_named: "PAUL A NEFF", title_as_stated: "PRESIDENT/CEO /CHAIRMAN", city: "NEWPORT BEACH", state: "CA" },
+      { listed_in: "signer_on_return_header", ordinal: 1, name_as_named: "PAUL A NEFF", title_as_stated: "CEO/CHAIRMAN", city: null, state: null },
+      { listed_in: "signer_on_return_header", ordinal: 2, name_as_named: "A BOOKKEEPER", title_as_stated: "AGENT", city: null, state: null },
+    ]);
+    ok("people are the officers in the filing's order, with title, city and state, then a signer not already named", people.people.map((p) => `${p.name}|${p.role}`).join(",") === "Paul A Neff|officer,Kathy A Neff|officer,A Bookkeeper|signer" && people.people[0].place === "Newport Beach, CA" && people.total === 3, JSON.stringify(people));
+    ok("no street address and no pay are carried for a person", people.people.every((p) => Object.keys(p).sort().join(",") === "name,place,role,title"));
+    ok("the people shown are capped and the total is kept", parsePeople(Array.from({ length: 14 }, (_, i) => ({ listed_in: "part_viii_officers_directors_trustees", ordinal: i + 1, name_as_named: `PERSON ${i}`, title_as_stated: null, city: null, state: null }))).people.length === 10 && parsePeople(Array.from({ length: 14 }, (_, i) => ({ listed_in: "part_viii_officers_directors_trustees", ordinal: i + 1, name_as_named: `PERSON ${i}`, title_as_stated: null, city: null, state: null }))).total === 14);
+
+    ok("one fixed paragraph per kind, chosen by facts the database holds", practiceFor({ source: "private_foundation", is_daf_sponsor: false, takes_no_unsolicited: true }) === PRESELECTED_PRACTICE && practiceFor({ source: "private_foundation", is_daf_sponsor: false, takes_no_unsolicited: false }) === OPEN_FOUNDATION_PRACTICE && practiceFor({ source: "public_charity", is_daf_sponsor: true, takes_no_unsolicited: null }) === DAF_PRACTICE && practiceFor({ source: "public_charity", is_daf_sponsor: false, takes_no_unsolicited: null }) === CHARITY_PRACTICE);
+    ok("the pre-selected paragraph names the three ways in and says it is not an application", /personal introduction/.test(PRESELECTED_PRACTICE) && /letter or call/.test(PRESELECTED_PRACTICE) && /how they came to be chosen/.test(PRESELECTED_PRACTICE) && /none of these is certain/i.test(PRESELECTED_PRACTICE));
+
+    // The exact reads the page makes, as a member, against rows with the real jsonb shape.
+    await db.query(`update funder_reference_application_terms set application_groups = $1::jsonb where ein = '333333333'`, [JSON.stringify(huntington)]);
+    const fid = ((await db.query(`select source_object_id from funder_reference_directory where ein='333333333'`)).rows[0] as { source_object_id: string }).source_object_id;
+    await db.query(`insert into funder_reference_people (filing_object_id, listed_in, ordinal, ein, tax_period_end, name_as_named, title_as_stated, city, state, compensation_amt, loaded_at, loader_version) values ($1, 'part_viii_officers_directors_trustees', 1, '333333333', '2024-12-31', 'RUTH GAMMA', 'TRUSTEE', 'TULSA', 'OK', 0, now(), 't')`, [fid]);
+    const m = await as("authenticated", MEMBER_A, async () => ({
+      dir: (await db.query(`select ${WAYS_IN_COLUMNS.directory} from funder_reference_directory where ein = any($1)`, [["333333333", "111111111"]])).rows as Array<Record<string, unknown>>,
+      found: (await db.query(`select ${WAYS_IN_COLUMNS.foundation} from funder_reference_foundations where ein = any($1)`, [["333333333"]])).rows as Array<Record<string, unknown>>,
+      charity: (await db.query(`select ${WAYS_IN_COLUMNS.charity} from charity_reference_organizations where ein = any($1)`, [["777777777"]])).rows as Array<Record<string, unknown>>,
+      terms: (await db.query(`select ${WAYS_IN_COLUMNS.terms} from funder_reference_application_terms where filing_object_id = any($1)`, [[fid]])).rows as Array<{ application_groups: unknown }>,
+      people: (await db.query(`select ${WAYS_IN_COLUMNS.people} from funder_reference_people where filing_object_id = any($1)`, [[fid]])).rows as Array<Parameters<typeof parsePeople>[0][number]>,
+    }));
+    ok("a member can run each of the page's five reads with exactly the columns the reader names", m.dir.length === 2 && m.found.length === 1 && m.charity.length === 1 && m.terms.length === 1 && m.people.length === 1);
+    ok("the filing's pre-selected box comes back for the funder whose filing says so", m.dir.find((d) => d.ein === "333333333")?.only_preselected_charities_box_checked === true);
+    ok("what is stored comes back through the parser unchanged in meaning", parseApplicationGroups(m.terms[0].application_groups)[0].person === "Huntington Bank Irene Gray" && parsePeople(m.people).people[0].name === "Ruth Gamma");
+    const noOrg = await as("authenticated", STRANGER, async () => (await db.query(`select count(*)::int c from funder_reference_people`)).rows[0] as { c: number });
+    ok("a person with no organization reads no named people", noOrg.c === 0);
+    const w = await as("authenticated", MEMBER_A, async () => refused(`insert into funder_reference_people (filing_object_id, listed_in, ordinal, ein, tax_period_end, loaded_at, loader_version) values ('x','part_viii_officers_directors_trustees',1,'1','2024-12-31',now(),'t')`));
+    ok("a member cannot write to the people table", /permission denied|row-level security/i.test(w), w);
+  }
 
   section("the pure rules: band, state, channel, name, reason");
   {
@@ -309,9 +368,10 @@ async function main() {
     ok("a foundation is added under foundation, a sponsor under daf, a public charity under regranting", channelFor({ source: "private_foundation", is_daf_sponsor: false }) === "foundation" && channelFor({ source: "public_charity", is_daf_sponsor: true }) === "daf" && channelFor({ source: "public_charity", is_daf_sponsor: false }) === "regranting");
     ok("kinds keep their own labels", kindLabel({ source: "public_charity", is_daf_sponsor: true }) === "Donor-advised fund sponsor");
     ok("an upper-case filing name is made readable without changing a letter", readableName("THE MACLELLAN FOUNDATION INC") === "The Maclellan Foundation Inc" && readableName("M J MURDOCK CHARITABLE TRUST") === "M J Murdock Charitable Trust" && readableName("Kern Family Foundation") === "Kern Family Foundation");
-    const s: Suggestion = { ein: "111111111", source: "private_foundation", name: "X", city: null, state: null, is_daf_sponsor: false, grants_counted: 6, periods_counted: 2, faith_count: 5, faith_in_band_count: 3, faith_share: 0.8333, faith_last_period_end: "2024-12-31", faith_in_state_count: 0, giving_amt: null, giving_period_end: null, takes_no_unsolicited: false, faith_amounts_capped: false, faith_sample: [], rule_version: "faith-name-v1", total_matches: 1 };
+    const s: Suggestion = { ein: "111111111", source: "private_foundation", name: "X", city: null, state: null, is_daf_sponsor: false, grants_counted: 6, periods_counted: 2, faith_count: 5, faith_in_band_count: 3, faith_share: 0.8333, faith_last_period_end: "2024-12-31", faith_in_state_count: 0, giving_amt: null, giving_period_end: null, takes_no_unsolicited: false, faith_amounts_capped: false, faith_sample: [], rule_version: "faith-name-v1", total_matches: 1, meets_floor: false };
     const lines = describeReason(s, b, "CA").join(" ");
     ok("the reason is made only of the stored counts: 3 of 5 in band, 83% of 6, last year, none in CA", /3 of its 5 grants/.test(lines) && /83% of the 6 grants/.test(lines) && /2024/.test(lines) && /None of those went to recipients in CA/.test(lines), lines);
+    ok("a funder under the line says so in its reason, and one with enough does not", /Fewer than 5 such grants in your band/.test(lines) && !/Fewer than/.test(describeReason({ ...s, meets_floor: true }, b, "CA").join(" ")), lines);
     ok("with no band the reason says how many grants went to faith-named recipients and does not invent a band", /5 of its listed grants went to faith-named recipients/.test(describeReason(s, null, null).join(" ")));
   }
 

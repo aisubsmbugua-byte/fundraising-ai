@@ -1,6 +1,49 @@
 # 0038 — Reference-first suggestions: build report (item 117, ruling 0049)
 
-Date: 2026-11-12. Status: built, tested, deployed. Not yet clicked through by the owner.
+Date: 2026-11-12. Status: first build deployed; amended by ruling 0050 the same day (see the section below). Not yet clicked through by the owner.
+
+## Amended 2026-11-12 by ruling 0050 (supersedes 0049): read this first
+
+The owner reviewed the first build's results and directed three changes, which ruling 0050 makes and this section reports. The rest
+of this report describes the first build and is kept for the record; where it disagrees with this section, this section is right.
+
+- **One list, share-first.** Funders with at least five faith-named grants in the organization's size band come first, ordered by the
+  share of their listed grants that are faith-named, then by the count in band, then by recency; funders with fewer follow, marked
+  "Less to go on". The five is defined once in the database (`reference_suggestion_floor()`) and read back by the application.
+  Real data, Village Worship's band: 25,461 funders match; 8,598 have enough to go on; the top of the list is funders whose filed
+  giving is entirely faith-named (Word of Life, Steer, Mount Hope, Mercy Multiplied, Pillar Church Planting Network, Far Reaching
+  Ministries in California, Salt and Light, Cecil B. Day and others). The 40-grant pass-through that led under the old rule now ranks
+  by its 10% share.
+- **Nobody is held apart.** Funders that say "pre-selected charities only" and donor-advised fund sponsors are in the same list,
+  labelled, and can be added. Of the 8,598 with enough to go on, 4,312 are pre-selected and 808 are flagged sponsors; hiding them
+  would have removed about half of the best matches. This reverses decisions 1 of the first build (sponsors listed apart); decisions
+  2 and 3 (a funder with none in the band, or with no stated amount, is left out when a band is set) stand under ruling 0050 clause 5.
+- **Ways in.** Every funder has a panel with what its own filing gives: the contact it names for requests, how to apply, deadlines,
+  restrictions (as filed, with a note that a restriction is a question to ask), the officers and trustees it names (title, city and
+  state only), website, phone, address and, for charities, the stated mission; then one fixed paragraph of general practice, labelled
+  as not coming from the filing. Read through the member's own session by `lib/funder-reference/ways-in.ts`: no model, no service key,
+  no outside request.
+- **Migration 0098** (applied to the live database 2026-11-12) replaces the suggestions function: the group argument is gone, one
+  column (`meets_floor`) is added. Earlier migrations are untouched.
+- **Measured live, as a Village Worship member:** the suggestions query 0.69 s for a page of 25; the five keyed reads for a page of
+  ways in 0.12 s.
+- **Tests:** `scripts/test-reference-suggestions.ts` now 82 checks (migrations 0094 to 0098 on a real Postgres; one-list order with a
+  pure funder, a pass-through and funders under the line; pre-selected and sponsor funders present and ordered by the same rule; the
+  old group call refused; exclusion per organization; the ways-in reads run as a member with the exact columns the reader names;
+  parsing of a real-shaped application record and officer list; no street address or pay carried for a person; source scans).
+  Other suites unchanged: 122 (funder screen), 69 (charity screen), 135 (public charities), 161 and 38 (loader), and the
+  loader-migration suite 125. `tsc` and `next build` clean.
+- **Found and fixed while running the suites:** `scripts/test-funder-reference-migration.ts` had four checks that failed on the
+  committed first build (the table count predated the derived table of 0094; the source scan predated the three item-117 readers).
+  They are narrowed explicitly (the one derived table named; the three reader files named), not loosened. A person's name written
+  in capitals gave "Paul a Neff" under the shared name rule (it treats "a" as an article); people now have their own casing rule,
+  covered by a test.
+- **Not verified:** the page has still not been seen rendered (sign-in is the owner's). Contact coverage is partial: only 27% of
+  foundation filings state any application contact.
+- The next layers (topic and place profile, how open a funder is, ways-in reasoning, an AI brief per added funder, peers) are
+  proposed in `docs/reviews/0039-funder-intelligence-matching-and-ways-in.md`.
+
+---
 
 ## What exists now
 

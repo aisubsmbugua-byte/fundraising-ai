@@ -1,7 +1,7 @@
 ---
 id: 0049
 title: Funders from the national database are suggested first, each with reasons computed from filed grants, and enter an organization's queue only by a human click
-status: settled
+status: superseded
 provenance: verbatim
 supersedes:
 date: 2026-11-12
