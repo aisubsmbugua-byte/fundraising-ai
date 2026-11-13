@@ -248,6 +248,9 @@ export async function acceptCandidate(candidateId: string) {
       // organization speaking about itself.
       website_status: candidate.website_status ?? null,
       legal_name: candidate.funder_name ?? null,
+      // A funder added from the national database carries the EIN its filing gave it (ruling 0049 clause 2); a candidate
+      // found any other way has none, and Research resolves it as before.
+      ein: candidate.ein ?? null,
       // Both of these used to stop here. The programme name is the most
       // specific thing known about a funding opportunity and the capture
       // domain is the only provenance we have -- entity resolution needs both,

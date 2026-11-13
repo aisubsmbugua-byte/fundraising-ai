@@ -3,12 +3,15 @@ import { Sparkles, Plus, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAutoSearchSettings } from "./auto-search-actions";
 import AutoSearchForm from "./auto-search-form";
+import ReferenceSuggestions from "./reference-suggestions";
 import OpportunityWorkspace, { type CandidateWithScore } from "./opportunity-workspace";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { spacing, colors, type as typeScale, buttonPrimary, buttonSecondary } from "@/lib/ui";
 import type { Candidate } from "@/lib/candidates";
 
-export default async function DiscoveryPage() {
+export default async function DiscoveryPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
+  const refPageRaw = Array.isArray(searchParams?.refpage) ? searchParams?.refpage[0] : searchParams?.refpage;
+  const refPage = Math.max(1, Number.parseInt(refPageRaw ?? "1", 10) || 1);
   const supabase = createClient();
   const [{ data: candidates, error }, autoSearchSettings, { data: rulesData }] = await Promise.all([
     // Accepted candidates are already prospects -- this workspace only
@@ -71,6 +74,8 @@ export default async function DiscoveryPage() {
       </div>
 
       {error && <p style={{ color: "crimson" }}>Error loading candidates: {error.message}</p>}
+
+      <ReferenceSuggestions page={refPage} />
 
       <OpportunityWorkspace candidates={candidatesWithScore} />
     </div>

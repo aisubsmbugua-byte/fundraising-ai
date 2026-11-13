@@ -523,8 +523,11 @@ async function main() {
   {
     const files = walk(root);
     const web = files.filter((f) => !f.startsWith(join(root, "scripts") + "/") && !f.startsWith(join(root, "lib/funder-reference") + "/"));
-    const touching = web.filter((f) => /charity_reference|funder-reference\/(pipeline-990|sink-990|parse-990|document-990|charity-scope)/.test(readFileSync(f, "utf8")));
-    ok(`none of the ${web.length} application source files (app/, components/, other lib/) mentions the new tables or imports the Form 990 loader (item 113's screen is NOT extended)`, touching.length === 0, touching.join(", "));
+    // Ruling 0049 (item 117) opens exactly one read of the charity directory view for the Donor Finder's add action, which
+    // re-reads a suggested funder's own row; it is named here so any other file that starts reading these tables still fails.
+    const RULING_0049_READERS = [join(root, "app/(dashboard)/discovery/reference-suggestion-actions.ts")];
+    const touching = web.filter((f) => !RULING_0049_READERS.includes(f) && /charity_reference|funder-reference\/(pipeline-990|sink-990|parse-990|document-990|charity-scope)/.test(readFileSync(f, "utf8")));
+    ok(`none of the ${web.length} application source files (app/, components/, other lib/) mentions the new tables or imports the Form 990 loader, except the one reader ruling 0049 names (item 113's screen is NOT extended)`, touching.length === 0, touching.join(", "));
     const screen = files.filter((f) => f.startsWith(join(root, "app/(dashboard)/funders")) || /lib\/funder-reference\/(read|browse|access)\.ts$/.test(f));
     ok("the funder database screen and its reads do not mention the new tables", screen.every((f) => !/charity_reference/.test(readFileSync(f, "utf8"))));
     const lib = files.filter((f) => f.startsWith(join(root, "lib/funder-reference") + "/") && /(parse-990|charity-scope|document-990|sink-990|pipeline-990)\.ts$/.test(f));
