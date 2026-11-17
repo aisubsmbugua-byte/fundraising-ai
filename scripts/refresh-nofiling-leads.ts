@@ -55,8 +55,18 @@ async function main() {
     for (let p = 0; p <= 99; p++) await range(fn, two(p), p === 99 ? "z" : two(p + 1));
     console.log(`${fn}: ${total} rows\n`);
   }
-  const leads = Number(await rpc("funder_reference_nofiling_build", {}));
-  console.log(`done: ${leads} leads built (rule no-filing-lead-v2); the curated records are unchanged`);
+  // The build over the staged rows takes longer than the API's statement limit (found live 2026-11-17: HTTP 500, statement timeout; the
+  // failed call rolls back, so the leads table is left as it was). If so, the last step is run in the Supabase SQL editor.
+  try {
+    const leads = Number(await rpc("funder_reference_nofiling_build", {}));
+    console.log(`done: ${leads} leads built (rule no-filing-lead-v2); the curated records are unchanged`);
+  } catch (e) {
+    if (!/57014|statement timeout/i.test(String(e))) throw e;
+    console.log("\nThe scans are done and the staged rows are fresh, but the build is too long for the API's statement limit (the leads table is unchanged).");
+    console.log("Finish it in the Supabase SQL editor:   select funder_reference_nofiling_build();");
+    console.log("Then run scripts/load-exempt-list.ts again so the IRS list is judged against the new leads.");
+    process.exit(2);
+  }
 }
 main().catch((e) => {
   console.error(e);

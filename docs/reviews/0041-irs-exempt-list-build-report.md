@@ -32,7 +32,7 @@ Read as a Village Worship member: **465 funders in the section**, now titled "Fu
 ## Defects found along the way
 
 - The platform refuses an UPDATE or DELETE with no WHERE when it is reached through the API; PGlite does not. The new apply function failed on the first live run for that reason. Fixed in migration 0103 (the applied 0102 is not edited), and a test now scans the function bodies for it.
-- The same refusal would have stopped `scripts/refresh-nofiling-leads.ts` at the lead build of 0100 (a whole-table delete), which had only ever been run through the SQL connector. 0103 replaces that function too. A live run of the refresh script was started to prove the path; see "Not verified".
+- The same refusal would have stopped `scripts/refresh-nofiling-leads.ts` at the lead build of 0100 (a whole-table delete), which had only ever been run through the SQL connector. 0103 replaces that function too. A live run of the refresh script proved the scans but not the build; see "Not verified".
 
 ## How it was checked
 
@@ -45,7 +45,7 @@ Read as a Village Worship member: **465 funders in the section**, now titled "Fu
 ## Not verified
 
 - The page in a browser (sign-in is the owner's) and the add click on the live site.
-- The stage-one refresh script end to end through the API after the 0103 fix: started in the background at the end of the session; its result is recorded in STATE if it finished before this was written, otherwise it is the owner's to run.
+- The stage-one refresh script end to end through the API: run live after the 0103 fix, its scans passed (889 keys, 8,235 staged rows) but its last step, the lead build, exceeded the API's statement limit (HTTP 500; the failed call rolled back, leaving the 721 leads untouched). Run through the SQL connector the same build produced the same 721 leads. The script now says so and stops with the one line to run in the Supabase SQL editor (`select funder_reference_nofiling_build();`), after which `scripts/load-exempt-list.ts` is run again.
 - 4 rows on the list share a name and state with another listed organization; any lead matching one of them is shown as ambiguous and not tied to either. None is among the 465 a member sees today.
 
 ## What the owner decides next
@@ -53,4 +53,4 @@ Read as a Village Worship member: **465 funders in the section**, now titled "Fu
 - **Sponsors that file under their own wording** (Fidelity, Vanguard, Schwab, JPM, Goldman, NPT, BNY): record the large sponsors' common wordings by hand with sources, or accept the note on the page.
 - **Tier 3** (1,167 foundations and funds the IRS does not class as churches): offer them or keep them held.
 - More curated funders by name, as before.
-- Whenever funders are reloaded or the IRS posts a new list: `scripts/refresh-nofiling-leads.ts`, then `scripts/load-exempt-list.ts` with the directory holding the four files and the page's posting date.
+- Whenever funders are reloaded or the IRS posts a new list: `scripts/refresh-nofiling-leads.ts` (finish its build in the SQL editor), then `scripts/load-exempt-list.ts` with the directory holding the four files and the page's posting date.
