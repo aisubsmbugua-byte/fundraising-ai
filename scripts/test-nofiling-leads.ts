@@ -12,6 +12,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { bootDatabase } from "./funder-reference-support";
+import { seedCharity, seedFoundation } from "./nofiling-test-support";
 import { CURATED_MARK, NO_RETURN_MARK, buildLeadBasis, channelForLead, describeLead, displayLeadName, leadKindLabel, normalizeLead, type NoFilingLead } from "../lib/funder-reference/nofiling-leads";
 
 const root = join(__dirname, "..");
@@ -28,81 +29,6 @@ const ORG_B = "a0000000-0000-4000-8000-000000000002";
 const MEMBER_A = "a1000000-0000-4000-8000-000000000001";
 const MEMBER_B = "a1000000-0000-4000-8000-000000000002";
 const STRANGER = "b1000000-0000-4000-8000-000000000001";
-
-let counter = 1;
-const objId = () => "2024" + String(counter++).padStart(14, "0");
-
-interface Grant { name: string; amt: number | null; st?: string; purpose?: string; end?: string; city?: string; rein?: string }
-
-async function seedFoundation(db: PGlite, ein: string, name: string, preselected: boolean, grants: Grant[]): Promise<void> {
-  const byEnd = new Map<string, string>();
-  for (const g of grants) {
-    const end = g.end ?? "2024-12-31";
-    if (!byEnd.has(end)) {
-      const id = objId();
-      byEnd.set(end, id);
-      await db.query(
-        `insert into funder_reference_filings (object_id, ein, return_type, index_tax_period, tax_period_end, status, index_file, document_archive_url, document_member, loaded_at, loader_version)
-         values ($1, $2, '990PF', $3, $4, 'loaded', 'i.csv', 'https://apps.irs.gov/x.zip', $5, now(), 't')`,
-        [id, ein, end.slice(0, 4) + end.slice(5, 7), end, `${id}_public.xml`]
-      );
-      await db.query(
-        `insert into funder_reference_figures (ein, tax_period_end, filing_object_id, fmv_assets_eoy_amt, contributions_paid_per_books_amt, financial_statement_values, grants_listed_count, grants_listed_derivation, loaded_at, loader_version)
-         values ($1, $2, $3, 9000000, 400000, '{}', $4, 'x', now(), 't')`,
-        [ein, end, id, grants.length]
-      );
-      await db.query(
-        `insert into funder_reference_application_terms (filing_object_id, ein, tax_period_end, only_preselected_charities_raw, only_preselected_charities_box_checked, loaded_at, loader_version)
-         values ($1, $2, $3, $4, $5, now(), 't')`,
-        [id, ein, end, preselected ? "X" : null, preselected]
-      );
-    }
-  }
-  const latestEnd = [...byEnd.keys()].sort().reverse()[0];
-  await db.query(
-    `insert into funder_reference_foundations (ein, source_object_id, source_tax_period_end, legal_name_line1, city, state, loaded_at, loader_version)
-     values ($1, $2, $3, $4, 'TULSA', 'OK', now(), 't')`,
-    [ein, byEnd.get(latestEnd), latestEnd, name]
-  );
-  let ord = 0;
-  for (const g of grants) {
-    const end = g.end ?? "2024-12-31";
-    await db.query(
-      `insert into funder_reference_grants (filing_object_id, kind, ordinal, ein, tax_period_end, listed_in_element, recipient_name_line1, recipient_state, recipient_city, purpose_as_stated, amount_amt, loaded_at, loader_version)
-       values ($1, 'paid_during_year', $2, $3, $4, 'SupplementaryInformationGrp', $5, $6, $9, $7, $8, now(), 't')`,
-      [byEnd.get(end), ++ord, ein, end, g.name, g.st ?? null, g.purpose ?? null, g.amt, g.city ?? null]
-    );
-  }
-}
-
-async function seedCharity(db: PGlite, ein: string, name: string, grants: Grant[], daf = false): Promise<void> {
-  const id = objId();
-  await db.query(
-    `insert into charity_reference_filings (object_id, ein, return_type, index_tax_period, tax_period_end, status, index_file, document_archive_url, document_member, loaded_at, loader_version)
-     values ($1, $2, '990', '202412', '2024-12-31', 'loaded', 'i.csv', 'https://apps.irs.gov/x.zip', $3, now(), 't')`,
-    [id, ein, `${id}_public.xml`]
-  );
-  await db.query(
-    `insert into charity_reference_figures (ein, tax_period_end, filing_object_id, part_ix_line_1_grants_domestic_orgs_total_amt, part_i_line_20_total_assets_eoy_amt, has_schedule_i, has_schedule_d, schedule_i_rows_listed_count, schedule_i_listed_derivation, form_places, loaded_at, loader_version)
-     values ($1, '2024-12-31', $2, 900000, 5000000, true, false, $3, 'x', '{}', now(), 't')`,
-    [ein, id, grants.length]
-  );
-  await db.query(`insert into charity_reference_period_coverage (ein, period_year, status, filing_object_id, note, checked_at) values ($1, 2024, 'loaded', $2, 'loaded', now())`, [ein, id]);
-  await db.query(
-    `insert into charity_reference_organizations (ein, source_object_id, source_tax_period_end, legal_name_line1, city, state, is_grantmaking_public_charity, is_daf_sponsor, kind_rule, kind_threshold_org_grants_amt, kind_basis, loaded_at, loader_version)
-     values ($1, $2, '2024-12-31', $3, 'AUSTIN', 'TX', true, $4, 'r', 100000, '[]'::jsonb, now(), 't')`,
-    [ein, id, name, daf]
-  );
-  let ord = 0;
-  for (const g of grants) {
-    await db.query(
-      `insert into charity_reference_grants (filing_object_id, ordinal, ein, tax_period_end, form_type, source_location, recipient_name_line1, recipient_state, purpose_as_stated, cash_grant_amt, recipient_ein_as_stated, recipient_city, loaded_at, loader_version)
-       values ($1, $2, $3, '2024-12-31', '990', 'Schedule I', $4, $5, $6, $7, $8, $9, now(), 't')`,
-      [id, ++ord, ein, g.name, g.st ?? null, g.purpose ?? null, g.amt, g.rein ?? null, g.city ?? null]
-    );
-  }
-}
-
 
 async function main() {
   section("migration 0099 applies to a real Postgres, unchanged, after all earlier ones");
@@ -222,7 +148,7 @@ async function main() {
     const a = await read(MEMBER_A);
     ok("a member sees the Solomon Foundation (the curated record, once) and not the lead only a faith-less funder named", a.length === 2 && a[0].lead_key === "SOLOMON FOUNDATION|CO" && a[0].origin === "curated" && a[1].lead_key === "QUIET GIVING FUND|TN" && a[1].origin === "filings", JSON.stringify(a.map((r) => [r.lead_key, r.origin])));
     const cj = a[0].curated as { sources: Array<{ url: string }>; kind: string; website: string; ein_note: string; offers: string } | null;
-    ok("the curated record carries its kind, website, what its site says, its sources and the EIN's provenance", !!cj && cj.kind === "church_extension_fund" && cj.website === "https://thesolomonfoundation.org/" && cj.sources.length === 3 && cj.sources.every((x) => /^https:\/\//.test(x.url)) && /unverified|not verified/i.test(cj.ein_note) && /Legacy Fund/.test(cj.offers), JSON.stringify(cj));
+    ok("the curated record carries its kind, website, what its site says, its sources and the EIN's provenance", !!cj && cj.kind === "church_extension_fund" && cj.website === "https://thesolomonfoundation.org/" && cj.sources.length === 4 && cj.sources.every((x) => /^https:\/\//.test(x.url)) && /Checked 2026-11-17 against the IRS/.test(cj.ein_note) && !/not verified against the IRS/.test(cj.ein_note) && /Legacy Fund/.test(cj.offers), JSON.stringify(cj));
     ok("it also carries what the filings add: three funders, one of them faith-giving", Number(a[0].funders_count) === 3 && Number(a[0].faith_funders_count) === 1 && a[0].stated_ein === "274214240");
     ok("the total is carried on each row", a.length > 0 && Number(a[0].total_matches) === 2);
     ok("a signed-in person with no organization sees none", (await read(STRANGER)).length === 0);
@@ -253,7 +179,7 @@ async function main() {
   {
     const base: NoFilingLead = {
       lead_key: "SOLOMON FOUNDATION|CO", display_name: "THE SOLOMON FOUNDATION", city: "PARKER", state: "CO", stated_ein: null, funders_count: 5, faith_funders_count: 5, grants_count: 5, periods_count: 3,
-      last_period_end: "2024-12-31", signal: "purpose", daf_signal: true, sample: [], rule_version: "no-filing-lead-v2", origin: "filings", curated: null, total_matches: 1,
+      last_period_end: "2024-12-31", signal: "purpose", daf_signal: true, sample: [], rule_version: "no-filing-lead-v2", origin: "filings", curated: null, irs: null, total_matches: 1,
     };
     ok("describeLead states counts from the row and nothing else", describeLead(base).join(" ") === "Named as a recipient by 5 different funders in 3 tax years, 5 grants in all. 5 of those funders have at least five faith-named grants of their own.", describeLead(base).join(" | "));
     ok("a single funder is singular", /by 1 different funder in 1 tax year, 1 grant in all/.test(describeLead({ ...base, funders_count: 1, periods_count: 1, grants_count: 1 }).join(" ")));

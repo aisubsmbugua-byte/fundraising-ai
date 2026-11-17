@@ -1,10 +1,11 @@
-// STATE item 119 (rulings 0051 and 0052): funders that file no return, in the Donor Finder.
+// STATE item 119 (rulings 0051, 0052 and 0053): funders that file no return, in the Donor Finder.
 //
 // Reads only, through the signed-in user's own session. No model, no service key, no outside request. Every fact is shown as the
 // database holds it: the counts come from the grant rows, each grant links to its filing, and a curated record shows the sources
 // a person read. Nothing here ranks a lead by a figure it does not have.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadFilingLinks, readableName, type FilingLink } from "./suggestions";
+import { TIER_LABELS, irsMark, normalizeIrs, type IrsFacts } from "./exempt-list";
 
 export const LEAD_PAGE_SIZE = 25;
 /** The mark on every lead (ruling 0052 clause 4). */
@@ -13,11 +14,11 @@ export const CURATED_MARK = "Recorded from its own website; no filing figures";
 export const LEADS_INTRO =
   "Some funders file no return, so the filings-based database cannot hold them: religious organizations are not required to file, and church extension funds and church-connected donor-advised fund sponsors are often among them. These were found another way. Nothing is added until you add it.";
 export const LEADS_RULE =
-  "A funder recorded here from its own website comes first. The rest were found in other funders' filings: a recipient that no funder or charity in the database matches, whose own name says it is a church extension fund, loan fund, gift fund or donor advised fund, or whose name is a foundation's and a giver's stated purpose says the gift went into a donor advised or gift fund (rule no-filing-lead-v2). They are shown only when a funder that named them has at least five faith-named grants, ordered by how many different funders named them. None of them has a share or a count in your size band, because there is no filing of its own to count.";
+  "A funder recorded here from its own website comes first. Next, those found in other funders' filings: a recipient that no funder or charity in the database matches, whose own name says it is a church extension fund, loan fund, gift fund or donor advised fund, or whose name is a foundation's and a giver's stated purpose says the gift went into a donor advised or gift fund (rule no-filing-lead-v2), shown only when a funder that named them has at least five faith-named grants, ordered by how many different funders named them. Last, religious organizations the IRS list says are not required to file whose own name says they are a church extension, loan or gift fund, or whose IRS category is philanthropy or grantmaking (rule exempt-list-lead-v1), by category and then name. None of them has a share or a count in your size band, because there is no filing of its own to count.";
 export const LEADS_LIMIT_NOTE =
-  "A funder that files, written under a different name than its filing's, can appear here until the national list of exempt organizations is loaded to match names to EINs. Open the grants behind it to check.";
+  "Each one is checked against the IRS list of exempt organizations by name and state, and the line says what the list says: not required to file, or files a return that is not in the database. The check needs the same name: a donor-advised fund sponsor that a filing writes in its own words, such as \"Fidelity Charitable Donor Advised Fund\", cannot be matched to the sponsor's listing and can still appear here although the sponsor files. Open the grants behind it to check.";
 
-export type LeadOrigin = "curated" | "filings";
+export type LeadOrigin = "curated" | "filings" | "irs_list";
 export type CuratedKind = "donor_advised_fund_sponsor" | "church_extension_fund" | "religious_funder" | "other_funder";
 
 export interface LeadSampleGrant {
@@ -69,6 +70,8 @@ export interface NoFilingLead {
   rule_version: string;
   origin: LeadOrigin;
   curated: CuratedDetail | null;
+  /** The IRS list's facts for this lead, as listed (ruling 0053); null when no single listed organization is tied to it. */
+  irs: IrsFacts | null;
   total_matches: number;
 }
 
@@ -91,8 +94,9 @@ export function normalizeLead(r: RawLead): NoFilingLead {
     daf_signal: Boolean(r.daf_signal),
     sample: Array.isArray(r.sample) ? (r.sample as LeadSampleGrant[]) : [],
     rule_version: String(r.rule_version ?? ""),
-    origin: r.origin === "curated" ? "curated" : "filings",
+    origin: r.origin === "curated" ? "curated" : r.origin === "irs_list" ? "irs_list" : "filings",
     curated: r.origin === "curated" && r.curated ? (r.curated as CuratedDetail) : null,
+    irs: normalizeIrs(r.irs),
     total_matches: n(r.total_matches),
   };
 }
@@ -111,6 +115,24 @@ export function leadKindLabel(l: Pick<NoFilingLead, "origin" | "curated" | "daf_
   if (/church extension/i.test(l.display_name)) return "Possible church extension fund";
   if (/loan fund/i.test(l.display_name)) return "Possible loan fund";
   return "Possible funder";
+}
+
+/** The mark on a lead: what the IRS list says where it is tied to one listed organization, else the ruling's words for a lead with no list entry. */
+export function leadMark(l: Pick<NoFilingLead, "curated" | "irs">): string {
+  if (l.curated) return CURATED_MARK;
+  return irsMark(l.irs) ?? NO_RETURN_MARK;
+}
+
+/** Why the IRS list offered a listed funder: its tier, in words. Null for a lead found in filings. */
+export function leadTierLabel(l: Pick<NoFilingLead, "origin" | "irs">): string | null {
+  return l.origin === "irs_list" && l.irs?.tier ? TIER_LABELS[l.irs.tier] ?? null : null;
+}
+
+/** The EIN that may be carried onto a candidate: one a filing states, else the one the IRS list gives for this very organization. */
+export function candidateEin(l: Pick<NoFilingLead, "stated_ein" | "curated" | "irs">): string | null {
+  if (l.stated_ein && !l.curated) return l.stated_ein;
+  if (l.irs && !l.irs.ambiguous && /^\d{9}$/.test(l.irs.ein)) return l.irs.ein;
+  return null;
 }
 
 export function channelForLead(l: Pick<NoFilingLead, "daf_signal" | "curated">): "daf" | "regranting" {
@@ -172,6 +194,7 @@ export function buildLeadBasis(l: NoFilingLead, addedAt: string) {
     stated_ein: l.stated_ein,
     sample: l.sample,
     curated: l.curated,
+    irs: l.irs,
     added_at: addedAt,
   };
 }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
-  CURATED_MARK,
   LEADS_INTRO,
   LEADS_LIMIT_NOTE,
   LEADS_RULE,
@@ -10,10 +9,13 @@ import {
   describeLead,
   displayLeadName,
   leadKindLabel,
+  leadMark,
+  leadTierLabel,
   loadNoFilingLeads,
   type LeadPage,
   type NoFilingLead,
 } from "@/lib/funder-reference/nofiling-leads";
+import { describeIrs } from "@/lib/funder-reference/exempt-list";
 import { readableName } from "@/lib/funder-reference/suggestions";
 import { NOT_STATED, formatAmount, formatPeriodEnd } from "@/lib/funder-reference/browse";
 import { cardStyle, chipStyle, colors, sectionStyle, spacing, type as typeScale } from "@/lib/ui";
@@ -111,19 +113,23 @@ function SampleGrants({ l, links }: { l: NoFilingLead; links: LeadPage["links"] 
 
 function Row({ l, links }: { l: NoFilingLead; links: LeadPage["links"] }) {
   const name = displayLeadName(l);
+  const tier = leadTierLabel(l);
   return (
     <li style={{ ...cardStyle, listStyle: "none" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: spacing.lg, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0, flex: "1 1 320px" }}>
           <div style={{ display: "flex", gap: spacing.sm, alignItems: "center", flexWrap: "wrap" }}>
             <strong style={{ fontSize: typeScale.cardTitle }}>{name}</strong>
-            <span style={chipStyle("neutral")}>{leadKindLabel(l)}</span>
-            <span style={chipStyle("amber")}>{l.curated ? CURATED_MARK : NO_RETURN_MARK}</span>
+            <span style={chipStyle("neutral")}>{tier ?? leadKindLabel(l)}</span>
+            <span style={chipStyle("amber")}>{leadMark(l)}</span>
           </div>
           <div style={{ ...muted, marginTop: spacing.xs }}>{[l.curated ? l.city : readableName(l.city), l.state].filter(Boolean).join(", ") || NOT_STATED}</div>
           <div style={{ marginTop: spacing.sm, fontSize: typeScale.body, display: "grid", gap: spacing.xs }}>
             {l.curated && <span>{NO_RETURN_MARK}.</span>}
             {describeLead(l).map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+            {describeIrs(l.irs).map((line) => (
               <span key={line}>{line}</span>
             ))}
           </div>
@@ -136,7 +142,7 @@ function Row({ l, links }: { l: NoFilingLead; links: LeadPage["links"] }) {
   );
 }
 
-/** Funders that file no return (rulings 0051 and 0052). A server component: reads only, through the user's own session. */
+/** Funders with no return in the database (rulings 0051, 0052 and 0053). A server component: reads only, through the user's own session. */
 export default async function ReferenceLeads({ page }: { page: number }) {
   const supabase = createClient();
   const main = await loadNoFilingLeads(supabase, page);
@@ -146,7 +152,7 @@ export default async function ReferenceLeads({ page }: { page: number }) {
     <section aria-labelledby="ref-leads" style={{ ...sectionStyle, marginBottom: spacing.xl }}>
       <div>
         <h2 id="ref-leads" style={{ fontSize: typeScale.sectionTitle, margin: 0 }}>
-          Funders that file no return
+          Funders with no return in the database
         </h2>
         <p style={{ ...muted, marginTop: spacing.xs, fontSize: typeScale.body }}>{LEADS_INTRO}</p>
       </div>

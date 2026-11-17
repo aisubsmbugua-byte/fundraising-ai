@@ -1,6 +1,6 @@
 "use server";
 
-// STATE item 119 (rulings 0051 and 0052 clause 5): a person adds ONE funder that files no return to their own organization's queue.
+// STATE item 119 (rulings 0051, 0052 clause 5 and 0053 clause 7): a person adds ONE funder that files no return to their own organization's queue.
 //
 // This creates one pending candidate and nothing else: no prospect, no contact, no draft, no message, no stage change. The lead is read
 // again here, through the signed-in user's own session, so the record kept on the candidate is what the database holds and not what a
@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { screenProspect, type ScreeningRule } from "@/lib/screening";
 import { isUniqueViolation } from "@/lib/candidate-intake";
-import { LEAD_PAGE_SIZE, buildLeadBasis, channelForLead, displayLeadName, leadKindLabel, normalizeLead, type NoFilingLead, type RawLead } from "@/lib/funder-reference/nofiling-leads";
+import { LEAD_PAGE_SIZE, buildLeadBasis, candidateEin, channelForLead, displayLeadName, leadKindLabel, normalizeLead, type NoFilingLead, type RawLead } from "@/lib/funder-reference/nofiling-leads";
 
 export type AddLeadResult = { ok: true; id: string } | { error: string };
 
@@ -39,8 +39,9 @@ export async function addNoFilingLead(leadKey: string): Promise<AddLeadResult> {
     channel: channelForLead(lead),
     funder_type: `${leadKindLabel(lead)} (no return in the database)`,
     location: [lead.city ? (lead.curated ? lead.city : lead.city.charAt(0) + lead.city.slice(1).toLowerCase()) : null, lead.state].filter(Boolean).join(", ") || null,
-    // The EIN only where a filing states it; a curated record's EIN is a listing by name and city, kept in the basis, not asserted here.
-    ein: lead.curated ? null : lead.stated_ein,
+    // The EIN only where a source gives it: one a filing states, or the one the IRS list gives for this very organization (a unique match, or
+    // its own row); never one a model wrote. Where it came from is kept in the basis.
+    ein: candidateEin(lead),
     website: lead.curated?.website ?? null,
     source: "reference_leads",
     raw: null,

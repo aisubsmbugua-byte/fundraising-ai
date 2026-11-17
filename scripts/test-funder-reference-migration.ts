@@ -215,9 +215,11 @@ async function main() {
     // Ruling 0052 (migration 0099) adds three more derived tables (two of them service-only staging tables with row-level security and NO
     // policy, so no member can read them) and one curated table; the members-read ones carry exactly one SELECT policy.
     const DERIVED = ["funder_reference_faith_giving", "funder_reference_nofiling_leads", "funder_reference_curated_funders"];
-    const STAGING = ["funder_reference_nofiling_keys", "funder_reference_nofiling_rows"];
+    // Ruling 0053 (migration 0102) adds one more service-only table, the IRS list of exempt organizations: row-level security, NO policy, read by
+    // members only through a security-definer function. Named here, not allowed by a wider count.
+    const STAGING = ["funder_reference_nofiling_keys", "funder_reference_nofiling_rows", "funder_reference_exempt_list"];
     const present = new Set(cols.map((c) => c.table_name));
-    ok("exactly the eight reference tables exist, plus the derived tables of rulings 0049 and 0052 (one counts table, one leads table, one curated table, two service-only staging tables)", present.size === 8 + DERIVED.length + STAGING.length && TABLES.every((t) => present.has(t)) && DERIVED.every((t) => present.has(t)) && STAGING.every((t) => present.has(t)), [...present].join(","));
+    ok("exactly the eight reference tables exist, plus the derived tables of rulings 0049 and 0052 (one counts table, one leads table, one curated table, three service-only tables: two staging tables and the IRS list of ruling 0053)", present.size === 8 + DERIVED.length + STAGING.length && TABLES.every((t) => present.has(t)) && DERIVED.every((t) => present.has(t)) && STAGING.every((t) => present.has(t)), [...present].join(","));
     ok("NO table carries organization_id (deliberate, stated in the ruling)", !cols.some((c) => c.column_name === "organization_id"));
     ok("no column anywhere is named for a single 'giving' figure", !cols.some((c) => /^(giving|total_giving|annual_giving|grants_given)(_amt)?$/.test(c.column_name)));
     const giving = cols.filter((c) => c.table_name === "funder_reference_figures" && /(contributions_paid|qualifying_distributions|charitable_disbursements|distributable)/.test(c.column_name)).map((c) => c.column_name);
@@ -225,7 +227,7 @@ async function main() {
     const rls = (await db.query(`select relname, relrowsecurity from pg_class where relname like 'funder\\_reference\\_%' escape '\\' and relkind = 'r'`)).rows as Array<{ relname: string; relrowsecurity: boolean }>;
     ok("row-level security is enabled on every one", rls.length === 8 + DERIVED.length + STAGING.length && rls.every((r) => r.relrowsecurity));
     const pols = (await db.query(`select tablename, cmd, roles::text as roles, qual from pg_policies where tablename like 'funder\\_reference\\_%' escape '\\'`)).rows as Array<{ tablename: string; cmd: string; roles: string; qual: string }>;
-    ok("each table a member can read has exactly one policy, and the two staging tables have none", pols.length === 8 + DERIVED.length && new Set(pols.map((p) => p.tablename)).size === 8 + DERIVED.length && !pols.some((p) => STAGING.includes(p.tablename)));
+    ok("each table a member can read has exactly one policy, and the three service-only tables have none", pols.length === 8 + DERIVED.length && new Set(pols.map((p) => p.tablename)).size === 8 + DERIVED.length && !pols.some((p) => STAGING.includes(p.tablename)));
     ok("every policy is a SELECT policy: no insert, update, delete or all policy exists", pols.every((p) => p.cmd === "SELECT"), JSON.stringify(pols.map((p) => p.cmd)));
     ok("the read policy is for signed-in members only (authenticated, my_organization_id() is not null)", pols.every((p) => p.roles.includes("authenticated") && !p.roles.includes("anon") && /my_organization_id/.test(p.qual)));
     const grants = (await db.query(`select table_name, grantee, privilege_type from information_schema.role_table_grants where table_name like 'funder\\_reference\\_%' escape '\\' and grantee in ('anon','authenticated')`)).rows as Array<{ table_name: string; grantee: string; privilege_type: string }>;
